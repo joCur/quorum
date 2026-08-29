@@ -120,6 +120,10 @@ tenant claim — so neither channel is weaker than the other. The handshake resp
 marker (`Sec-WebSocket-Protocol: quorum.bearer.v1`), which RFC 6455 requires and which keeps the
 token out of the response.
 
+The marker, the order the token follows it in and the server's selection rule are defined once in
+`@quorum/shared` (`websocket-auth.ts`) and imported by both sides, so the string cannot drift apart
+between client and server.
+
 The `Authorization` header stays the primary channel and wins whenever it is present; the
 subprotocol is only consulted on an upgrade request that has no such header. A refused upgrade is
 answered with `401` and its socket is destroyed, so a rejected client cannot stall shutdown.
