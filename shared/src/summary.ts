@@ -80,6 +80,12 @@ export const SummarySchema = z.object({
   sections: z.array(SummarySectionSchema),
 });
 
+export type SectionFormat = z.infer<typeof SectionFormatSchema>;
+export type TemplateSection = z.infer<typeof TemplateSectionSchema>;
+export type SectionOverride = z.infer<typeof SectionOverrideSchema>;
+export type SummaryOptions = z.infer<typeof SummaryOptionsSchema>;
 export type SummaryTemplate = z.infer<typeof SummaryTemplateSchema>;
 export type Summary = z.infer<typeof SummarySchema>;
 export type SummarySection = z.infer<typeof SummarySectionSchema>;
+/** The resolved template configuration copied into every summary (ADR-004 §2). */
+export type SummaryTemplateSnapshot = Summary["templateSnapshot"];

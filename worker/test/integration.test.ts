@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { PgBoss } from "pg-boss";
 import { S3AudioSource } from "../src/storage/audio-source.js";
-import { PostgresTranscriptRepository } from "../src/db/repository.js";
+import { PostgresRepository } from "../src/db/repository.js";
 import { OpenAiTranscriptionClient } from "../src/whisper/client.js";
 import { runTranscribeJob } from "../src/handler.js";
 import { chunkKey, manifestKey, sessionKey } from "../src/storage/keys.js";
@@ -104,7 +104,7 @@ describe.skipIf(!enabled)("worker against the compose stack", () => {
       }),
     );
 
-    const repository = new PostgresTranscriptRepository(databaseUrl);
+    const repository = new PostgresRepository(databaseUrl);
     await repository.migrate();
     const deps = {
       audio: new S3AudioSource(s3Options),

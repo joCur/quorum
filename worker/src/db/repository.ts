@@ -1,5 +1,12 @@
 import postgres from "postgres";
-import type { Job, Transcript } from "@quorum/shared";
+import {
+  SummaryTemplateSchema,
+  TranscriptSchema,
+  type Job,
+  type Summary,
+  type SummaryTemplate,
+  type Transcript,
+} from "@quorum/shared";
 import { JobError } from "../errors.js";
 import { MIGRATIONS } from "./schema.js";
 
@@ -18,6 +25,12 @@ export interface SaveTranscriptResult {
   created: boolean;
 }
 
+export interface SaveSummaryResult {
+  summaryId: string;
+  /** `false` when this job had already produced a summary — a replay. */
+  created: boolean;
+}
+
 /** Persistence port; the in-memory implementation in the tests mirrors it. */
 export interface TranscriptRepository {
   migrate(): Promise<void>;
@@ -30,7 +43,18 @@ export interface TranscriptRepository {
   close(): Promise<void>;
 }
 
-export class PostgresTranscriptRepository implements TranscriptRepository {
+/** The summary half of the same store, kept as its own port for testability. */
+export interface SummaryRepository {
+  /** Writes a template if that (id, version) is not stored yet. */
+  seedTemplate(template: SummaryTemplate): Promise<void>;
+  /** Highest version of a template visible to the tenant, or `null`. */
+  loadTemplate(templateId: string, tenantId: string): Promise<SummaryTemplate | null>;
+  loadTranscript(transcriptId: string, tenantId: string): Promise<Transcript | null>;
+  saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult>;
+  saveJob(job: Job, scope: JobScope, attempt: number): Promise<void>;
+}
+
+export class PostgresRepository implements TranscriptRepository, SummaryRepository {
   private readonly sql: postgres.Sql;
 
   constructor(connectionString: string, options: postgres.Options<Record<string, never>> = {}) {
@@ -139,6 +163,161 @@ export class PostgresTranscriptRepository implements TranscriptRepository {
       `;
     } catch (error) {
       throw new JobError("TRANSCRIPT_PERSIST_FAILED", "failed to record the job state", {
+        retryable: true,
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Inserts a template version if it is not stored yet.
+   *
+   * `DO NOTHING` rather than `DO UPDATE` is the whole contract of ADR-004 §2:
+   * a stored template version is immutable, because summaries snapshotted from
+   * it must stay explicable. Changing the system template means bumping its
+   * `version` in code, which inserts a new row and leaves the old one readable.
+   */
+  async seedTemplate(template: SummaryTemplate): Promise<void> {
+    try {
+      await this.sql`
+        INSERT INTO summary_templates (
+          id, version, schema_version, name, scope, tenant_id, user_id, based_on, template
+        ) VALUES (
+          ${template.id}, ${template.version}, ${template.schemaVersion}, ${template.name},
+          ${template.scope}, ${null}, ${null}, ${template.basedOn},
+          ${this.sql.json(template as unknown as postgres.JSONValue)}
+        )
+        ON CONFLICT (id, version) DO NOTHING
+      `;
+    } catch (error) {
+      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to seed the summary template", {
+        retryable: true,
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Loads the highest stored version of a template.
+   *
+   * Visibility follows ADR-001: a system template belongs to everybody, a user
+   * template only to the tenant that owns it. The tenant filter lives in the
+   * query rather than in a caller's check so that a summarize payload naming
+   * another tenant's template id finds nothing instead of leaking it.
+   */
+  async loadTemplate(templateId: string, tenantId: string): Promise<SummaryTemplate | null> {
+    try {
+      const rows = await this.sql<{ template: unknown }[]>`
+        SELECT template FROM summary_templates
+        WHERE id = ${templateId}
+          AND (scope = 'system' OR tenant_id = ${tenantId})
+        ORDER BY version DESC
+        LIMIT 1
+      `;
+      const row = rows[0];
+      if (!row) return null;
+      const parsed = SummaryTemplateSchema.safeParse(row.template);
+      if (!parsed.success) {
+        throw new JobError(
+          "SUMMARY_TEMPLATE_NOT_FOUND",
+          `stored template ${templateId} does not match the template schema: ${parsed.error.message}`,
+          { retryable: false },
+        );
+      }
+      return parsed.data;
+    } catch (error) {
+      if (error instanceof JobError) throw error;
+      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to read the summary template", {
+        retryable: true,
+        cause: error,
+      });
+    }
+  }
+
+  async loadTranscript(transcriptId: string, tenantId: string): Promise<Transcript | null> {
+    try {
+      const rows = await this.sql<{ transcript: unknown }[]>`
+        SELECT transcript FROM transcripts
+        WHERE id = ${transcriptId} AND tenant_id = ${tenantId}
+      `;
+      const row = rows[0];
+      if (!row) return null;
+      const parsed = TranscriptSchema.safeParse(row.transcript);
+      if (!parsed.success) {
+        throw new JobError(
+          "TRANSCRIPT_NOT_FOUND",
+          `stored transcript ${transcriptId} does not match the transcript schema: ${parsed.error.message}`,
+          { retryable: false },
+        );
+      }
+      return parsed.data;
+    } catch (error) {
+      if (error instanceof JobError) throw error;
+      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to read the transcript", {
+        retryable: true,
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Idempotent write, mirroring `saveTranscript`: `job_id` is unique, so a
+   * retried or replayed summarize job either inserts its deterministically
+   * identified summary once or finds the row it wrote before. That matters more
+   * here than for transcription — a duplicate insert would mean a second paid
+   * LLM call's worth of output, and the call has already been made by the time
+   * we get here.
+   *
+   * Superseding the previous summary and inserting the new one share one
+   * transaction, so the partial unique index on `(meeting_id, template_id)`
+   * never sees two active rows for the same template.
+   */
+  async saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult> {
+    try {
+      return await this.sql.begin(async (sql) => {
+        const existing = await sql<{ id: string }[]>`
+          SELECT id FROM summaries WHERE job_id = ${jobId} FOR UPDATE
+        `;
+        const previous = existing[0];
+        if (previous) return { summaryId: previous.id, created: false };
+
+        await sql`
+          UPDATE summaries SET is_active = false
+          WHERE meeting_id = ${summary.meetingId}
+            AND template_id = ${summary.templateSnapshot.templateId}
+            AND is_active
+        `;
+        const inserted = await sql<{ id: string }[]>`
+          INSERT INTO summaries (
+            id, job_id, meeting_id, transcript_id, tenant_id, user_id, session_id,
+            schema_version, template_id, template_version, model, prompt_version,
+            is_active, created_at, summary
+          ) VALUES (
+            ${summary.id}, ${jobId}, ${summary.meetingId}, ${summary.transcriptId},
+            ${scope.tenantId}, ${scope.userId}, ${scope.sessionId}, ${summary.schemaVersion},
+            ${summary.templateSnapshot.templateId}, ${summary.templateSnapshot.templateVersion},
+            ${summary.model}, ${summary.promptVersion}, ${summary.isActive}, ${summary.createdAt},
+            ${sql.json(summary as unknown as postgres.JSONValue)}
+          )
+          ON CONFLICT (job_id) DO NOTHING
+          RETURNING id
+        `;
+        const row = inserted[0];
+        // Lost the race against a concurrent attempt of the same job: its row is
+        // authoritative and identical, so adopt it.
+        if (!row) {
+          const winner = await sql<{ id: string }[]>`
+            SELECT id FROM summaries WHERE job_id = ${jobId}
+          `;
+          const found = winner[0];
+          if (!found) throw new Error("summary vanished after a conflicting insert");
+          return { summaryId: found.id, created: false };
+        }
+        return { summaryId: row.id, created: true };
+      });
+    } catch (error) {
+      if (error instanceof JobError) throw error;
+      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to persist the summary", {
         retryable: true,
         cause: error,
       });

@@ -35,8 +35,50 @@ export const WorkerConfigSchema = z.object({
     .positive()
     .default(30 * 60_000),
 
+  /**
+   * Summary backend — OpenAI-compatible chat completions (ADR-005 §2). Today a
+   * hosted router, later a self-hosted server: base URL, model name and key are
+   * the only difference, which is what keeps the provider switch code-free.
+   */
+  SUMMARY_BASE_URL: z.string().min(1).default("https://openrouter.ai/api/v1"),
+  SUMMARY_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
+  /** Optional bearer token — self-hosted backends usually need none. */
+  SUMMARY_API_KEY: z.string().optional(),
+  /** Low but not zero, so a repetitive transcript cannot send the model into a loop. */
+  SUMMARY_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
+  /**
+   * Ceiling on the transcript text handed to the model, in estimated tokens.
+   * `COST-MODEL.md` budgets 12–15k input tokens per meeting hour; longer
+   * recordings get their middle elided rather than producing an unbounded bill
+   * or a context-length error (see `summary/transcript-window.ts`).
+   */
+  SUMMARY_MAX_INPUT_TOKENS: z.coerce.number().int().positive().default(14_000),
+  /** Output ceiling. A structured summary is far smaller than its transcript. */
+  SUMMARY_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(4_000),
+  SUMMARY_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3 * 60_000),
+  /**
+   * Send `response_format: {"type":"json_object"}`. Off by default because
+   * several self-hosted OpenAI-compatible servers reject a field they do not
+   * implement, and ADR-005 is about that swap staying free. Turn it on for a
+   * backend that supports it: it makes malformed output rarer, not impossible.
+   */
+  SUMMARY_JSON_MODE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+
   /** How many transcriptions this process runs at the same time. */
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
+  /**
+   * Summaries in flight per process. Higher than the transcription default on
+   * purpose: a summary job spends its whole life waiting on someone else's HTTP
+   * endpoint rather than on the local GPU.
+   */
+  SUMMARY_CONCURRENCY: z.coerce.number().int().positive().default(2),
   /** Attempts per job before it is dead-lettered. */
   WORKER_RETRY_LIMIT: z.coerce.number().int().nonnegative().default(4),
   /** Base delay for the exponential retry backoff, in seconds. */
