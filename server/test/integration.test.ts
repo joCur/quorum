@@ -6,6 +6,7 @@ import { PgBossJobQueue, TRANSCRIBE_QUEUE } from "../src/recording/queue/pg-boss
 import { chunkKey } from "../src/recording/keys.js";
 import { RecordingSessionHandler } from "../src/recording/session.js";
 import { FakeConnection, chunk, idSequence } from "./helpers.js";
+import { audioLayout } from "../src/meetings/audio.js";
 import type { SessionRecord } from "../src/recording/types.js";
 
 /**
@@ -75,6 +76,48 @@ describe.skipIf(!enabled)("MinIO storage", () => {
     // The bucket carries default SSE (scripts/minio-init.sh), so MinIO reports
     // the encryption algorithm back on every object.
     expect(head.ServerSideEncryption).toBeDefined();
+  });
+
+  it("plays a byte range back and leaves nothing behind when the session is deleted", async () => {
+    const storage = new S3RecordingStorage(s3Options);
+    const connection = new FakeConnection();
+    const tenantId = `tenant-${Date.now()}-delete`;
+    const handler = new RecordingSessionHandler(connection, {
+      storage,
+      queue: { async enqueueTranscribe() {} },
+      context: { tenantId, userId: "user-1" },
+      newId: idSequence("c"),
+    });
+
+    await handler.handleText(
+      JSON.stringify({
+        type: "session.start",
+        meetingTitle: "Deletion run",
+        audioFormat: { codec: "opus", container: "webm", sampleRate: 48_000, channels: 1 },
+        clientInfo: { platform: "web-desktop", userAgent: "vitest" },
+      }),
+    );
+    const sessionId = connection.last("session.ready")?.sessionId as string;
+    await handler.handleBinary(chunk(sessionId, 0));
+    await handler.handleBinary(chunk(sessionId, 1));
+    await handler.handleText(JSON.stringify({ type: "session.end", sessionId, lastSeq: 1 }));
+
+    const scope = { tenantId, userId: "user-1", sessionId };
+    const objects = await storage.listSessionObjects(scope);
+    // Chunks plus session.json plus manifest.json.
+    expect(objects.length).toBe(4);
+
+    const layout = audioLayout(objects);
+    expect(layout.totalBytes).toBeGreaterThan(0);
+    const whole = await storage.readObject(layout.parts[0]?.key as string);
+    const slice = await storage.readObject(layout.parts[0]?.key as string, { from: 1, to: 2 });
+    expect(Array.from(slice)).toEqual(Array.from(whole.slice(1, 3)));
+
+    await storage.deleteObjects(objects.map((object) => object.key));
+    // ADR-001: after the cascade, the prefix is empty — chunks, session and manifest alike.
+    expect(await storage.listSessionObjects(scope)).toEqual([]);
+    // Deleting again must not fail; the cascade has to stay retryable after a partial run.
+    await storage.deleteObjects(objects.map((object) => object.key));
   });
 });
 

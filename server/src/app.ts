@@ -74,7 +74,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     // user from the validated token, which is why the routes exist only on an authenticated
     // instance: without one there is no scope to query under, and an unscoped meeting query is
     // exactly what ADR-001 rules out.
-    await app.register(meetingRoutes, { store: options.meetings });
+    await app.register(meetingRoutes, { store: options.meetings, storage: options.storage });
   }
 
   await app.register(recordingPlugin, {

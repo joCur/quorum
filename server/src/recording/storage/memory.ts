@@ -1,5 +1,18 @@
-import { chunkKey, manifestKey, sessionKey, seqFromChunkKey } from "../keys.js";
-import type { RecordingManifest, RecordingStorage, SessionRecord } from "../types.js";
+import {
+  chunkKey,
+  manifestKey,
+  sessionKey,
+  sessionPrefix,
+  seqFromChunkKey,
+  type KeyScope,
+} from "../keys.js";
+import type {
+  ByteRange,
+  RecordingManifest,
+  RecordingStorage,
+  SessionRecord,
+  StoredObject,
+} from "../types.js";
 
 /**
  * In-memory storage adapter. Used by the unit tests and as the reference for the
@@ -48,6 +61,23 @@ export class InMemoryRecordingStorage implements RecordingStorage {
 
   async putManifest(record: SessionRecord, manifest: RecordingManifest): Promise<void> {
     this.write(manifestKey(record), new TextEncoder().encode(JSON.stringify(manifest)));
+  }
+
+  async listSessionObjects(scope: KeyScope): Promise<StoredObject[]> {
+    const prefix = `${sessionPrefix(scope)}/`;
+    return [...this.objects.entries()]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, body]) => ({ key, size: body.byteLength }));
+  }
+
+  async readObject(key: string, range?: ByteRange): Promise<Uint8Array> {
+    const body = this.objects.get(key);
+    if (!body) throw new Error(`no object at key "${key}"`);
+    return range ? body.slice(range.from, range.to + 1) : body;
+  }
+
+  async deleteObjects(keys: readonly string[]): Promise<void> {
+    for (const key of keys) this.objects.delete(key);
   }
 }
 

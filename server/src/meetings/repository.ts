@@ -62,6 +62,12 @@ export interface MeetingStore {
   listMeetings(scope: MeetingScope, options?: ListMeetingsOptions): Promise<Meeting[]>;
   /** `null` when the meeting does not exist *or* belongs to another tenant or user. */
   findMeeting(scope: MeetingScope, meetingId: string): Promise<MeetingDetailRow | null>;
+  /**
+   * Removes every database row belonging to a meeting — summaries, transcripts, job rows, any
+   * queued work and the meeting itself — in one transaction (ADR-001). Returns `false` when
+   * there was no such meeting in the caller's scope.
+   */
+  deleteMeeting(scope: MeetingScope, meetingId: string): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -317,9 +323,84 @@ export class PostgresMeetingStore implements MeetingStore {
     }
   }
 
+  /**
+   * The database half of the ADR-001 cascade, in one transaction.
+   *
+   * Ownership is established by `SELECT ... FOR UPDATE` inside the same transaction, so a delete
+   * cannot race a concurrent finalize, and a meeting outside the caller's scope simply matches
+   * nothing — the statement never sees another tenant's rows.
+   *
+   * The pipeline tables are the worker's, and they may not exist yet on a server that came up
+   * first; each is checked before it is touched, because inside a transaction a failed statement
+   * takes the whole cascade with it.
+   */
+  async deleteMeeting(scope: MeetingScope, meetingId: string): Promise<boolean> {
+    return this.sql.begin(async (sql) => {
+      const owned = await sql<{ id: string }[]>`
+        SELECT id FROM meetings
+         WHERE id = ${meetingId}
+           AND tenant_id = ${scope.tenantId}
+           AND user_id = ${scope.userId}
+         FOR UPDATE
+      `;
+      if (owned.length === 0) return false;
+
+      // Summaries reference transcripts, so they go first even though no foreign key enforces it
+      // yet — the order is the one a constraint would demand.
+      for (const table of ["summaries", "transcripts", "jobs"] as const) {
+        if (!(await tableExists(sql, "public", table))) continue;
+        await sql`
+          DELETE FROM ${sql(table)}
+           WHERE meeting_id = ${meetingId} AND tenant_id = ${scope.tenantId}
+        `;
+      }
+
+      await this.deleteQueuedWork(sql, meetingId);
+
+      await sql`
+        DELETE FROM meetings
+         WHERE id = ${meetingId}
+           AND tenant_id = ${scope.tenantId}
+           AND user_id = ${scope.userId}
+      `;
+      return true;
+    });
+  }
+
+  /**
+   * Drops work still sitting in the queue for this meeting.
+   *
+   * This reaches into pg-boss's own tables, which is a deliberate exception: a `transcribe` job
+   * left in the queue would be picked up after the delete and write a fresh transcript for a
+   * meeting that no longer exists — data coming back from the dead is exactly what ADR-001 rules
+   * out. pg-boss offers no "delete by payload" API, and the payload shape is ours
+   * (`{ job: { meetingId } }`, see the queue adapters), so the filter is on our own data.
+   */
+  private async deleteQueuedWork(sql: postgres.TransactionSql, meetingId: string): Promise<void> {
+    for (const table of ["job", "archive"] as const) {
+      if (!(await tableExists(sql, "pgboss", table))) continue;
+      await sql`
+        DELETE FROM ${sql("pgboss")}.${sql(table)}
+         WHERE data->'job'->>'meetingId' = ${meetingId}
+      `;
+    }
+  }
+
   async close(): Promise<void> {
     await this.sql.end({ timeout: 5 });
   }
+}
+
+/** Existence check that is safe inside a transaction, unlike letting the statement fail. */
+async function tableExists(
+  sql: postgres.TransactionSql,
+  schema: string,
+  table: string,
+): Promise<boolean> {
+  const rows = await sql<{ exists: boolean }[]>`
+    SELECT to_regclass(${`${schema}.${table}`}) IS NOT NULL AS exists
+  `;
+  return rows[0]?.exists === true;
 }
 
 function toMeeting(row: MeetingRow, facts: PipelineFacts): Meeting {
