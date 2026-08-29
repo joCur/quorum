@@ -12,6 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/layout/empty-state";
+import { RecoveryCard } from "@/components/recording/recovery-card";
 import { IconTile } from "@/components/layout/icon-tile";
 
 /**
@@ -27,6 +28,7 @@ export function MeetingsRoute() {
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-bold md:text-2xl">{t("meetings.title")}</h1>
+      <RecoveryCard />
       <EmptyState icon={Mic} title={t("meetings.empty.title")} body={t("meetings.empty.body")}>
         <Button size="lg" onClick={() => void navigate("/record")}>
           <Mic aria-hidden="true" />

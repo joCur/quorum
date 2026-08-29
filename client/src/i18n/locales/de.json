@@ -15,10 +15,56 @@
     "completing": "Anmeldung läuft…",
     "error": "Die Anmeldung wurde nicht abgeschlossen."
   },
-  "record": {
-    "unavailable": {
-      "title": "Die Aufnahme ist noch nicht angeschlossen",
-      "body": "Der Aufnahme-Flow kommt mit der nächsten Änderung. Alles drumherum steht bereit."
+  "consent": {
+    "title": "Bevor du aufnimmst",
+    "body": "Du bist dafür verantwortlich, alle Teilnehmenden darüber zu informieren, dass dieses Meeting aufgezeichnet wird, und die an deinem Ort erforderliche Einwilligung einzuholen. Quorum kann Teilnehmende außerhalb dieser App nicht benachrichtigen.",
+    "confirm": "Ich habe die Teilnehmenden informiert"
+  },
+  "recording": {
+    "title": "Neue Aufnahme",
+    "start": "Aufnehmen",
+    "starting": "Wird gestartet…",
+    "stop": "Stoppen",
+    "resume": "Fortsetzen",
+    "pause": "Pausieren",
+    "finishing": "Wird abgeschlossen…",
+    "noAudio": "Kein Ton erkannt — prüfe dein Mikrofon.",
+    "levelMeter": "Eingangspegel des Mikrofons",
+    "wakeLockUnsupported": "Dieser Browser kann den Bildschirm nicht wachhalten. Die Aufnahme läuft weiter, wenn der Bildschirm ausgeht — lass den Tab aber geöffnet.",
+    "indicator": {
+      "recording": "REC",
+      "paused": "PAUSE"
+    },
+    "titleField": {
+      "label": "Titel des Meetings",
+      "placeholder": "Optional — geht auch später"
+    },
+    "confirmStop": {
+      "question": "Aufnahme stoppen?",
+      "confirm": "Stoppen"
+    },
+    "sync": {
+      "synced": "Synchronisiert",
+      "saving": "Wird zum Server übertragen… ({{seconds}} s auf diesem Gerät gepuffert)",
+      "unstable": "Verbindung instabil — {{seconds}} s auf diesem Gerät gepuffert"
+    },
+    "banner": {
+      "offline": "Offline — die Aufnahme läuft weiter, dein Audio liegt sicher auf diesem Gerät ({{seconds}} s gepuffert)",
+      "reconnecting": "Verbindung wird wiederhergestellt… {{seconds}} s auf diesem Gerät gepuffert",
+      "storage": "Der Speicher des Geräts ist fast voll. Stell die Verbindung wieder her, damit das gepufferte Audio hochgeladen werden kann."
+    },
+    "error": {
+      "permission-denied": "Quorum braucht Zugriff auf dein Mikrofon, um aufzunehmen. Erlaube den Zugriff im Browser und versuch es erneut.",
+      "unsupported": "Dieser Browser kann kein Audio aufnehmen. Nimm eine aktuelle Version von Chrome, Firefox oder Safari.",
+      "storage": "Die Aufnahme wurde gestoppt, weil Audio nicht auf diesem Gerät gespeichert werden konnte.",
+      "connection": "Die Verbindung zum Server ist fehlgeschlagen.",
+      "unknown": "Die Aufnahme konnte nicht gestartet werden."
+    },
+    "recovery": {
+      "title": "Eine Aufnahme wurde unterbrochen",
+      "body": "Audio vom {{date}} liegt noch auf diesem Gerät und hat den Server nicht erreicht.",
+      "upload": "Hochladen und abschließen",
+      "discard": "Verwerfen"
     }
   },
   "nav": {

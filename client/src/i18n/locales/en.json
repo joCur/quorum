@@ -15,10 +15,56 @@
     "completing": "Signing you in…",
     "error": "Sign-in did not complete."
   },
-  "record": {
-    "unavailable": {
-      "title": "Recording is not wired up yet",
-      "body": "The capture flow arrives in the next change. Everything around it is ready for it."
+  "consent": {
+    "title": "Before you record",
+    "body": "You are responsible for informing all participants that this meeting is being recorded, and for obtaining any consent required where you are. Quorum cannot notify participants outside this app.",
+    "confirm": "I have informed the participants"
+  },
+  "recording": {
+    "title": "New recording",
+    "start": "Record",
+    "starting": "Starting…",
+    "stop": "Stop",
+    "resume": "Resume",
+    "pause": "Pause",
+    "finishing": "Finishing…",
+    "noAudio": "No audio detected — check your microphone.",
+    "levelMeter": "Microphone input level",
+    "wakeLockUnsupported": "This browser cannot keep the screen awake. Recording continues if the screen turns off, but keep the tab open.",
+    "indicator": {
+      "recording": "REC",
+      "paused": "PAUSED"
+    },
+    "titleField": {
+      "label": "Meeting title",
+      "placeholder": "Optional — you can add it later"
+    },
+    "confirmStop": {
+      "question": "Stop recording?",
+      "confirm": "Stop"
+    },
+    "sync": {
+      "synced": "Synced",
+      "saving": "Saving to server… ({{seconds}}s buffered on this device)",
+      "unstable": "Connection unstable — {{seconds}}s buffered on this device"
+    },
+    "banner": {
+      "offline": "Offline — recording continues, your audio is safe on this device ({{seconds}}s buffered)",
+      "reconnecting": "Reconnecting… {{seconds}}s buffered on this device",
+      "storage": "Device storage is almost full. Reconnect so the buffered audio can upload."
+    },
+    "error": {
+      "permission-denied": "Quorum needs access to your microphone to record. Allow it in your browser and try again.",
+      "unsupported": "This browser cannot record audio. Try a current version of Chrome, Firefox or Safari.",
+      "storage": "The recording was stopped because audio could not be stored on this device.",
+      "connection": "The connection to the server failed.",
+      "unknown": "Recording could not be started."
+    },
+    "recovery": {
+      "title": "A recording was interrupted",
+      "body": "Audio from {{date}} is still saved on this device and has not reached the server.",
+      "upload": "Upload and finish",
+      "discard": "Discard"
     }
   },
   "nav": {
