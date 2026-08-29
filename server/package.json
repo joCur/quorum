@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Quorum API server — Keycloak JWT auth with tenant-scoped request context and the WebSocket recording endpoint (ADR-002).",
+  "description": "Quorum API server \u2014 Keycloak JWT auth with tenant-scoped request context and the WebSocket recording endpoint (ADR-002).",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -27,9 +27,11 @@
     "fastify-plugin": "^6.0.0",
     "jose": "^6.2.0",
     "pg-boss": "^12.28.1",
+    "postgres": "^3.4.9",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@quorum/worker": "workspace:*",
     "@types/node": "^26.4.0",
     "@types/ws": "^8.18.1",
     "typescript": "^5.9.3",

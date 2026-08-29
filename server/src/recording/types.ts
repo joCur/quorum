@@ -68,6 +68,30 @@ export interface RecordingManifest {
   finalizedAt: string;
 }
 
+/**
+ * The part of the meeting store the recording endpoint uses.
+ *
+ * Object storage stays the source of truth for the recording itself; this registry is the
+ * queryable index that makes a meeting listable and searchable. Kept as a narrow port so the
+ * session handler never sees the read side of the store.
+ */
+export interface MeetingRegistry {
+  recordSession(record: {
+    meetingId: string;
+    sessionId: string;
+    tenantId: string;
+    userId: string;
+    title: string | null;
+    audioFormat: AudioFormat;
+    createdAt: string;
+  }): Promise<void>;
+  markFinalized(
+    scope: { tenantId: string; userId: string },
+    sessionId: string,
+    finalizedAt: string,
+  ): Promise<void>;
+}
+
 /** Thin queue port — the transcription worker that consumes these jobs lives elsewhere. */
 export interface JobQueue {
   enqueueTranscribe(input: {

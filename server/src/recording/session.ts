@@ -8,7 +8,13 @@ import {
 } from "./audio-format.js";
 import { parseChunkFrame } from "./frame.js";
 import { chunkKey } from "./keys.js";
-import type { JobQueue, RecordingContext, RecordingStorage, SessionRecord } from "./types.js";
+import type {
+  JobQueue,
+  MeetingRegistry,
+  RecordingContext,
+  RecordingStorage,
+  SessionRecord,
+} from "./types.js";
 
 /**
  * Close codes used by the recording endpoint. The protocol schema
@@ -41,6 +47,11 @@ export interface SessionDeps {
    * resolved asynchronously during the WebSocket upgrade.
    */
   context?: RecordingContext | undefined;
+  /**
+   * Index that makes the recording appear in the meeting list. Optional: an instance without one
+   * still records, it just produces nothing to list.
+   */
+  meetings?: MeetingRegistry | undefined;
   now?: () => Date;
   newId?: () => string;
   logger?: { warn(details: Record<string, unknown>, message: string): void };
@@ -162,6 +173,7 @@ export class RecordingSessionHandler {
       this.fail("failed to persist session metadata", error);
       return;
     }
+    await this.indexMeeting(record);
     this.session = {
       record,
       format: check.format,
@@ -359,6 +371,23 @@ export class RecordingSessionHandler {
       this.fail("failed to finalize session", error);
       return;
     }
+    // The audio and the job are safe at this point, so indexing failures must not fail the
+    // recording. `recordSession` runs again first: it is idempotent on the session id and
+    // repairs a meeting whose row could not be written when the session started.
+    await this.indexMeeting(session.record);
+    try {
+      await this.deps.meetings?.markFinalized(
+        { tenantId: session.record.tenantId, userId: session.record.userId },
+        session.record.sessionId,
+        this.timestamp(),
+      );
+    } catch (error) {
+      this.deps.logger?.warn(
+        { err: error, sessionId: session.record.sessionId },
+        "failed to mark the meeting finalized in the meeting index",
+      );
+    }
+
     session.finalized = true;
     this.connection.send({
       type: "session.finalized",
@@ -367,6 +396,32 @@ export class RecordingSessionHandler {
       jobId,
     });
     this.connection.close(CLOSE_NORMAL, "session finalized");
+  }
+
+  /**
+   * Writes the meeting into the list index.
+   *
+   * Best-effort on purpose: capture integrity outranks listability. If the index write fails, the
+   * audio is still being persisted and the recording continues; `session.end` retries the same
+   * idempotent write, so a transient database blip during `session.start` heals on its own.
+   */
+  private async indexMeeting(record: SessionRecord): Promise<void> {
+    try {
+      await this.deps.meetings?.recordSession({
+        meetingId: record.meetingId,
+        sessionId: record.sessionId,
+        tenantId: record.tenantId,
+        userId: record.userId,
+        title: record.meetingTitle,
+        audioFormat: record.audioFormat,
+        createdAt: record.createdAt,
+      });
+    } catch (error) {
+      this.deps.logger?.warn(
+        { err: error, sessionId: record.sessionId },
+        "failed to index the meeting; the recording continues",
+      );
+    }
   }
 
   private ack(): void {

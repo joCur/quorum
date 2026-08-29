@@ -7,5 +7,5 @@
     "tsBuildInfoFile": "../node_modules/.cache/tsconfig.server-test.tsbuildinfo"
   },
   "include": ["test/**/*.ts"],
-  "references": [{ "path": "./tsconfig.json" }, { "path": "../shared" }]
+  "references": [{ "path": "./tsconfig.json" }, { "path": "../shared" }, { "path": "../worker" }]
 }

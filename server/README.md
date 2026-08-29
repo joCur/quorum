@@ -59,6 +59,64 @@ app.get("/api/meetings", async (request) => {
 | `/healthz`      | public              | Liveness/readiness probe. Carries no tenant data.            |
 | `/api/me`       | access token        | Echoes the scope the request runs under.                     |
 | `/ws/recording` | access token        | Chunk-streaming recording endpoint (ADR-002).                |
+| `/api/meetings` | access token        | Meeting list with derived status, newest first, title search. |
+| `/api/meetings/:meetingId` | access token | One meeting with its transcript, summaries and job rows. |
+
+## Meetings API
+
+`GET /api/meetings` returns the caller's own meetings, newest first.
+
+| Query    | Meaning                                                                    |
+| -------- | -------------------------------------------------------------------------- |
+| `q`      | Case-insensitive substring match on the meeting title. Wildcards are literal. |
+| `limit`  | 1–200, default 50.                                                          |
+| `offset` | Page offset, default 0.                                                     |
+
+`GET /api/meetings/:meetingId` adds the active transcript, the active summaries (one per template,
+ADR-004 §3) and the job rows the pipeline stepper is built from. A meeting belonging to another
+tenant — or to another user of the same tenant — answers `404`, as does an id that is not a UUID:
+distinguishing the two cases would confirm that an id exists.
+
+### Where the status comes from
+
+The pipeline state is **derived on read** (`src/meetings/status.ts`) from the recording, the job
+rows and the presence of a transcript and a summary — it is never stored on the meeting, so a
+meeting can never disagree with its own artifacts. Two gaps are closed by that derivation rather
+than by writing placeholder rows:
+
+- A job row is written by the worker when it *picks the job up*. A finalized recording without a
+  `transcribe` row is therefore reported as `queued` — which is exactly what it is.
+- The `summarize` job is enqueued by the transcription worker once the transcript is stored, so its
+  row appears later still. A stored transcript without a summary is reported as `summarizing`,
+  covering both the queue wait and the run.
+
+| Status        | Meaning                                                    |
+| ------------- | ---------------------------------------------------------- |
+| `recording`   | Session started, no manifest yet — the recording is open.   |
+| `queued`      | Finalized; transcription has not started.                   |
+| `transcribing`| The `transcribe` job is running.                            |
+| `summarizing` | A transcript exists, no summary yet.                        |
+| `ready`       | Transcript and summary are stored.                          |
+| `failed`      | A stage failed; `failure` carries the stage, code, message. |
+
+A failure never hides what succeeded: the transcript and the audio stay available, only the badge
+reports the failure.
+
+### The meetings table
+
+The server owns exactly one table, `meetings` (`src/meetings/schema.ts`): the queryable index over
+recordings. Object storage stays the source of truth for the audio itself. The row is written when
+`session.start` succeeds and marked finalized on `session.end`.
+
+Both writes are **best-effort**: capture integrity outranks listability, so an unavailable database
+logs a warning and the recording continues. `session.end` repeats the same idempotent write, which
+repairs a row that could not be written when the session started.
+
+The worker owns `transcripts`, `summaries`, `summary_templates` and `jobs`; the server reads them
+and never writes them. Each package applies its own statements under its own advisory lock, so
+start order does not matter — and a server that comes up before the worker has created its tables
+still serves the list, with every meeting reporting the state it actually has. Consolidating the
+schema into a single owner is a follow-up.
 
 ## Recording endpoint
 
@@ -179,7 +237,11 @@ The integration tests in `test/integration.test.ts` run against the real MinIO a
 
 ```bash
 QUORUM_INTEGRATION=1 pnpm vitest run server/test/integration.test.ts
+QUORUM_INTEGRATION=1 pnpm vitest run server/test/meeting-store-integration.test.ts
 ```
+
+The meeting-store tests apply the worker's migration list rather than a copy of it, so a change on
+the worker side that breaks the server's read queries fails there instead of in production.
 
 ## Manual verification — compose up, get a token, call a protected endpoint
 

@@ -11,12 +11,19 @@ import {
 } from "./session.js";
 import { MAX_CHUNK_PAYLOAD_BYTES } from "./audio-format.js";
 import { CHUNK_HEADER_BYTES } from "@quorum/shared";
-import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./types.js";
+import type {
+  JobQueue,
+  MeetingRegistry,
+  RecordingContextProvider,
+  RecordingStorage,
+} from "./types.js";
 
 export interface RecordingPluginOptions {
   storage: RecordingStorage;
   queue: JobQueue;
   contextProvider: RecordingContextProvider;
+  /** Index that makes finished recordings appear in the meeting list. */
+  meetings?: MeetingRegistry | undefined;
   /** Route the WebSocket endpoint is mounted on. */
   path?: string;
   /**
@@ -61,6 +68,7 @@ const recordingPlugin: FastifyPluginAsync<RecordingPluginOptions> = async (app, 
       const handler = new RecordingSessionHandler(connection, {
         storage: options.storage,
         queue: options.queue,
+        meetings: options.meetings,
         context: { tenantId: "", userId: "" },
         logger: request.log,
       });

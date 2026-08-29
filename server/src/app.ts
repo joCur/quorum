@@ -3,12 +3,19 @@ import type { FastifyInstance } from "fastify";
 import { authPlugin } from "./auth/plugin.js";
 import type { TokenVerifier } from "./auth/token-verifier.js";
 import recordingPlugin from "./recording/plugin.js";
+import { meetingRoutes } from "./meetings/routes.js";
+import type { MeetingStore } from "./meetings/repository.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./recording/types.js";
 
 export interface BuildServerOptions {
   storage: RecordingStorage;
   queue: JobQueue;
+  /**
+   * Meeting index behind the recording endpoint and the meeting REST API. Omitting it builds an
+   * instance that records but lists nothing — only useful for the recording-only tests.
+   */
+  meetings?: MeetingStore;
   /**
    * Enables authentication. When present, the auth plugin is registered and the whole instance
    * becomes default-deny: every route needs a valid Keycloak access token unless it declares
@@ -62,9 +69,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     });
   }
 
+  if (authenticated && options.meetings) {
+    // Read API for the meeting list and meeting detail. Every handler resolves its tenant and
+    // user from the validated token, which is why the routes exist only on an authenticated
+    // instance: without one there is no scope to query under, and an unscoped meeting query is
+    // exactly what ADR-001 rules out.
+    await app.register(meetingRoutes, { store: options.meetings });
+  }
+
   await app.register(recordingPlugin, {
     storage: options.storage,
     queue: options.queue,
+    meetings: options.meetings,
     contextProvider: options.contextProvider ?? new JwtRecordingContextProvider(),
     publicUpgrade: options.allowUnauthenticatedRecording === true,
   });
