@@ -1,0 +1,18 @@
+# Keep the build context small and reproducible: dependencies and compiled output
+# are produced inside the image, never copied from the host.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+
+.git
+.github
+.env
+.env.*
+!.env.example
+
+adr
+design
+scripts
+infra
+*.md
+docker-compose*.yml
