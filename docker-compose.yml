@@ -1,0 +1,102 @@
+# Quorum — Self-Hosting-Skeleton (Docker Compose)
+# Whisper-Modell, GPU-Nutzung und Summary-Backend sind reine Env-Konfiguration (.env):
+#   Entwicklung (GTX 1050):  WHISPER_MODEL=small, INT8
+#   Nach GPU-Upgrade:        WHISPER_MODEL=large-v3, FP16 — Rest unverändert
+#   CPU-Fallback:            Compose ohne GPU-Override starten (siehe unten)
+
+name: quorum
+
+services:
+  api:
+    build: ./apps/api            # Hono/Fastify — REST + WebSocket-Recording (ADR-002)
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  worker:
+    build: ./apps/worker         # Job-Consumer: Queue → Whisper → Summary-API (ADR-005)
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      # Whisper: interner OpenAI-kompatibler Endpoint (speaches)
+      WHISPER_BASE_URL: http://whisper:8000/v1
+      WHISPER_MODEL: ${WHISPER_MODEL}
+      # Summary: OpenAI-kompatibel — OpenRouter heute, LM Studio/vLLM/Ollama morgen (ADR-005)
+      SUMMARY_BASE_URL: ${SUMMARY_BASE_URL}
+      SUMMARY_API_KEY: ${SUMMARY_API_KEY}
+      SUMMARY_MODEL: ${SUMMARY_MODEL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      whisper:
+        condition: service_started
+
+  whisper:
+    # speaches (ehem. faster-whisper-server): OpenAI-kompatible /v1/audio/transcriptions
+    # Image-Tag bewusst pinnen — bei Pascal-GPUs (GTX 1050, CC 6.1) auf CUDA-Kompatibilität achten,
+    # ggf. ältere Version wählen oder das *-cpu Image nutzen.
+    image: ghcr.io/speaches-ai/speaches:${WHISPER_IMAGE_TAG:-latest-cuda}
+    restart: unless-stopped
+    environment:
+      WHISPER__MODEL: ${WHISPER_MODEL}
+      WHISPER__COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE}   # int8 (1050) | float16 (4070 Ti S)
+      WHISPER__DEVICE: ${WHISPER_DEVICE}               # cuda | cpu
+    volumes:
+      - whisper-models:/home/ubuntu/.cache/huggingface  # Modell-Cache über Neustarts
+    # GPU-Zugriff: aktiv via `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up`
+    # Host-Voraussetzung: NVIDIA-Treiber + nvidia-container-toolkit
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"   # Admin-Konsole; API bleibt intern
+
+volumes:
+  pg-data:
+  minio-data:
+  whisper-models:
+
+# Hinweise:
+# - Queue: pg-boss in Postgres — kein separater Redis nötig (siehe OPEN-QUESTIONS.md).
+# - Reverse Proxy (Caddy/Traefik) mit TLS davor schalten, sobald von außen erreichbar;
+#   für die private Phase reicht Tailscale.
+# - Backups: pg_dump + MinIO-Bucket-Sync regelmäßig auf externes Ziel (ADR-001-Pflicht).

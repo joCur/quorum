@@ -1,0 +1,44 @@
+# --- Secrets & Konfiguration ---
+.env
+.env.*
+!.env.example
+
+# --- Dependencies ---
+node_modules/
+.pnp.*
+.yarn/
+
+# --- Build-Output ---
+dist/
+build/
+out/
+*.tsbuildinfo
+coverage/
+
+# --- Runtime & Daten (lokale Docker-Volumes, falls gemountet) ---
+data/
+*.log
+logs/
+
+# --- Modelle & Audio (groß, gehören nicht ins Repo) ---
+models/
+*.bin
+*.gguf
+*.wav
+*.webm
+*.ogg
+*.opus
+*.mp3
+*.m4a
+
+# --- OS & Editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# --- Test-Artefakte ---
+playwright-report/
+test-results/
+.nyc_output/

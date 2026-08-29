@@ -1,0 +1,11 @@
+# GPU-Override: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d`
+# Ohne dieses File läuft Whisper auf CPU (WHISPER_DEVICE=cpu in .env setzen).
+services:
+  whisper:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

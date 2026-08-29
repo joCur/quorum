@@ -1,0 +1,20 @@
+name: Release
+
+# Release-Prozess: release-please pflegt einen Release-PR aus den Conventional
+# Commits auf main. Merge des Release-PRs (mit PO-Approval, wie jeder PR)
+# erzeugt Tag + GitHub-Release mit Changelog.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: simple

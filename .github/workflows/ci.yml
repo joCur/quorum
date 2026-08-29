@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    name: Typecheck · Tests · Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Solange das Toolchain-Bootstrap-Ticket (#1) nicht gemerged ist, gibt es
+      # noch kein package.json — der Guard hält die CI bis dahin grün.
+      # Nach dem Bootstrap MUSS dieser Guard entfernt werden (Teil von #1).
+      - name: Detect toolchain
+        id: toolchain
+        run: |
+          if [ -f package.json ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/setup-node@v4
+        if: steps.toolchain.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        if: steps.toolchain.outputs.present == 'true'
+        run: npm ci
+
+      - name: Typecheck
+        if: steps.toolchain.outputs.present == 'true'
+        run: npm run typecheck
+
+      - name: Tests
+        if: steps.toolchain.outputs.present == 'true'
+        run: npm test
+
+      - name: Build
+        if: steps.toolchain.outputs.present == 'true'
+        run: npm run build
+
+  e2e:
+    name: E2E (kritische Pfade)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect E2E suite
+        id: e2e
+        run: |
+          if [ -d e2e ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-node@v4
+        if: steps.e2e.outputs.present == 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - name: Run E2E
+        if: steps.e2e.outputs.present == 'true'
+        run: |
+          npm ci
+          npm run e2e
