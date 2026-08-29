@@ -153,5 +153,48 @@
     "title": "Nothing here",
     "body": "That page does not exist.",
     "action": "Back to meetings"
+  },
+  "meeting": {
+    "back": "Back to meetings",
+    "loadError": "This meeting could not be loaded.",
+    "deleted": "This meeting was deleted.",
+    "tabs": {
+      "label": "Meeting content",
+      "transcript": "Transcript",
+      "summary": "Summary"
+    },
+    "pipeline": {
+      "label": "Processing progress",
+      "stages": {
+        "uploading": "Uploading",
+        "queued": "Queued",
+        "transcribing": "Transcribing",
+        "summarizing": "Summarizing"
+      }
+    },
+    "player": {
+      "label": "Playback",
+      "play": "Play",
+      "pause": "Pause",
+      "seek": "Seek",
+      "back": "Back {{seconds}} seconds",
+      "forward": "Forward {{seconds}} seconds",
+      "rate": "Playback speed",
+      "unavailable": "This recording could not be loaded."
+    },
+    "transcript": {
+      "working": "Transcribing your meeting — usually a few minutes. Feel free to leave; we'll keep at it.",
+      "failed": "Transcription failed",
+      "jumpTo": "Jump to {{time}}",
+      "uncertain": "Low transcription confidence",
+      "uncertainShort": "uncertain"
+    },
+    "summary": {
+      "working": "Your summary is next — it starts as soon as the transcript is done.",
+      "failed": "Summary failed",
+      "copyAll": "Copy the whole summary",
+      "copySection": "Copy {{section}}",
+      "meta": "Template version {{version}} · {{model}} · {{date}}"
+    }
   }
 }
