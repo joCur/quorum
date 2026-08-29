@@ -66,7 +66,7 @@ function MeetingDetailScreen({
   }, []);
 
   return (
-    <div className="flex flex-col gap-5 pb-24">
+    <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-2">
         <Link
           to="/meetings"
@@ -121,8 +121,18 @@ function MeetingDetailScreen({
         <SummaryPanel detail={detail} />
       )}
 
+      {/*
+        Sticky rather than fixed: a fixed bar is positioned against the viewport, so once the
+        sidebar appears at `md` it reaches underneath it and centers on the wrong axis. Sticking
+        the last element of the content column keeps the player exactly as wide as the column at
+        every breakpoint, with no offset to keep in sync with the sidebar's width.
+
+        `bottom-16` clears the mobile tab bar (the same `h-16`); from `md` up the tab bar is gone
+        and a small inset is enough. The margin below reserves the resting gap that the removed
+        page padding used to provide.
+      */}
       {meeting.hasAudio ? (
-        <div className="fixed inset-x-0 bottom-16 z-20 mx-auto max-w-3xl px-4 md:bottom-4">
+        <div className="sticky bottom-16 z-20 mb-2 md:bottom-4">
           <AudioPlayer
             ref={player}
             url={audio.url}
