@@ -80,6 +80,29 @@
       "body": "Record it here — transcript and summary follow on their own.",
       "action": "Start recording",
       "howItWorks": "How Quorum works"
+    },
+    "untitled": "Untitled meeting",
+    "loadError": "Your meetings could not be loaded.",
+    "search": {
+      "label": "Search meetings",
+      "placeholder": "Search meetings",
+      "clear": "Clear search",
+      "noResults": "No meetings match your search."
+    },
+    "status": {
+      "recording": "Recording",
+      "queued": "Queued",
+      "transcribing": "Transcribing",
+      "summarizing": "Summarizing",
+      "ready": "Ready",
+      "failed": "Failed"
+    },
+    "delete": {
+      "action": "Delete {{meeting}}",
+      "title": "Delete this meeting?",
+      "body": "“{{meeting}}” and everything derived from it will be permanently deleted: the audio recording, all transcripts, and all summaries. This cannot be undone.",
+      "confirm": "Delete permanently",
+      "inProgress": "Deleting…"
     }
   },
   "howItWorks": {

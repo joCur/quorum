@@ -2,7 +2,6 @@ import * as React from "react";
 import { FileText, Mic, ScrollText } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,31 +10,43 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { EmptyState } from "@/components/layout/empty-state";
 import { RecoveryCard } from "@/components/recording/recovery-card";
 import { IconTile } from "@/components/layout/icon-tile";
+import { MeetingList, MeetingsOnboarding } from "@/components/meetings/meeting-list";
+import { MeetingSearch } from "@/components/meetings/meeting-search";
+import { useMeetings } from "@/features/meetings/use-meetings";
 
 /**
  * Meetings screen — the app's front door.
  *
- * The list itself and meeting detail belong to their own ticket; what lives here
- * is the first-run state, which doubles as onboarding.
+ * The search field appears only once there is something to search: on a first run it would be a
+ * control with nothing to act on, and the empty state is meant to be an invitation rather than a
+ * form (STATES.md §9, the same rule applied to controls).
  */
 export function MeetingsRoute() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
+  const [search, setSearch] = React.useState("");
+  const list = useMeetings(search);
+
+  const showSearch = list.status === "ready" && (list.meetings.length > 0 || search !== "");
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-xl font-bold md:text-2xl">{t("meetings.title")}</h1>
+      <div className="flex flex-col gap-4">
+        <h1 className="text-xl font-bold md:text-2xl">{t("meetings.title")}</h1>
+        {showSearch ? <MeetingSearch value={search} onChange={setSearch} /> : null}
+      </div>
       <RecoveryCard />
-      <EmptyState icon={Mic} title={t("meetings.empty.title")} body={t("meetings.empty.body")}>
-        <Button size="lg" onClick={() => void navigate("/record")}>
-          <Mic aria-hidden="true" />
-          {t("meetings.empty.action")}
-        </Button>
-        <HowItWorksSheet />
-      </EmptyState>
+      <MeetingList
+        list={list}
+        searching={search.trim() !== ""}
+        onClearSearch={() => setSearch("")}
+        onboarding={
+          <MeetingsOnboarding>
+            <HowItWorksSheet />
+          </MeetingsOnboarding>
+        }
+      />
     </div>
   );
 }
