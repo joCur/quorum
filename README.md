@@ -51,6 +51,9 @@ Workspaces:
 - `server/` — package `@quorum/server`, the Fastify API: Keycloak JWT validation with a
   tenant-scoped request context, plus the WebSocket recording endpoint. See `server/README.md`
   for the scoping convention and the manual auth verification path.
+- `worker/` — package `@quorum/worker`, the job worker turning recorded audio into transcripts.
+  See `worker/README.md` for the transcription backends, the idempotency rules and the retry
+  and dead-letter behavior.
 - `client/` — package `@quorum/client`, the React + Vite PWA
 
 ### Web client
@@ -67,7 +70,6 @@ Infrastructure configuration:
   clicking. Dev-only test users are documented in `infra/keycloak/README.md`.
 - `infra/postgres/init/` — provisions Keycloak's own logical database on the shared Postgres
   instance (no second database container).
->>>>>>> origin/main
 
 ## Nächste Schritte (Walking Skeleton)
 
