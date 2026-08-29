@@ -37,20 +37,31 @@ jobs:
         run: pnpm run lint
 
   docker:
-    name: Docker image (server)
+    name: Docker image (${{ matrix.image }})
     runs-on: ubuntu-latest
+    strategy:
+      # Both images share the base, deps and prod-deps stages; building them as separate jobs
+      # keeps the wall clock at one image and gives each its own cache scope.
+      fail-fast: false
+      matrix:
+        include:
+          - image: server
+            dockerfile: server/Dockerfile
+          - image: worker
+            dockerfile: worker/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Build the API image
+      - name: Build the ${{ matrix.image }} image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: server/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: false
-          # Layer caching in the Actions cache keeps repeat builds to a few seconds.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Layer caching in the Actions cache keeps repeat builds to a few seconds. The scope is
+          # per image, because two images writing one scope evict each other's layers.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   e2e:
     name: E2E (critical paths)
