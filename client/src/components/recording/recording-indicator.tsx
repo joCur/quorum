@@ -1,14 +1,23 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 
 /**
  * The breathing dot — the honest "you are on the record" signal.
  *
- * The dot pulses only while audio is actually being captured, and its scale is
- * modulated by the live input level: if it moves with your voice, the microphone
- * really is picking you up. Reduced motion turns the pulse off centrally in the
- * token stylesheet; the state stays readable because it is also carried by the
- * glyph and the label.
+ * Two motions are deliberately kept apart, on two nested elements, so they
+ * neither fight over the same `transform` nor multiply into a strobe:
+ *
+ * - the inner dot carries the steady base pulse from the shared animation
+ *   utility — a calm heartbeat that never changes its rhythm;
+ * - the outer wrapper scales gently with the smoothed microphone level, eased
+ *   over the default duration so it glides between updates instead of snapping
+ *   to each new value.
+ *
+ * The level is envelope-followed and published at ~10 Hz upstream, and it is the
+ * same signal the level meter renders, so dot and meter always move together.
+ * With reduced motion both the pulse and the scaling are dropped: the dot is
+ * solid and steady, and the state is carried by the label.
  */
 export function RecordingIndicator({
   active,
@@ -16,13 +25,16 @@ export function RecordingIndicator({
   className,
 }: {
   active: boolean;
-  /** Live input level, 0..1. */
+  /** Smoothed input level, 0..1. */
   level: number;
   className?: string;
 }) {
   const { t } = useTranslation();
+  const reducedMotion = usePrefersReducedMotion();
+
   // A gentle ±10% around the resting size, as the component spec asks for.
-  const scale = active ? 1 + Math.min(level, 1) * 0.1 : 1;
+  const scale = 1 + Math.min(Math.max(level, 0), 1) * 0.1;
+  const modulated = active && !reducedMotion;
 
   return (
     <span
@@ -32,14 +44,18 @@ export function RecordingIndicator({
     >
       <span
         aria-hidden="true"
-        style={active ? { transform: `scale(${scale.toFixed(3)})` } : undefined}
-        className={cn(
-          "size-2.5 rounded-full transition-transform duration-micro ease-enter",
-          active
-            ? "animate-recording-pulse bg-recording"
-            : "border-2 border-recording bg-transparent",
-        )}
-      />
+        style={modulated ? { transform: `scale(${scale.toFixed(3)})` } : undefined}
+        className="inline-flex transition-transform ease-enter will-change-transform"
+      >
+        <span
+          className={cn(
+            "block size-2.5 rounded-full",
+            active
+              ? "animate-recording-pulse bg-recording"
+              : "border-2 border-recording bg-transparent",
+          )}
+        />
+      </span>
       <span
         className={cn(
           "font-mono text-xs font-medium tracking-widest",

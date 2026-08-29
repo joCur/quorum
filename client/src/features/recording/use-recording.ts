@@ -22,12 +22,16 @@ import {
   requestWakeLock,
   type WakeLockHandle,
 } from "@/features/recording/wake-lock";
+import { LEVEL_EPSILON, followEnvelope, normalizeRms } from "@/lib/level-envelope";
 
 /** Route the recording endpoint is mounted on server-side. */
 export const RECORDING_PATH = "ws/recording";
 
 /** Chunk length in milliseconds — the 1–2 s window ADR-002 asks for. */
 export const CHUNK_INTERVAL_MS = 1_000;
+
+/** Level below which the input counts as silence. */
+export const SILENCE_LEVEL = 0.02;
 
 /** How long the input may stay near silence before the UI says something. */
 export const SILENCE_HINT_SECONDS = 10;
@@ -154,33 +158,46 @@ export function useRecording() {
     const analyser = analyserRef.current;
     if (!analyser) return;
     const samples = new Float32Array(analyser.fftSize);
-    let lastUpdate = 0;
+    let lastFrame = 0;
+    let lastPublish = 0;
+    let smoothed = 0;
+    let published = 0;
+    let publishedSilent = false;
 
     const tick = (timestamp: number) => {
       frameRef.current = requestAnimationFrame(tick);
-      // The indicator is throttled to roughly 10 Hz: enough to read as "it moves
-      // with your voice", cheap enough to run for an hour.
-      if (timestamp - lastUpdate < 100) return;
-      lastUpdate = timestamp;
+
+      // The envelope is followed on every frame — smoothing is what turns a
+      // jittery RMS reading into a level that breathes instead of strobing.
+      const deltaMs = lastFrame === 0 ? 16 : timestamp - lastFrame;
+      lastFrame = timestamp;
 
       analyser.getFloatTimeDomainData(samples);
       let sum = 0;
       for (const sample of samples) sum += sample * sample;
-      const rms = Math.sqrt(sum / samples.length);
-      // Perceptual-ish curve so ordinary speech uses most of the range.
-      const level = Math.min(1, Math.sqrt(rms) * 3);
+      smoothed = followEnvelope(smoothed, normalizeRms(Math.sqrt(sum / samples.length)), deltaMs);
 
-      const now = timestamp;
-      if (level < 0.02) {
-        silentSinceRef.current ??= now;
+      if (smoothed < SILENCE_LEVEL) {
+        silentSinceRef.current ??= timestamp;
       } else {
         silentSinceRef.current = null;
       }
       const silentSince = silentSinceRef.current;
-      const silent = silentSince !== null && now - silentSince > SILENCE_HINT_SECONDS * 1000;
+      const silent = silentSince !== null && timestamp - silentSince > SILENCE_HINT_SECONDS * 1000;
+
+      // React only hears about the level at ~10 Hz, and only when the change is
+      // large enough to see. The meter and the indicator both read this one
+      // value, so they always move together.
+      const levelWorthPublishing =
+        timestamp - lastPublish >= 100 && Math.abs(smoothed - published) >= LEVEL_EPSILON;
+      if (!levelWorthPublishing && silent === publishedSilent) return;
+
+      lastPublish = timestamp;
+      published = smoothed;
+      publishedSilent = silent;
 
       setState((current) =>
-        current.phase === "recording" ? { ...current, level, silent } : current,
+        current.phase === "recording" ? { ...current, level: smoothed, silent } : current,
       );
     };
 
