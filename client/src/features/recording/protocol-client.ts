@@ -1,5 +1,6 @@
 import {
   ServerMessageSchema,
+  bearerSubprotocolOffer,
   type AudioFormat,
   type ClientMessage,
   type ServerMessage,
@@ -71,9 +72,6 @@ export interface RecordingClientError {
   code: "connect-failed" | "buffer-write-failed" | "protocol";
   message: string;
 }
-
-/** Subprotocol carrying the bearer token during the WebSocket handshake. */
-export const BEARER_SUBPROTOCOL = "quorum.bearer.v1";
 
 export const INITIAL_BACKOFF_MS = 500;
 export const MAX_BACKOFF_MS = 15_000;
@@ -245,8 +243,9 @@ export class RecordingClient {
     if (this.stopped || this.socket) return;
     this.setConnection(this.attempt === 0 ? "connecting" : "reconnecting");
 
+    // The subprotocol marker and the order the token follows it in are the shared wire contract.
     const protocols = this.options.accessToken
-      ? [BEARER_SUBPROTOCOL, this.options.accessToken]
+      ? bearerSubprotocolOffer(this.options.accessToken)
       : undefined;
 
     let socket: SocketLike;
