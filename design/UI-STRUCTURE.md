@@ -21,7 +21,7 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
 - Header: "Meetings", search (V1: simple title filter, optional).
 - List of `MeetingListItem`s, newest first: title, date, duration, `StatusBadge`, overflow menu (Open / Rename / Delete).
 - Recovery card at top if an interrupted local session exists (STATES.md §2).
-- Empty state → primary "Start recording".
+- Empty state (first run): playful spot illustration + "Your first meeting awaits" + primary "Start recording" + ghost link "How Quorum works" opening the 3-step onboarding sheet (COMPONENTS.md §12). This is the app's front door — it should feel like an invitation, not a void.
 
 ### 2.2 Recording flow (`/record`)
 1. Tap Record → **Consent notice** (STATES.md §1).
@@ -49,7 +49,7 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
 - (Retention rules, quotas: V2 — leave a placeholder group out entirely rather than shipping disabled controls.)
 
 ### 2.6 Auth (`/login`)
-- Minimal: wordmark, one-line value prop ("Your meetings. Your infrastructure."), "Sign in" button → OIDC redirect (Authorization Code + PKCE). Error banner on failed callback.
+- Minimal: wordmark, one-line value prop ("Your meetings. Your infrastructure."), a small warm spot illustration, "Sign in" button → OIDC redirect (Authorization Code + PKCE). Error banner on failed callback.
 
 ## 3. Flow diagram
 
@@ -85,7 +85,7 @@ flowchart TD
 
 - `< md`: bottom tab bar (Meetings · Record · Templates · Settings — Record raised/circular in the center), full-width content, sheets instead of dialogs for forms.
 - `≥ md`: left sidebar (wordmark, nav, record button), content max-width, dialogs.
-- Recording screen is always full-screen and distraction-free on all sizes.
+- Recording screen is always full-screen and distraction-free on all sizes — the breathing indicator is the only ambient motion.
 - PWA: installable, standalone display; theme-color follows `background` token per color scheme; recording screen prevents display sleep via Wake Lock API.
 
 ## 5. Route summary

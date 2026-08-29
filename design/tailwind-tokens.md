@@ -10,7 +10,7 @@ How `tokens.css` maps into the frontend stack (React + Vite PWA, Tailwind CSS, s
 {
   "style": "default",
   "tailwind": {
-    "baseColor": "slate",
+    "baseColor": "stone",
     "cssVariables": true
   }
 }
@@ -62,7 +62,16 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        // Quorum status extensions
+        // Quorum expressive accents (personality — never status)
+        honey: {
+          DEFAULT: "hsl(var(--honey))",
+          subtle: "hsl(var(--honey-subtle))",
+        },
+        plum: {
+          DEFAULT: "hsl(var(--plum))",
+          subtle: "hsl(var(--plum-subtle))",
+        },
+        // Quorum status extensions (state — and only state)
         recording: {
           DEFAULT: "hsl(var(--recording))",
           foreground: "hsl(var(--recording-foreground))",
@@ -85,7 +94,7 @@ export default {
         },
       },
       borderRadius: {
-        lg: "calc(var(--radius) + 4px)",
+        lg: "calc(var(--radius) + 6px)",
         md: "var(--radius)",
         sm: "calc(var(--radius) - 4px)",
       },
@@ -95,26 +104,43 @@ export default {
         lg: "var(--shadow-lg)",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
+        sans: ["Plus Jakarta Sans", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
         mono: ["JetBrains Mono", "ui-monospace", "SF Mono", "Menlo", "Consolas", "monospace"],
       },
       transitionDuration: {
-        micro: "120ms",
-        DEFAULT: "200ms",
-        large: "300ms",
+        micro: "140ms",
+        DEFAULT: "220ms",
+        large: "320ms",
+        celebrate: "600ms",
       },
       transitionTimingFunction: {
         enter: "cubic-bezier(0.2, 0, 0, 1)",
         exit: "cubic-bezier(0.4, 0, 1, 1)",
+        spring: "cubic-bezier(0.34, 1.56, 0.64, 1)",
       },
       keyframes: {
         "recording-pulse": {
           "0%, 100%": { opacity: "1", transform: "scale(1)" },
-          "50%": { opacity: "0.55", transform: "scale(0.92)" },
+          "50%": { opacity: "0.55", transform: "scale(0.9)" },
+        },
+        "rise-in": {
+          from: { opacity: "0", transform: "translateY(8px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "pop-in": {
+          from: { opacity: "0", transform: "scale(0.6)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
+        shimmer: {
+          "0%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
         },
       },
       animation: {
-        "recording-pulse": "recording-pulse 2s cubic-bezier(0.2, 0, 0, 1) infinite",
+        "recording-pulse": "recording-pulse 1.6s cubic-bezier(0.2, 0, 0, 1) infinite",
+        "rise-in": "rise-in 220ms cubic-bezier(0.2, 0, 0, 1) both",
+        "pop-in": "pop-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
+        shimmer: "shimmer 1.8s linear infinite",
       },
     },
   },
@@ -127,12 +153,12 @@ Note: if the app is scaffolded on Tailwind v4, express the same mapping via `@th
 ## 3. Fonts (self-hosted, no CDN)
 
 ```bash
-npm i @fontsource-variable/inter @fontsource/jetbrains-mono
+npm i @fontsource-variable/plus-jakarta-sans @fontsource/jetbrains-mono
 ```
 
 ```ts
 // src/main.tsx
-import "@fontsource-variable/inter";
+import "@fontsource-variable/plus-jakarta-sans";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 ```
@@ -141,8 +167,10 @@ Vite bundles the WOFF2 files into the app; no runtime requests to Google Fonts o
 
 ## 4. Usage rules
 
-- Components use semantic Tailwind classes only (`bg-card`, `text-muted-foreground`, `border-border`, `bg-recording`). Never raw palette classes (`bg-red-500`) and never hex values in components.
+- Components use semantic Tailwind classes only (`bg-card`, `text-muted-foreground`, `border-border`, `bg-recording`, `bg-honey-subtle`). Never raw palette classes (`bg-red-500`) and never hex values in components.
 - `recording` color exclusively for active-capture UI; errors always use `destructive`.
+- `honey`/`plum` are expressive only — never to signal success/failure/warning. Honey ≠ `warning`; plum ≠ `info`.
 - Status badges: `bg-{status}-subtle text-{status}` (e.g. `bg-info-subtle text-info`).
 - Timers/timestamps: `font-mono` (or `tabular-nums` when inline in sans text).
+- Playful motion via the shared animation utilities (`animate-rise-in`, `animate-pop-in`, `animate-recording-pulse`, `animate-shimmer`) — no ad-hoc keyframes in components, and every animation honors `prefers-reduced-motion` (handled centrally in `tokens.css`).
 - Focus: rely on shadcn's `ring` utilities — do not remove focus outlines.
