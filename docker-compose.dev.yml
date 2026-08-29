@@ -1,0 +1,15 @@
+# Development override for running the API on the host against the containerized infrastructure:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres keycloak minio minio-init
+#
+# It publishes Postgres and the MinIO S3 API on the host, which the base compose file deliberately
+# keeps internal. Both ports are configurable, because 5432 in particular is often already taken by
+# a local database. Never use this override in a deployment.
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  minio:
+    ports:
+      - "${MINIO_PORT:-9000}:9000"

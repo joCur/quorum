@@ -71,6 +71,45 @@ Infrastructure configuration:
 - `infra/postgres/init/` — provisions Keycloak's own logical database on the shared Postgres
   instance (no second database container).
 
+### Running the stack with Docker Compose
+
+```bash
+cp .env.example .env      # then replace every CHANGE_ME, see the comments in that file
+docker compose up -d      # postgres, keycloak, minio (+ bucket bootstrap), whisper, api
+curl http://localhost:8080/healthz
+```
+
+The `api` service is built from `server/Dockerfile`. Its build context is the repository root,
+because the server consumes the `@quorum/shared` workspace and the root pnpm lockfile:
+
+```bash
+docker compose build api          # equivalent to: docker build -f server/Dockerfile .
+```
+
+The image is multi-stage: pnpm comes from Corepack with the version pinned in the root
+`packageManager` field, TypeScript is compiled in a build stage, and the runtime stage carries only
+production dependencies, runs as the unprivileged `node` user with `NODE_ENV=production`, and
+health-checks itself against `/healthz`.
+
+On a machine without an NVIDIA GPU (macOS in particular) set `WHISPER_IMAGE_TAG=latest-cpu` and
+`WHISPER_DEVICE=cpu` in `.env` before starting, as described in `.env.example`.
+
+The transcription worker is present in `docker-compose.yml` as a commented-out service: its
+workspace does not exist yet, and an active service pointing at a missing build context would break
+`docker compose up` for everyone. Uncomment it once that workspace lands.
+
+**Dev flow (server on the host):** run only the infrastructure in containers and the API locally,
+which keeps the fast edit/restart loop. The base compose file keeps Postgres and the MinIO S3 API
+internal to the stack, so add `docker-compose.dev.yml`, which publishes both on the host (the ports
+are configurable via `POSTGRES_PORT` / `MINIO_PORT` when they collide with local services):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d postgres keycloak minio minio-init
+pnpm --filter @quorum/server run build
+pnpm --filter @quorum/server run start   # environment as described in server/README.md
+```
+
 ## Nächste Schritte (Walking Skeleton)
 
 1. Auth aufsetzen (OIDC via fertige Lösung, Authorization Code + PKCE) — Mandanten-/User-Scope in jedem Datenobjekt ab Tag 1

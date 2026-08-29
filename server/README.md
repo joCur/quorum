@@ -4,6 +4,21 @@ Fastify API server. It contains the auth foundation — Keycloak-issued JWT vali
 tenant-scoped request context every handler builds on — and the WebSocket recording endpoint of
 ADR-002.
 
+## Container image
+
+`Dockerfile` in this directory builds the production image, but its build context is the
+**repository root** — the server consumes the `@quorum/shared` workspace and the root pnpm
+lockfile:
+
+```bash
+docker build -f server/Dockerfile .      # or: docker compose build api
+```
+
+It is multi-stage: pnpm comes from Corepack with the version pinned in the root `packageManager`
+field, both workspaces are compiled in a build stage, and the runtime stage carries only production
+dependencies, runs as the unprivileged `node` user with `NODE_ENV=production`, and health-checks
+itself against `/healthz`.
+
 ## The tenant/user scoping convention
 
 ADR-001 requires tenant and user scope in **every** data object from day one. That is a convention
@@ -149,7 +164,10 @@ QUORUM_INTEGRATION=1 pnpm vitest run server/test/integration.test.ts
 
 ```bash
 cp .env.example .env      # then fill in the CHANGE_ME values
-docker compose up -d postgres keycloak
+# The dev override publishes Postgres and the MinIO S3 API on the host, which the base compose
+# file keeps internal — a server started outside the stack needs them.
+docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+  up -d postgres keycloak minio minio-init
 ```
 
 Wait until Keycloak reports healthy — the realm import runs on first start:
