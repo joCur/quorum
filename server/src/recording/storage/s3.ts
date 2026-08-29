@@ -1,12 +1,30 @@
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
-import { chunkKey, chunkPrefix, manifestKey, sessionKey, seqFromChunkKey } from "../keys.js";
-import type { RecordingManifest, RecordingStorage, SessionRecord } from "../types.js";
+import {
+  chunkKey,
+  chunkPrefix,
+  manifestKey,
+  sessionKey,
+  sessionPrefix,
+  seqFromChunkKey,
+  type KeyScope,
+} from "../keys.js";
+import type {
+  ByteRange,
+  RecordingManifest,
+  RecordingStorage,
+  SessionRecord,
+  StoredObject,
+} from "../types.js";
+
+/** S3 `DeleteObjects` accepts at most 1000 keys per request. */
+const DELETE_BATCH_SIZE = 1000;
 
 export interface S3StorageOptions {
   endpoint: string;
@@ -112,6 +130,62 @@ export class S3RecordingStorage implements RecordingStorage {
 
   async putManifest(record: SessionRecord, manifest: RecordingManifest): Promise<void> {
     await this.put(manifestKey(record), encodeJson(manifest), "application/json");
+  }
+
+  async listSessionObjects(scope: KeyScope): Promise<StoredObject[]> {
+    // The trailing slash matters: without it the prefix of session "abc" would also match
+    // session "abcdef", and a deletion would reach into a recording it was never asked about.
+    const prefix = `${sessionPrefix(scope)}/`;
+    const objects: StoredObject[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+        }),
+      );
+      for (const object of page.Contents ?? []) {
+        if (object.Key === undefined) continue;
+        objects.push({ key: object.Key, size: object.Size ?? 0 });
+      }
+      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return objects;
+  }
+
+  async readObject(key: string, range?: ByteRange): Promise<Uint8Array> {
+    const result = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        ...(range ? { Range: `bytes=${range.from}-${range.to}` } : {}),
+      }),
+    );
+    const body = await result.Body?.transformToByteArray();
+    return body ? new Uint8Array(body) : new Uint8Array(0);
+  }
+
+  async deleteObjects(keys: readonly string[]): Promise<void> {
+    for (let index = 0; index < keys.length; index += DELETE_BATCH_SIZE) {
+      const batch = keys.slice(index, index + DELETE_BATCH_SIZE);
+      const result = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: { Objects: batch.map((key) => ({ Key: key })), Quiet: true },
+        }),
+      );
+      // ADR-001 promises that nothing is left behind, so a partial failure has to be loud:
+      // the caller keeps the database rows and the deletion stays retryable.
+      const errors = result.Errors ?? [];
+      if (errors.length > 0) {
+        const first = errors[0];
+        throw new Error(
+          `failed to delete ${errors.length} object(s) from storage, first: ${first?.Key ?? "?"} (${first?.Code ?? "unknown"})`,
+        );
+      }
+    }
   }
 }
 

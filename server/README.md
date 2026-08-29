@@ -61,6 +61,8 @@ app.get("/api/meetings", async (request) => {
 | `/ws/recording` | access token        | Chunk-streaming recording endpoint (ADR-002).                |
 | `/api/meetings` | access token        | Meeting list with derived status, newest first, title search. |
 | `/api/meetings/:meetingId` | access token | One meeting with its transcript, summaries and job rows. |
+| `GET /api/meetings/:meetingId/audio` | access token | Streams the recording back, with byte ranges. |
+| `DELETE /api/meetings/:meetingId` | access token | Deletes the meeting and everything derived from it. |
 
 ## Meetings API
 
@@ -101,6 +103,61 @@ than by writing placeholder rows:
 
 A failure never hides what succeeded: the transcript and the audio stay available, only the badge
 reports the failure.
+
+### Playback
+
+`GET /api/meetings/:meetingId/audio` streams the chunk objects back as one continuous recording.
+
+The audio is delivered **by the API, never by a URL pointing at object storage**. A presigned URL
+is a bearer token for the recording: valid for whoever holds it, impossible to withdraw before it
+expires, and invisible in the access logs of the service that issued it. Streaming through the API
+means the tenant and user check runs on every request, including every seek.
+
+- `Accept-Ranges: bytes`; a single `Range` is honored (`bytes=a-b`, `bytes=a-`, `bytes=-n`) and
+  answered with `206` plus `Content-Range`. A range past the end is `416`. A syntax the server does
+  not understand — a multipart range, for instance — falls back to the whole stream, which RFC 9110
+  allows and which beats failing playback over a header no audio element sends.
+- `Cache-Control: private, no-store` — the recording is personal data, no shared cache keeps a copy.
+- Chunks are streamed one object at a time; a long recording is never held in memory.
+- Nothing is written back: assembling on read keeps the chunk objects the single copy of the audio,
+  which is also what makes the deletion cascade a prefix removal.
+- `404 audio_not_available` while a recording is still open or its chunks are gone; the meeting
+  itself stays reachable either way.
+
+**Known limitation:** the chunks are the raw container stream as the browser produced it. A WebM
+stream written incrementally carries no cue index, so a player can seek only over what it has
+already buffered. Byte ranges are served correctly; container-level seeking needs a remuxing step,
+which is its own ticket.
+
+### Deletion (ADR-001)
+
+`DELETE /api/meetings/:meetingId` is real, immediate and complete. No soft delete, no trash, no
+grace period — that is the product promise, and a hidden retention window would break it
+(design/STATES.md §6).
+
+The cascade covers:
+
+1. **Object storage** — every object under the session prefix: chunk objects, `session.json`,
+   `manifest.json`. It works from a prefix listing rather than from the manifest, because objects
+   the manifest never mentioned have to go too.
+2. **Database**, in one transaction — summaries, transcripts, job rows, and the meeting itself.
+3. **Queued work** — pg-boss rows carrying this meeting id. This reaches into pg-boss's own tables,
+   deliberately: a `transcribe` job left in the queue would be picked up after the delete and write
+   a fresh transcript for a meeting that no longer exists. pg-boss offers no delete-by-payload API,
+   and the payload shape is ours.
+
+**Storage goes first, the database second.** Both steps are idempotent, so the order decides what a
+crash in between leaves behind: this way the meeting is still listed and the user can simply delete
+it again. The reverse order would leave orphaned audio that nothing points at any more, which is
+the one outcome the deletion promise cannot survive.
+
+A meeting outside the caller's scope answers `404` and nothing is touched — not the rows, not the
+objects.
+
+**Backups.** ADR-001 requires removal from backups after a defined period. No backup path exists
+yet: it is an open question owned by the infra ticket (`OPEN-QUESTIONS.md`, ADR-006), together with
+the retention window itself. Until that lands, the guarantee this endpoint gives is the live one —
+after the call, no residue exists in PostgreSQL or in object storage, and the tests verify both.
 
 ### The meetings table
 

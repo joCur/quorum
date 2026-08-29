@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
+import { PgBoss } from "pg-boss";
 import { MIGRATIONS as WORKER_MIGRATIONS } from "@quorum/worker/db-schema";
 import { TRANSCRIPT_SCHEMA_VERSION, type AudioFormat, type Transcript } from "@quorum/shared";
 import { PostgresMeetingStore } from "../src/meetings/repository.js";
+import { TRANSCRIBE_QUEUE } from "../src/recording/queue/pg-boss.js";
 
 /**
  * Integration tests for the SQL behind the meeting API.
@@ -44,6 +46,7 @@ const OTHER_USERS = uuid("1", 5);
 
 let store: PostgresMeetingStore;
 let sql: postgres.Sql;
+let boss: PgBoss;
 
 function transcriptFor(meetingId: string, transcriptId: string): Transcript {
   return {
@@ -173,6 +176,7 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
 
   afterAll(async () => {
     await sql`DELETE FROM jobs WHERE tenant_id LIKE ${tenantId + "%"}`;
+    await sql`DELETE FROM summaries WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql`DELETE FROM transcripts WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql`DELETE FROM meetings WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql.end({ timeout: 5 });
@@ -228,6 +232,126 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
     expect(detail?.transcript?.segments).toHaveLength(2);
     expect(detail?.summaries).toEqual([]);
     expect(detail?.jobs.map((job) => job.type)).toEqual(["transcribe"]);
+  });
+
+  describe("deletion cascade", () => {
+    const DOOMED = uuid("6", 1);
+    const DOOMED_TRANSCRIPT = uuid("6", 2);
+    const DOOMED_JOB = uuid("6", 3);
+    const DOOMED_SUMMARY = uuid("6", 4);
+
+    beforeAll(async () => {
+      // A real queued job, enqueued through pg-boss itself: the cascade has to remove work that
+      // pg-boss actually wrote, not work shaped the way this test imagines it.
+      boss = new PgBoss({ connectionString });
+      await boss.start();
+      await boss.createQueue(TRANSCRIBE_QUEUE);
+      await boss.send(TRANSCRIBE_QUEUE, {
+        job: { id: uuid("6", 7), meetingId: DOOMED, type: "transcribe", status: "queued" },
+        tenantId,
+        userId: "user-1",
+        sessionId: DOOMED,
+      });
+
+      await store.recordSession({
+        meetingId: DOOMED,
+        sessionId: DOOMED,
+        tenantId,
+        userId: "user-1",
+        title: "To be deleted",
+        audioFormat: WEBM_OPUS,
+        createdAt: "2026-08-25T10:00:00Z",
+      });
+      await store.markFinalized(ACME, DOOMED, "2026-08-25T10:05:00Z");
+
+      const transcript = transcriptFor(DOOMED, DOOMED_TRANSCRIPT);
+      await sql`
+        INSERT INTO transcripts (
+          id, job_id, meeting_id, tenant_id, user_id, session_id, schema_version, model,
+          model_version, language, is_active, recorded_at, created_at, transcript
+        ) VALUES (
+          ${DOOMED_TRANSCRIPT}, ${DOOMED_JOB}, ${DOOMED}, ${tenantId}, ${"user-1"}, ${DOOMED},
+          ${TRANSCRIPT_SCHEMA_VERSION}, ${"whisper"}, ${"large-v3"}, ${"de"}, true,
+          ${transcript.recordedAt}, ${transcript.createdAt},
+          ${sql.json(transcript as unknown as postgres.JSONValue)}
+        )
+      `;
+      await sql`
+        INSERT INTO jobs (
+          id, meeting_id, tenant_id, user_id, session_id, type, status, progress, error,
+          result_id, attempt, created_at, started_at, finished_at
+        ) VALUES (
+          ${DOOMED_JOB}, ${DOOMED}, ${tenantId}, ${"user-1"}, ${DOOMED}, ${"transcribe"},
+          ${"succeeded"}, ${null}, ${null}, ${DOOMED_TRANSCRIPT}, 0,
+          ${"2026-08-25T10:05:30Z"}, ${"2026-08-25T10:05:31Z"}, ${"2026-08-25T10:06:00Z"}
+        )
+      `;
+      await sql`
+        INSERT INTO summaries (
+          id, job_id, meeting_id, transcript_id, tenant_id, user_id, session_id, schema_version,
+          template_id, template_version, model, prompt_version, is_active, created_at, summary
+        ) VALUES (
+          ${DOOMED_SUMMARY}, ${uuid("6", 5)}, ${DOOMED}, ${DOOMED_TRANSCRIPT}, ${tenantId},
+          ${"user-1"}, ${DOOMED}, 1, ${uuid("6", 6)}, 1, ${"gpt-oss"}, ${"1"}, true,
+          ${"2026-08-25T10:08:00Z"}, ${sql.json({ id: DOOMED_SUMMARY })}
+        )
+      `;
+    }, 30_000);
+
+    afterAll(async () => {
+      await boss.stop();
+    });
+
+    it("refuses to delete a meeting outside the caller's scope", async () => {
+      expect(await store.deleteMeeting(OTHER_TENANT, DOOMED)).toBe(false);
+      expect(await store.deleteMeeting(OTHER_USER, DOOMED)).toBe(false);
+      expect(await store.findMeeting(ACME, DOOMED)).not.toBeNull();
+    });
+
+    it("leaves no row behind in any table", async () => {
+      const queuedBefore = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM pgboss.job
+         WHERE data->'job'->>'meetingId' = ${DOOMED}
+      `;
+      // Guards the assertion below against passing because there was never anything to delete.
+      expect(queuedBefore[0]?.count).toBe(1);
+
+      expect(await store.deleteMeeting(ACME, DOOMED)).toBe(true);
+
+      // `meetings` keys the meeting by `id`, every derived table by `meeting_id`.
+      for (const [table, column] of [
+        ["meetings", "id"],
+        ["transcripts", "meeting_id"],
+        ["summaries", "meeting_id"],
+        ["jobs", "meeting_id"],
+      ] as const) {
+        const rows = (await sql.unsafe(
+          `SELECT count(*)::int AS count FROM ${table} WHERE ${column} = $1`,
+          [DOOMED],
+        )) as unknown as { count: number }[];
+        expect(rows[0]?.count, `${table} still has rows`).toBe(0);
+      }
+      const queued = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM pgboss.job
+         WHERE data->'job'->>'meetingId' = ${DOOMED}
+      `;
+      // Work left in the queue would be picked up after the delete and write a fresh transcript
+      // for a meeting that no longer exists.
+      expect(queued[0]?.count).toBe(0);
+    });
+
+    it("is idempotent", async () => {
+      expect(await store.deleteMeeting(ACME, DOOMED)).toBe(false);
+    });
+
+    it("left the other meetings alone", async () => {
+      expect((await store.listMeetings(ACME)).map((meeting) => meeting.id)).toEqual([
+        OPEN,
+        WEEKLY,
+        RETRO,
+      ]);
+      expect((await store.findMeeting(ACME, WEEKLY))?.transcript).not.toBeNull();
+    });
   });
 
   it("reports a meeting of another tenant as missing", async () => {

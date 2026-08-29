@@ -93,6 +93,21 @@ export class InMemoryMeetingStore implements MeetingStore {
     };
   }
 
+  async deleteMeeting(scope: MeetingScope, meetingId: string): Promise<boolean> {
+    const meeting = this.meetings.get(meetingId);
+    if (!meeting || meeting.tenantId !== scope.tenantId || meeting.userId !== scope.userId) {
+      return false;
+    }
+    this.meetings.delete(meetingId);
+    this.pipelines.delete(meetingId);
+    return true;
+  }
+
+  /** Test seam: what is left in the store, for asserting that a cascade left nothing behind. */
+  get size(): number {
+    return this.meetings.size + this.pipelines.size;
+  }
+
   async close(): Promise<void> {
     // Nothing to release.
   }

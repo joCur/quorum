@@ -1,4 +1,5 @@
 import type { AudioFormat } from "@quorum/shared";
+import type { KeyScope } from "./keys.js";
 
 /**
  * Tenant/user scope of a recording connection (ADR-001: every data object carries
@@ -52,6 +53,30 @@ export interface RecordingStorage {
   listChunkSeqs(record: SessionRecord): Promise<number[]>;
   /** Writes the finalization manifest that the transcription worker consumes. */
   putManifest(record: SessionRecord, manifest: RecordingManifest): Promise<void>;
+  /**
+   * Every object stored under one session prefix — chunks, `session.json`, `manifest.json`.
+   *
+   * Playback and the deletion cascade both work from this listing rather than from the manifest:
+   * the listing is what actually exists, and the cascade of ADR-001 has to remove objects that
+   * no manifest mentions just as reliably as the ones it does.
+   */
+  listSessionObjects(scope: KeyScope): Promise<StoredObject[]>;
+  /** Reads one object, or the inclusive byte range `[from, to]` of it. */
+  readObject(key: string, range?: ByteRange): Promise<Uint8Array>;
+  /** Removes objects. A key that is already gone is not an error — deletion is idempotent. */
+  deleteObjects(keys: readonly string[]): Promise<void>;
+}
+
+/** One stored object and its size, from a prefix listing. */
+export interface StoredObject {
+  key: string;
+  size: number;
+}
+
+/** Inclusive byte range, like the HTTP `Range` header it serves. */
+export interface ByteRange {
+  from: number;
+  to: number;
 }
 
 export interface RecordingManifest {
