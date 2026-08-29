@@ -80,6 +80,29 @@
       "body": "Nimm es hier auf — Transkript und Zusammenfassung folgen von selbst.",
       "action": "Aufnahme starten",
       "howItWorks": "So funktioniert Quorum"
+    },
+    "untitled": "Meeting ohne Titel",
+    "loadError": "Deine Meetings konnten nicht geladen werden.",
+    "search": {
+      "label": "Meetings durchsuchen",
+      "placeholder": "Meetings durchsuchen",
+      "clear": "Suche zurücksetzen",
+      "noResults": "Keine Meetings passen zu deiner Suche."
+    },
+    "status": {
+      "recording": "Nimmt auf",
+      "queued": "In der Warteschlange",
+      "transcribing": "Transkribiert",
+      "summarizing": "Fasst zusammen",
+      "ready": "Fertig",
+      "failed": "Fehlgeschlagen"
+    },
+    "delete": {
+      "action": "{{meeting}} löschen",
+      "title": "Dieses Meeting löschen?",
+      "body": "„{{meeting}}“ und alles, was daraus entstanden ist, wird endgültig gelöscht: die Audioaufnahme, alle Transkripte und alle Zusammenfassungen. Das lässt sich nicht rückgängig machen.",
+      "confirm": "Endgültig löschen",
+      "inProgress": "Wird gelöscht …"
     }
   },
   "howItWorks": {
