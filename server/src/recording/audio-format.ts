@@ -1,7 +1,7 @@
 import type { AudioFormat } from "@quorum/shared";
 
 /**
- * Server-side audio format validation (issue #4): a session may only announce a
+ * Server-side audio format validation: a session may only announce a
  * format we actually support, and chunk payloads must look like that container —
  * the endpoint is not a generic blob upload.
  */

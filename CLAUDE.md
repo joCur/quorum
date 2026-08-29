@@ -28,6 +28,9 @@ Prozess übernommen aus Grimoire, bestätigt vom PO am 2026-08-29.
 - Roadmap lebt als GitHub-Issues + Milestones (`V1 — Walking Skeleton`, `V2 — Ausbau`, `Später / Compliance`).
 - Jedes Issue: Kontext (welche ADRs gelten), Akzeptanzkriterien, betroffene Schemas aus `shared/src/`.
 - Architektur-Entscheidungen werden als ADR in `adr/` festgehalten, bevor implementiert wird.
+- Repository files — code comments, READMEs, ADRs, compose files — must never reference issue or PR
+  numbers; describe the subject instead. Issue references belong in PR descriptions and commit
+  messages only, because those keep their context once an issue is gone.
 
 ## Kritische Pfade (E2E-Pflicht)
 

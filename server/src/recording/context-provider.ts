@@ -1,12 +1,12 @@
 import type { RecordingContext, RecordingContextProvider } from "./types.js";
 
 /**
- * Placeholder context provider until the JWT auth plugin from ticket #3 lands.
+ * Development-only context provider.
  *
  * It reads the tenant and user from request headers, which is acceptable only in
  * local development: it is refused unless `RECORDING_ALLOW_HEADER_AUTH=true` is
- * set explicitly. The wire-up point is a single constructor argument in
- * `buildServer`, so replacing this with the real provider is a one-line change.
+ * set explicitly. Production uses `JwtRecordingContextProvider`, which takes the
+ * scope from the validated access token instead.
  */
 export class HeaderRecordingContextProvider implements RecordingContextProvider {
   private readonly enabled: boolean;
