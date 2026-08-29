@@ -103,6 +103,27 @@ The recording plugin never derives a tenant itself; it asks a `RecordingContextP
   additionally marks the upgrade public so the header values are actually reachable. Never set it
   outside a developer machine — it lets any caller claim any tenant.
 
+### How the WebSocket upgrade carries the token
+
+A browser cannot set an `Authorization` header on a WebSocket upgrade, and a query parameter would
+end up in access logs and proxy history. The upgrade may therefore carry the access token in
+`Sec-WebSocket-Protocol` instead:
+
+```
+Sec-WebSocket-Protocol: quorum.bearer.v1, <access token>
+```
+
+The browser client offers the two values in exactly that order
+(`new WebSocket(url, ["quorum.bearer.v1", token])`). The server takes the entry following the marker
+as the token and runs it through the same verification as a header token — JWKS, issuer, audience,
+tenant claim — so neither channel is weaker than the other. The handshake response echoes only the
+marker (`Sec-WebSocket-Protocol: quorum.bearer.v1`), which RFC 6455 requires and which keeps the
+token out of the response.
+
+The `Authorization` header stays the primary channel and wins whenever it is present; the
+subprotocol is only consulted on an upgrade request that has no such header. A refused upgrade is
+answered with `401` and its socket is destroyed, so a rejected client cannot stall shutdown.
+
 ## Storage layout (ADR-001 tenant/user scoping)
 
 ```

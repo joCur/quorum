@@ -2,6 +2,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import type { ServerMessage } from "@quorum/shared";
+import { selectBearerSubprotocol } from "../auth/subprotocol.js";
 import { UnauthorizedError } from "./context-provider.js";
 import {
   CLOSE_INTERNAL_ERROR,
@@ -35,7 +36,12 @@ export interface RecordingPluginOptions {
 const recordingPlugin: FastifyPluginAsync<RecordingPluginOptions> = async (app, options) => {
   if (!app.hasDecorator("websocketServer")) {
     await app.register(fastifyWebsocket, {
-      options: { maxPayload: CHUNK_HEADER_BYTES + MAX_CHUNK_PAYLOAD_BYTES },
+      options: {
+        maxPayload: CHUNK_HEADER_BYTES + MAX_CHUNK_PAYLOAD_BYTES,
+        // RFC 6455: the handshake response must echo one of the offered subprotocols, otherwise
+        // the browser aborts the connection. Only the marker is echoed, never the token.
+        handleProtocols: selectBearerSubprotocol,
+      },
     });
   }
 

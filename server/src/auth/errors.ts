@@ -2,6 +2,7 @@
 export type AuthErrorCode =
   | "missing_token"
   | "malformed_authorization_header"
+  | "malformed_bearer_subprotocol"
   | "invalid_token"
   | "expired_token"
   | "invalid_issuer"
