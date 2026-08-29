@@ -1,0 +1,37 @@
+{
+  "name": "@quorum/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Quorum API server — WebSocket recording endpoint (ADR-002) and REST API.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1121.0",
+    "@fastify/websocket": "^11.3.0",
+    "@quorum/shared": "workspace:*",
+    "fastify": "^5.12.1",
+    "fastify-plugin": "^6.0.0",
+    "pg-boss": "^12.28.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3",
+    "ws": "^8.21.3"
+  }
+}
