@@ -10,13 +10,7 @@ export const JobTypeSchema = z.enum([
   // Später: "diarize", "reprocess"
 ]);
 
-export const JobStatusSchema = z.enum([
-  "queued",
-  "running",
-  "succeeded",
-  "failed",
-  "canceled",
-]);
+export const JobStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "canceled"]);
 
 export const JobSchema = z.object({
   id: z.string().uuid(),
