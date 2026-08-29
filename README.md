@@ -43,6 +43,7 @@ Root scripts (the same ones CI runs):
 | `pnpm run lint`      | ESLint plus a Prettier formatting check                        |
 | `pnpm run format`    | Rewrites files with Prettier                                   |
 | `pnpm run e2e`       | Placeholder until the Playwright suite lands                    |
+| `pnpm run dev:client` | Starts the PWA dev server on http://localhost:5173            |
 
 Workspaces:
 
@@ -53,6 +54,14 @@ Workspaces:
 - `worker/` — package `@quorum/worker`, the job worker turning recorded audio into transcripts.
   See `worker/README.md` for the transcription backends, the idempotency rules and the retry
   and dead-letter behavior.
+- `client/` — package `@quorum/client`, the React + Vite PWA
+
+### Web client
+
+The PWA reads its configuration from `VITE_*` variables; copy `client/.env.example` to
+`client/.env.local` and point `VITE_OIDC_ISSUER_URL` at the Keycloak realm before running
+`pnpm run dev:client`. Fonts and icons are bundled — the app makes no requests to any CDN at
+runtime, which a self-hosted deployment depends on.
 
 Infrastructure configuration:
 

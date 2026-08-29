@@ -1,0 +1,89 @@
+{
+  "app": {
+    "name": "Quorum",
+    "tagline": "Your meetings. Your infrastructure.",
+    "skipToContent": "Skip to content"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "close": "Close",
+    "retry": "Try again",
+    "loading": "Loading…"
+  },
+  "auth": {
+    "signIn": "Sign in",
+    "completing": "Signing you in…",
+    "error": "Sign-in did not complete."
+  },
+  "record": {
+    "unavailable": {
+      "title": "Recording is not wired up yet",
+      "body": "The capture flow arrives in the next change. Everything around it is ready for it."
+    }
+  },
+  "nav": {
+    "label": "Main navigation",
+    "meetings": "Meetings",
+    "record": "Record",
+    "templates": "Templates",
+    "settings": "Settings"
+  },
+  "meetings": {
+    "title": "Meetings",
+    "empty": {
+      "title": "Your first meeting awaits",
+      "body": "Record it here — transcript and summary follow on their own.",
+      "action": "Start recording",
+      "howItWorks": "How Quorum works"
+    }
+  },
+  "howItWorks": {
+    "title": "How Quorum works",
+    "intro": "Three steps, all of them on hardware you control.",
+    "steps": {
+      "record": {
+        "title": "Record",
+        "body": "Audio streams to your server while you record, so nothing is lost if a tab closes."
+      },
+      "transcribe": {
+        "title": "Transcribe",
+        "body": "Speech recognition runs on your own infrastructure — no audio leaves it."
+      },
+      "summarize": {
+        "title": "Summarize",
+        "body": "Templates decide what a summary contains. Shape them the way your team works."
+      }
+    }
+  },
+  "templates": {
+    "title": "Templates",
+    "empty": {
+      "title": "Summaries, your way",
+      "body": "The template editor is on its way. Until then, every summary uses the system template."
+    }
+  },
+  "settings": {
+    "title": "Settings",
+    "appearance": {
+      "title": "Appearance",
+      "theme": "Theme",
+      "system": "Match system",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "language": {
+      "title": "Language",
+      "label": "Interface language"
+    },
+    "about": {
+      "title": "About",
+      "version": "Version",
+      "selfHosted": "This is a self-hosted Quorum instance."
+    }
+  },
+  "notFound": {
+    "title": "Nothing here",
+    "body": "That page does not exist.",
+    "action": "Back to meetings"
+  }
+}
