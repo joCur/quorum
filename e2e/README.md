@@ -127,7 +127,7 @@ Specs share one stack and run serially. A spec that breaks the stack on purpose 
 | `auth.spec.ts`             | Auth flows     | Sign-in through Keycloak's own form; the protected view renders; the token carries the tenant claim and the API agrees; no token means 401; a second tenant cannot address the first tenant's session |
 | `recording.spec.ts`        | The core path  | Consent → capture → stop; every chunk in object storage under the right tenant/user prefix with no gap; manifest consistent; `transcribe` job queued; transcript row written and scoped; the summary derived from it stored and scoped |
 | `crash-recovery.spec.ts`   | Crash recovery | The API is killed mid-recording: the banner names the buffered duration, capture keeps running, and after the restart the stored sequence is gap-free and duplicate-free |
-| `deletion-cascade.spec.ts` | Deletion       | A recorded meeting with a transcript and a summary is deleted through the API: no audio left under the session prefix, no transcript, summary or job rows, the meeting gone from the read API, another tenant refused, and a repeat delete still a 404 |
+| `deletion-cascade.spec.ts` | Deletion       | A recorded meeting with a transcript and a summary is deleted through the list's delete flow: no audio left under the session prefix, no transcript, summary or job rows, the meeting gone from the read API, another tenant refused, and a repeat delete still a 404 |
 
 ## Known concessions
 
@@ -135,6 +135,7 @@ Specs share one stack and run serially. A spec that breaks the stack on purpose 
   building the PWA in the run is what points it at this stack's API and issuer without a second set
   of committed configuration.
 - **Summary content is not asserted**, only the chain and the scoping — see above.
-- **Deletion is driven through the API, not the UI**, because there is no deletion screen yet.
-  Everything up to the deletion goes through the browser, so what is deleted is a genuinely
-  recorded meeting; the spec moves to the UI once one exists.
+- **The PWA is served through a proxy, not next to the API.** A deployment puts one reverse proxy
+  in front of both, so the app makes same-origin requests and no CORS is involved. `vite preview`
+  reproduces that with `QUORUM_PREVIEW_API_TARGET`; pointing the app at a different origin instead
+  would test a shape the product does not ship.

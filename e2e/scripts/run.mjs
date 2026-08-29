@@ -155,7 +155,10 @@ async function main() {
       cwd: repoRoot,
       env: {
         ...process.env,
-        VITE_API_BASE_URL: apiUrl,
+        // Empty: the app talks to its own origin, and `vite preview` proxies to the API. That is
+        // the deployment shape (one reverse proxy in front of both), so no CORS is involved here
+        // and none is needed in production either.
+        VITE_API_BASE_URL: "",
         VITE_OIDC_ISSUER_URL: `${keycloakUrl}/realms/quorum`,
         VITE_OIDC_CLIENT_ID: stack.OIDC_CLIENT_ID,
         VITE_OIDC_SCOPE: "openid profile email",
@@ -177,7 +180,7 @@ async function main() {
         String(clientPort),
         "--strictPort",
       ],
-      { cwd: repoRoot },
+      { cwd: repoRoot, env: { ...process.env, QUORUM_PREVIEW_API_TARGET: apiUrl } },
     );
     await waitForHttp(clientUrl, "the PWA", 60_000);
   });

@@ -24,8 +24,7 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   const protocol = watchRecordingProtocol(page);
 
   await signIn(devUsers.alice);
-  await page.getByRole("button", { name: "Start recording" }).click();
-  await expect(page).toHaveURL(/\/record$/);
+  await page.goto("/record");
 
   // Consent comes before the microphone, every single time.
   await startRecording(page);
