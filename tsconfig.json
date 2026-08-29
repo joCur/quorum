@@ -4,6 +4,8 @@
     { "path": "./shared" },
     { "path": "./shared/tsconfig.test.json" },
     { "path": "./server" },
-    { "path": "./server/tsconfig.test.json" }
+    { "path": "./server/tsconfig.test.json" },
+    { "path": "./worker" },
+    { "path": "./worker/tsconfig.test.json" }
   ]
 }

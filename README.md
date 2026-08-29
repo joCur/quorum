@@ -50,6 +50,9 @@ Workspaces:
 - `server/` — package `@quorum/server`, the Fastify API: Keycloak JWT validation with a
   tenant-scoped request context, plus the WebSocket recording endpoint. See `server/README.md`
   for the scoping convention and the manual auth verification path.
+- `worker/` — package `@quorum/worker`, the job worker turning recorded audio into transcripts.
+  See `worker/README.md` for the transcription backends, the idempotency rules and the retry
+  and dead-letter behavior.
 
 Infrastructure configuration:
 
