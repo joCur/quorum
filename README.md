@@ -43,6 +43,7 @@ Root scripts (the same ones CI runs):
 | `pnpm run lint`      | ESLint plus a Prettier formatting check                        |
 | `pnpm run format`    | Rewrites files with Prettier                                   |
 | `pnpm run e2e`       | Placeholder until the Playwright suite lands                    |
+| `pnpm run dev:client` | Starts the PWA dev server on http://localhost:5173            |
 
 Workspaces:
 
@@ -50,6 +51,14 @@ Workspaces:
 - `server/` — package `@quorum/server`, the Fastify API: Keycloak JWT validation with a
   tenant-scoped request context, plus the WebSocket recording endpoint. See `server/README.md`
   for the scoping convention and the manual auth verification path.
+- `client/` — package `@quorum/client`, the React + Vite PWA
+
+### Web client
+
+The PWA reads its configuration from `VITE_*` variables; copy `client/.env.example` to
+`client/.env.local` and point `VITE_OIDC_ISSUER_URL` at the Keycloak realm before running
+`pnpm run dev:client`. Fonts and icons are bundled — the app makes no requests to any CDN at
+runtime, which a self-hosted deployment depends on.
 
 Infrastructure configuration:
 
@@ -58,6 +67,7 @@ Infrastructure configuration:
   clicking. Dev-only test users are documented in `infra/keycloak/README.md`.
 - `infra/postgres/init/` — provisions Keycloak's own logical database on the shared Postgres
   instance (no second database container).
+>>>>>>> origin/main
 
 ## Nächste Schritte (Walking Skeleton)
 

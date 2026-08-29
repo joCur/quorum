@@ -1,0 +1,89 @@
+{
+  "app": {
+    "name": "Quorum",
+    "tagline": "Deine Meetings. Deine Infrastruktur.",
+    "skipToContent": "Zum Inhalt springen"
+  },
+  "common": {
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "retry": "Erneut versuchen",
+    "loading": "Wird geladen…"
+  },
+  "auth": {
+    "signIn": "Anmelden",
+    "completing": "Anmeldung läuft…",
+    "error": "Die Anmeldung wurde nicht abgeschlossen."
+  },
+  "record": {
+    "unavailable": {
+      "title": "Die Aufnahme ist noch nicht angeschlossen",
+      "body": "Der Aufnahme-Flow kommt mit der nächsten Änderung. Alles drumherum steht bereit."
+    }
+  },
+  "nav": {
+    "label": "Hauptnavigation",
+    "meetings": "Meetings",
+    "record": "Aufnehmen",
+    "templates": "Vorlagen",
+    "settings": "Einstellungen"
+  },
+  "meetings": {
+    "title": "Meetings",
+    "empty": {
+      "title": "Dein erstes Meeting wartet",
+      "body": "Nimm es hier auf — Transkript und Zusammenfassung folgen von selbst.",
+      "action": "Aufnahme starten",
+      "howItWorks": "So funktioniert Quorum"
+    }
+  },
+  "howItWorks": {
+    "title": "So funktioniert Quorum",
+    "intro": "Drei Schritte, alle auf Hardware, die dir gehört.",
+    "steps": {
+      "record": {
+        "title": "Aufnehmen",
+        "body": "Das Audio wird schon während der Aufnahme auf deinen Server übertragen — ein geschlossener Tab kostet dich nichts."
+      },
+      "transcribe": {
+        "title": "Transkribieren",
+        "body": "Die Spracherkennung läuft auf deiner eigenen Infrastruktur — kein Audio verlässt sie."
+      },
+      "summarize": {
+        "title": "Zusammenfassen",
+        "body": "Vorlagen bestimmen, was in einer Zusammenfassung steht. Forme sie so, wie dein Team arbeitet."
+      }
+    }
+  },
+  "templates": {
+    "title": "Vorlagen",
+    "empty": {
+      "title": "Zusammenfassungen nach deinen Regeln",
+      "body": "Der Vorlagen-Editor kommt noch. Bis dahin nutzt jede Zusammenfassung die Systemvorlage."
+    }
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "appearance": {
+      "title": "Darstellung",
+      "theme": "Design",
+      "system": "Wie das System",
+      "light": "Hell",
+      "dark": "Dunkel"
+    },
+    "language": {
+      "title": "Sprache",
+      "label": "Sprache der Oberfläche"
+    },
+    "about": {
+      "title": "Über",
+      "version": "Version",
+      "selfHosted": "Dies ist eine selbst gehostete Quorum-Instanz."
+    }
+  },
+  "notFound": {
+    "title": "Hier ist nichts",
+    "body": "Diese Seite gibt es nicht.",
+    "action": "Zurück zu den Meetings"
+  }
+}
