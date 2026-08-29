@@ -2,6 +2,13 @@
 
 Prozess übernommen aus Grimoire, bestätigt vom PO am 2026-08-29.
 
+## Language policy
+
+- **All code and documentation is written in American English (en-US) — 100%, no exceptions.** No German identifiers, comments, commit messages, ADRs, or issue texts.
+- All user-facing strings go through **i18n** — never hard-coded German (or any other language) in code.
+- Existing German founding documents are migrated via a dedicated ticket; new content is English from now on.
+- (Chat communication with the PO remains German.)
+
 ## Git & PR-Prozess
 
 - **main ist geschützt — per Prozess, nicht per Branch Protection** (Free-Plan, privates Repo). NIE direkt auf main pushen, keine Ausnahmen.
