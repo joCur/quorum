@@ -5,6 +5,7 @@ import { HeaderRecordingContextProvider } from "./recording/context-provider.js"
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import { PgBossJobQueue } from "./recording/queue/pg-boss.js";
 import { S3RecordingStorage } from "./recording/storage/s3.js";
+import { PostgresMeetingStore } from "./meetings/repository.js";
 
 export { buildServer } from "./app.js";
 export type { BuildServerOptions } from "./app.js";
@@ -35,6 +36,23 @@ export * from "./recording/audio-format.js";
 export * from "./recording/session.js";
 export { default as recordingPlugin } from "./recording/plugin.js";
 export { S3RecordingStorage } from "./recording/storage/s3.js";
+export * from "./meetings/status.js";
+export {
+  PostgresMeetingStore,
+  DEFAULT_MEETING_LIMIT,
+  MAX_MEETING_LIMIT,
+  escapeLike,
+} from "./meetings/repository.js";
+export type {
+  ListMeetingsOptions,
+  MeetingDetailRow,
+  MeetingRecord,
+  MeetingScope,
+  MeetingStore,
+} from "./meetings/repository.js";
+export { InMemoryMeetingStore } from "./meetings/memory.js";
+export { MEETING_MIGRATIONS } from "./meetings/schema.js";
+export { meetingRoutes } from "./meetings/routes.js";
 export { InMemoryRecordingStorage } from "./recording/storage/memory.js";
 export { PgBossJobQueue, TRANSCRIBE_QUEUE } from "./recording/queue/pg-boss.js";
 export { InMemoryJobQueue } from "./recording/queue/memory.js";
@@ -57,9 +75,13 @@ async function main(): Promise<void> {
   const queue = new PgBossJobQueue(config.DATABASE_URL);
   await queue.start();
 
+  const meetings = new PostgresMeetingStore(config.DATABASE_URL);
+  await meetings.migrate();
+
   const app = await buildServer({
     storage,
     queue,
+    meetings,
     auth: {
       verifyAccessToken: createTokenVerifier({
         issuers: oidc.acceptedIssuers,
@@ -82,6 +104,7 @@ async function main(): Promise<void> {
       void (async () => {
         await app.close();
         await queue.stop();
+        await meetings.close();
       })();
     });
   }

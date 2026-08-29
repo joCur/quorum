@@ -156,10 +156,16 @@ importers:
       pg-boss:
         specifier: ^12.28.1
         version: 12.28.1
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
       zod:
         specifier: ^3.25.76
         version: 3.25.76
     devDependencies:
+      '@quorum/worker':
+        specifier: workspace:*
+        version: link:../worker
       '@types/node':
         specifier: ^26.4.0
         version: 26.4.0
