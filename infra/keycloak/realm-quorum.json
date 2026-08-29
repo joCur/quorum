@@ -2,7 +2,7 @@
   "realm": "quorum",
   "displayName": "Quorum",
   "enabled": true,
-  "sslRequired": "external",
+  "sslRequired": "none",
   "registrationAllowed": false,
   "resetPasswordAllowed": true,
   "rememberMe": true,
