@@ -116,11 +116,11 @@ The summary is the "thinking" side of the product — it carries the plum identi
 
 ## 12. EmptyState (custom) — where playfulness lives
 
-Anatomy: spot illustration (inline SVG per DESIGN-SYSTEM.md §6, rises in once on mount), `text-3xl`-capable headline, one warm sentence, optional primary action. Never a bare "No data".
+Anatomy: icon tile (per DESIGN-SYSTEM.md §6: one large Lucide icon, 48px, stroke 1.75, inside a `--radius-lg` container filled with `honey-subtle`; the tile and the text below it rise in staggered on mount), `text-3xl`-capable headline, one warm sentence, optional primary action. Never a bare "No data" — and never illustrations, blobs, or characters (mascot was evaluated and rejected).
 
-- **Meetings list (first run):** mic-centered illustration in honey/teal; "Your first meeting awaits" / "Record it here — transcript and summary follow on their own." / [Start recording]. This doubles as onboarding: a secondary ghost link "How Quorum works" opens a 3-step explainer sheet (record → transcribe on your infrastructure → summarize your way), each step with its own small illustration.
+- **Meetings list (first run):** `Mic` icon tile in honey; "Your first meeting awaits" / "Record it here — transcript and summary follow on their own." / [Start recording]. This doubles as onboarding: a secondary ghost link "How Quorum works" opens a 3-step explainer sheet (record → transcribe on your infrastructure → summarize your way), each step with its own small icon tile (`Mic`, `FileText`, `ScrollText`).
 - **No transcript yet / no summary yet:** quiet processing panel (see STATES.md §4) — alive, not empty.
-- **No user templates:** plum illustration; "Summaries, your way" / "Start from the system template and shape the sections you actually need." / [Create a template].
+- **No user templates:** `ListChecks` icon tile in plum; "Summaries, your way" / "Start from the system template and shape the sections you actually need." / [Create a template].
 - **Deleted meeting URL:** calm, not playful — "This meeting was deleted." with a link back.
 
 ## 13. Feedback primitives

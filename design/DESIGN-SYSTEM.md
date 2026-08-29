@@ -178,9 +178,9 @@ Implement these consistently (utilities in `tokens.css` / Tailwind config):
 
 [Lucide](https://lucide.dev) (ISC license, ships with shadcn/ui). 20px default in dense UI, 24px in nav/controls. Stroke width 2 (1.75 at small sizes). Key mappings: `Mic` record, `Square` stop, `Pause`/`Play`, `FileText` transcript, `ScrollText` summary, `CloudOff` offline, `Loader2` processing (spin), `Trash2` delete, `Settings`, `ListChecks` templates, `Sparkles` arrival moments.
 
-**Spot illustrations** (empty states, onboarding): simple inline SVG compositions built from the system's own vocabulary — rounded blobs and arcs in `honey-subtle`/`plum-subtle`/`accent` fills with `primary`/`honey`/`plum` strokes, plus a Lucide icon as the focal point. No external illustration libraries. All SVGs theme via tokens so they work in dark mode.
+**Empty-state visuals** (empty states, onboarding): no illustrations, no abstract shapes, no characters. The visual is a single large Lucide icon (48px, `stroke-width 1.75`) in a soft rounded container — a `--radius-lg` tile filled with `honey-subtle` (or `plum-subtle` for template contexts), icon stroked in `honey`/`plum`. Warmth comes from color, radius, typography, and the existing motion language (staggered rise-in) — not from figures. Everything themes via tokens for dark mode.
 
-**Mascot — Quill (approved, used sparingly):** a small, soft blob character derived from the breathing-dot motif — a rounded honey-colored squircle with two dot eyes and a quiet smile, drawn in the same inline-SVG vocabulary as the spot illustrations. Placement rules are strict: Quill appears only in empty states and onboarding (the designated playful zones), always small and secondary to the message, never animated in a looping way, and **never** near consent, recording, failures, or deletion. If a screen has any stakes, Quill is not on it. One character, one expression per state, no speech bubbles — Quill observes warmly; the UI does the talking.
+**Mascot: evaluated and rejected.** A mascot character (blob figure with a face) was prototyped for the empty states and rejected by the PO — it does not meet the quality bar and is out of scope, not deferred. Do not reintroduce characters or organic blob artwork; the icon-tile pattern above is the standard for empty-state visuals.
 
 ## 7. Accessibility baseline
 
