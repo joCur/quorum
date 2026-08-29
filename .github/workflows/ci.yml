@@ -13,25 +13,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The pnpm version comes from the "packageManager" field in package.json.
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck
 
       - name: Tests
-        run: npm test
+        run: pnpm test
 
       - name: Build
-        run: npm run build
+        run: pnpm run build
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
 
   e2e:
     name: E2E (critical paths)
@@ -42,13 +45,15 @@ jobs:
         id: e2e
         run: |
           if [ -d e2e ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: pnpm/action-setup@v4
+        if: steps.e2e.outputs.present == 'true'
       - uses: actions/setup-node@v4
         if: steps.e2e.outputs.present == 'true'
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
       - name: Run E2E
         if: steps.e2e.outputs.present == 'true'
         run: |
-          npm ci
-          npm run e2e
+          pnpm install --frozen-lockfile
+          pnpm run e2e

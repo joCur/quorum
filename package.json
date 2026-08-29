@@ -4,16 +4,15 @@
   "private": true,
   "type": "module",
   "description": "Quorum — self-hosted meeting recording, transcription and configurable summaries.",
+  "packageManager": "pnpm@10.33.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22",
+    "pnpm": ">=10"
   },
-  "workspaces": [
-    "shared"
-  ],
   "scripts": {
     "typecheck": "tsc --build --force",
     "test": "vitest run",
-    "build": "npm run build --workspaces --if-present",
+    "build": "pnpm --recursive --if-present run build",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "e2e": "node scripts/e2e-placeholder.mjs"
