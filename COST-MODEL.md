@@ -32,6 +32,23 @@ Meeting-Stunden/Monat liegen die effektiven Kosten bei ~1,20 €/h (GPU-Fixkoste
 verteilt). Entlastung: stundenweise Abrechnung ohne Mindestlaufzeit (GPU nur bei
 Bedarf, Queue puffert) oder CPU-Transkription in der Frühphase.
 
+## Enforcement of the input-token assumption
+
+The 12–15k input tokens per meeting hour above are not a hope: the summary worker
+enforces them. `SUMMARY_MAX_INPUT_TOKENS` (default 14,000) caps the transcript
+handed to the model, and a longer recording keeps its head and its tail while the
+middle is elided on segment boundaries behind a visible marker. A four-hour
+workshop therefore costs what a one-hour meeting costs, instead of quadrupling the
+bill or failing on context length after the tokens were already paid for.
+
+The trade-off is deliberate and documented in `worker/README.md`: long meetings
+lose detail from their middle. Full fidelity for those means map-reduce over
+windows, which is a later ticket rather than a bigger prompt.
+
+Actual `promptTokens` / `completionTokens` are logged per summary job wherever the
+backend reports them, so these estimates can eventually be replaced by
+measurements.
+
 ## Pitch-Aussage
 
 Grenzkosten ~0,10 € pro Meeting-Stunde; Fixkosten 0 € (eigener Server) bis

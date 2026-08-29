@@ -99,10 +99,11 @@ services:
       postgres:
         condition: service_healthy
 
-  # The transcription worker (queue consumer: job queue -> Whisper -> summary API, ADR-005) does
-  # not exist as a workspace yet. Its service definition is kept here, commented out, so it can be
-  # switched on unchanged once the workspace lands — an uncommented service with a build path that
-  # does not exist makes `docker compose up` fail for everyone.
+  # The worker (queue consumer: transcribe -> Whisper, then summarize -> OpenAI-compatible chat
+  # API, ADR-005) exists as a workspace but has no container image yet. Its service definition is
+  # kept here, commented out, so it can be switched on unchanged once `worker/Dockerfile` lands —
+  # an uncommented service with a build path that does not exist makes `docker compose up` fail
+  # for everyone. Until then the worker runs on the host against the compose services.
   #
   # worker:
   #   build:

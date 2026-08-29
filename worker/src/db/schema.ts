@@ -3,16 +3,17 @@
  *
  * WHY PLAIN SQL: pg-boss already owns a PostgreSQL connection and runs its own
  * migrations on start (ADR-006 §3), so the worker adds a second small
- * connection and two idempotent `CREATE TABLE IF NOT EXISTS` statements rather
- * than an ORM plus a migration runner. Two tables do not justify that
- * machinery, and the statements below are the whole story. When the REST API
- * grows real query needs, moving to a proper migration tool is a contained
- * change — this file is the starting point, not a permanent home.
+ * connection and a handful of idempotent `CREATE TABLE IF NOT EXISTS`
+ * statements rather than an ORM plus a migration runner. A schema this size
+ * does not justify that machinery, and the statements below are the whole
+ * story. When the REST API grows real query needs, moving to a proper migration
+ * tool is a contained change — this file is the starting point, not a permanent
+ * home.
  *
- * WHY JSONB: transcripts are versioned, schema-validated documents that we read
- * whole and rarely query field by field (ADR-006 §4). The queryable metadata
- * lives in real columns next to the blob, which is what keeps the deletion
- * cascade of ADR-001 auditable.
+ * WHY JSONB: transcripts, summaries and templates are versioned,
+ * schema-validated documents that we read whole and rarely query field by field
+ * (ADR-006 §4). The queryable metadata lives in real columns next to the blob,
+ * which is what keeps the deletion cascade of ADR-001 auditable.
  */
 export const MIGRATIONS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS transcripts (
@@ -62,4 +63,56 @@ export const MIGRATIONS: readonly string[] = [
    )`,
 
   `CREATE INDEX IF NOT EXISTS jobs_tenant_meeting_idx ON jobs (tenant_id, meeting_id)`,
+
+  // Summary templates (ADR-004). The system default is seeded on worker start;
+  // user templates land in the same table with scope 'user' and a `based_on`
+  // pointing at the template they inherit from. The primary key is
+  // (id, version) because a template change is a new version, never an in-place
+  // edit — the snapshot in an existing summary has to stay resolvable.
+  `CREATE TABLE IF NOT EXISTS summary_templates (
+     id             uuid NOT NULL,
+     version        integer NOT NULL,
+     schema_version integer NOT NULL,
+     name           text NOT NULL,
+     scope          text NOT NULL,
+     tenant_id      text,
+     user_id        text,
+     based_on       uuid,
+     template       jsonb NOT NULL,
+     created_at     timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (id, version)
+   )`,
+
+  // A system template belongs to no tenant; user templates are tenant scoped.
+  `CREATE INDEX IF NOT EXISTS summary_templates_tenant_idx
+     ON summary_templates (tenant_id, scope)`,
+
+  `CREATE TABLE IF NOT EXISTS summaries (
+     id               uuid PRIMARY KEY,
+     job_id           uuid NOT NULL UNIQUE,
+     meeting_id       uuid NOT NULL,
+     transcript_id    uuid NOT NULL,
+     tenant_id        text NOT NULL,
+     user_id          text NOT NULL,
+     session_id       uuid NOT NULL,
+     schema_version   integer NOT NULL,
+     template_id      uuid NOT NULL,
+     template_version integer NOT NULL,
+     model            text NOT NULL,
+     prompt_version   text NOT NULL,
+     is_active        boolean NOT NULL DEFAULT true,
+     created_at       timestamptz NOT NULL,
+     summary          jsonb NOT NULL
+   )`,
+
+  // ADR-004 §3: a meeting may have many summaries, but only one active per
+  // template — regenerating with the same template supersedes, summarizing with
+  // a different template adds. Enforced by the database, not by convention.
+  `CREATE UNIQUE INDEX IF NOT EXISTS summaries_one_active_per_meeting_template
+     ON summaries (meeting_id, template_id) WHERE is_active`,
+
+  `CREATE INDEX IF NOT EXISTS summaries_tenant_meeting_idx
+     ON summaries (tenant_id, meeting_id)`,
+
+  `CREATE INDEX IF NOT EXISTS summaries_transcript_idx ON summaries (transcript_id)`,
 ];

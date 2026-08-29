@@ -1,5 +1,5 @@
 /**
- * Error taxonomy for the transcription pipeline.
+ * Error taxonomy for the transcription and summary pipelines.
  *
  * `code` is the machine-readable value that ends up in `Job.error.code`
  * (`shared/src/job.ts`); `retryable` decides whether pg-boss gets another
@@ -26,8 +26,27 @@ export const JOB_ERROR_CODES = [
   "TRANSCRIPT_INVALID",
   /** Writing the transcript to PostgreSQL failed. */
   "TRANSCRIPT_PERSIST_FAILED",
-  /** The job payload on the queue is not a transcribe payload we understand. */
+  /** The job payload on the queue is not a payload we understand. */
   "JOB_PAYLOAD_INVALID",
+
+  // ---- Summary pipeline (ADR-004, ADR-005) ----
+  /** The transcript the summarize job refers to does not exist (any more). */
+  "TRANSCRIPT_NOT_FOUND",
+  /** The transcript carries no usable text, so there is nothing to summarize. */
+  "TRANSCRIPT_EMPTY",
+  /** The summarize job names a template that is not stored. */
+  "SUMMARY_TEMPLATE_NOT_FOUND",
+  /** Summary backend unreachable, overloaded or failing — worth another attempt. */
+  "SUMMARY_UNAVAILABLE",
+  /** Backend rejected the request (bad model name, unauthorized, too large). */
+  "SUMMARY_REJECTED",
+  /** The model answered, but not in the structure the template demands. */
+  "SUMMARY_RESPONSE_INVALID",
+  /** The mapped result does not satisfy the summary schema. */
+  "SUMMARY_INVALID",
+  /** Writing the summary to PostgreSQL failed. */
+  "SUMMARY_PERSIST_FAILED",
+
   /** Anything we did not anticipate. */
   "INTERNAL_ERROR",
 ] as const;
@@ -72,4 +91,23 @@ export function errorCodeForHttpStatus(status: number): { code: JobErrorCode; re
     return { code: "TRANSCRIPTION_UNAVAILABLE", retryable: true };
   }
   return { code: "TRANSCRIPTION_REJECTED", retryable: false };
+}
+
+/**
+ * Maps an HTTP status from the summary backend onto our taxonomy.
+ *
+ * The split differs from transcription in one place that matters for cost:
+ * 413 ("context/payload too large") is terminal, because sending the same
+ * oversized prompt again burns tokens for the same answer. Rate limits (429),
+ * timeouts (408) and 5xx are the transient cases a hosted router produces under
+ * load, and a self-hosted endpoint produces while it loads a model.
+ */
+export function summaryErrorCodeForHttpStatus(status: number): {
+  code: JobErrorCode;
+  retryable: boolean;
+} {
+  if (status === 408 || status === 429 || status >= 500) {
+    return { code: "SUMMARY_UNAVAILABLE", retryable: true };
+  }
+  return { code: "SUMMARY_REJECTED", retryable: false };
 }

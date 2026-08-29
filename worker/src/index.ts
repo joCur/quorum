@@ -1,10 +1,13 @@
 import { PgBoss } from "pg-boss";
 import { loadConfig } from "./config.js";
 import { createLogger } from "./logger.js";
-import { PostgresTranscriptRepository } from "./db/repository.js";
+import { PostgresRepository } from "./db/repository.js";
 import { S3AudioSource } from "./storage/audio-source.js";
 import { OpenAiTranscriptionClient } from "./whisper/client.js";
-import { startTranscribeWorker } from "./worker.js";
+import { OpenAiChatClient } from "./summary/chat-client.js";
+import { PgBossSummaryEnqueuer } from "./summary/enqueue.js";
+import { SYSTEM_SUMMARY_TEMPLATE } from "./summary/template.js";
+import { startSummarizeWorker, startTranscribeWorker } from "./worker.js";
 
 export { loadConfig, WorkerConfigSchema, type WorkerConfig } from "./config.js";
 export { createLogger, type WorkerLogger } from "./logger.js";
@@ -23,9 +26,11 @@ export {
 export * from "./transcript/map.js";
 export { MIGRATIONS } from "./db/schema.js";
 export {
-  PostgresTranscriptRepository,
+  PostgresRepository,
   type TranscriptRepository,
+  type SummaryRepository,
   type SaveTranscriptResult,
+  type SaveSummaryResult,
   type JobScope,
 } from "./db/repository.js";
 export {
@@ -33,14 +38,41 @@ export {
   type TranscribeHandlerDependencies,
   type TranscribeOutcome,
 } from "./handler.js";
-export { startTranscribeWorker, type TranscribeWorkerOptions } from "./worker.js";
+export * from "./summary/template.js";
+export * from "./summary/transcript-window.js";
+export * from "./summary/prompt.js";
+export * from "./summary/parse.js";
+export * from "./summary/map.js";
+export * from "./summary/enqueue.js";
+export {
+  OpenAiChatClient,
+  type ChatCompletionClient,
+  type ChatCompletionResult,
+  type ChatMessage,
+} from "./summary/chat-client.js";
+export {
+  runSummarizeJob,
+  type SummarizeHandlerDependencies,
+  type SummarizeOutcome,
+} from "./summary/handler.js";
+export {
+  startTranscribeWorker,
+  startSummarizeWorker,
+  type TranscribeWorkerOptions,
+  type SummarizeWorkerOptions,
+  type QueuePolicy,
+} from "./worker.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.LOG_LEVEL);
 
-  const repository = new PostgresTranscriptRepository(config.DATABASE_URL);
+  const repository = new PostgresRepository(config.DATABASE_URL);
   await repository.migrate();
+  // The system default template has to exist before the first summary job runs
+  // (ADR-004 §1). Seeding is an insert-if-absent of one immutable version, so
+  // every replica can do it on every start.
+  await repository.seedTemplate(SYSTEM_SUMMARY_TEMPLATE);
 
   const audio = new S3AudioSource({
     endpoint: config.S3_ENDPOINT,
@@ -57,6 +89,16 @@ async function main(): Promise<void> {
     timeoutMs: config.WHISPER_TIMEOUT_MS,
   });
 
+  const chat = new OpenAiChatClient({
+    baseUrl: config.SUMMARY_BASE_URL,
+    model: config.SUMMARY_MODEL,
+    apiKey: config.SUMMARY_API_KEY,
+    temperature: config.SUMMARY_TEMPERATURE,
+    maxOutputTokens: config.SUMMARY_MAX_OUTPUT_TOKENS,
+    timeoutMs: config.SUMMARY_TIMEOUT_MS,
+    jsonMode: config.SUMMARY_JSON_MODE,
+  });
+
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });
   boss.on("error", (error: unknown) => logger.error({ err: error }, "pg-boss error"));
   await boss.start();
@@ -68,7 +110,24 @@ async function main(): Promise<void> {
     repository,
     logger,
     language: config.WHISPER_LANGUAGE,
+    // Chaining the summary onto a persisted transcript is what makes the core
+    // path of CLAUDE.md ("recording → transcript → summary") run end to end
+    // without anyone pressing a button.
+    summaries: new PgBossSummaryEnqueuer(boss),
+    summaryTemplateId: SYSTEM_SUMMARY_TEMPLATE.id,
     concurrency: config.WORKER_CONCURRENCY,
+    retryLimit: config.WORKER_RETRY_LIMIT,
+    retryDelaySeconds: config.WORKER_RETRY_DELAY_SECONDS,
+    jobExpireSeconds: config.WORKER_JOB_EXPIRE_SECONDS,
+  });
+
+  await startSummarizeWorker({
+    boss,
+    chat,
+    repository,
+    logger,
+    maxInputTokens: config.SUMMARY_MAX_INPUT_TOKENS,
+    concurrency: config.SUMMARY_CONCURRENCY,
     retryLimit: config.WORKER_RETRY_LIMIT,
     retryDelaySeconds: config.WORKER_RETRY_DELAY_SECONDS,
     jobExpireSeconds: config.WORKER_JOB_EXPIRE_SECONDS,
@@ -79,9 +138,12 @@ async function main(): Promise<void> {
       event: "worker.started",
       whisperBaseUrl: config.WHISPER_BASE_URL,
       whisperModel: config.WHISPER_MODEL,
+      summaryBaseUrl: config.SUMMARY_BASE_URL,
+      summaryModel: config.SUMMARY_MODEL,
       concurrency: config.WORKER_CONCURRENCY,
+      summaryConcurrency: config.SUMMARY_CONCURRENCY,
     },
-    "transcription worker is consuming jobs",
+    "worker is consuming transcribe and summarize jobs",
   );
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {

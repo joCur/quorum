@@ -7,6 +7,7 @@ import { JobError, toJobError } from "./errors.js";
 import { audioFileDescriptor } from "./storage/manifest.js";
 import { mapResponseToTranscript } from "./transcript/map.js";
 import type { TranscribeJobPayload } from "./payload.js";
+import type { SummaryEnqueuer } from "./summary/enqueue.js";
 
 export interface TranscribeHandlerDependencies {
   audio: AudioSource;
@@ -15,6 +16,13 @@ export interface TranscribeHandlerDependencies {
   logger: WorkerLogger;
   /** Language hint forwarded to the backend; omitted means auto-detect. */
   language?: string | undefined;
+  /**
+   * Enqueues the follow-up summary job. Omitted, the pipeline stops at the
+   * transcript — which is what the tests of the transcription half do.
+   */
+  summaries?: SummaryEnqueuer | undefined;
+  /** Template the automatic summary uses; the system default in production. */
+  summaryTemplateId?: string | undefined;
   now?: () => Date;
 }
 
@@ -24,6 +32,8 @@ export interface TranscribeOutcome {
   created: boolean;
   segmentCount: number;
   wordCount: number;
+  /** `true` when the follow-up summary job was placed on the queue. */
+  summaryEnqueued: boolean;
 }
 
 /**
@@ -111,6 +121,12 @@ export async function runTranscribeJob(
       0,
     );
 
+    const summaryEnqueued = await enqueueSummary(
+      { ...payload, transcriptId: saved.transcriptId, createdAt: now().toISOString() },
+      deps,
+      log,
+    );
+
     const succeeded: Job = {
       ...payload.job,
       status: "succeeded",
@@ -137,6 +153,7 @@ export async function runTranscribeJob(
       created: saved.created,
       segmentCount: transcript.segments.length,
       wordCount,
+      summaryEnqueued,
     };
   } catch (error) {
     const jobError = toJobError(error);
@@ -160,6 +177,53 @@ export async function runTranscribeJob(
       "transcription job failed",
     );
     throw jobError;
+  }
+}
+
+/**
+ * Chains the summary job onto a persisted transcript (ADR-004: the summary is
+ * the second half of the core path, and both halves are server-side jobs).
+ *
+ * WHY THIS DOES NOT FAIL THE JOB: the transcript is already committed at this
+ * point. Rethrowing here would hand the queue a failure whose only retry is a
+ * *second full transcription* — minutes of GPU time — to fix a queue insert
+ * that takes milliseconds. So the failure is logged loudly with its own event
+ * and the transcribe job still succeeds. Nothing is lost silently: the summarize
+ * job id is derived from the transcript (see `ids.ts`), so replaying the
+ * transcribe job or asking for the summary through the API lands on the exact
+ * same id, and the singleton key keeps that from ever producing two summaries.
+ */
+async function enqueueSummary(
+  input: TranscribeJobPayload & { transcriptId: string; createdAt: string },
+  deps: TranscribeHandlerDependencies,
+  log: WorkerLogger,
+): Promise<boolean> {
+  if (!deps.summaries || !deps.summaryTemplateId) return false;
+  try {
+    await deps.summaries.enqueue({
+      transcriptId: input.transcriptId,
+      meetingId: input.job.meetingId,
+      templateId: deps.summaryTemplateId,
+      tenantId: input.tenantId,
+      userId: input.userId,
+      sessionId: input.sessionId,
+      createdAt: input.createdAt,
+    });
+    log.info(
+      {
+        event: "summary.enqueued",
+        transcriptId: input.transcriptId,
+        templateId: deps.summaryTemplateId,
+      },
+      "summary job enqueued for the persisted transcript",
+    );
+    return true;
+  } catch (error) {
+    log.error(
+      { event: "summary.enqueue_failed", transcriptId: input.transcriptId, err: error },
+      "transcript was persisted but the summary job could not be enqueued",
+    );
+    return false;
   }
 }
 

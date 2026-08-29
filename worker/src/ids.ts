@@ -54,3 +54,20 @@ export function transcriptIdForJob(jobId: string): string {
 export function segmentId(transcriptId: string, index: number): string {
   return uuidV5(`segment:${transcriptId}:${index}`);
 }
+
+/** One summary per summarize job — same rule as the transcript. */
+export function summaryIdForJob(jobId: string): string {
+  return uuidV5(`summary:${jobId}`);
+}
+
+/**
+ * The id of the summarize job a finished transcript produces.
+ *
+ * Derived rather than random so the enqueue is idempotent: a transcribe job
+ * that is replayed after a crash computes the same summarize job id, and the
+ * pg-boss singleton key turns the second `send` into a no-op. Without this,
+ * every replay would pay for another LLM call.
+ */
+export function summarizeJobIdFor(transcriptId: string, templateId: string): string {
+  return uuidV5(`job:summarize:${transcriptId}:${templateId}`);
+}
