@@ -26,9 +26,9 @@ Recording other people is the user's legal responsibility (PITCH.md, legal stanc
 **Visual**
 - Dedicated recording screen: large mono timer (`text-timer`, tabular), the breathing `RecordingIndicator` (COMPONENTS.md §3 — pulse modulated by live mic level: the app visibly listens), RecordButton in stop form, Pause button, meeting title field (editable inline, optional).
 - Live input-level meter (thin rounded bar under the timer) reinforces trust that the mic is picking up audio. If input is silent for > 10s while recording: inline hint "No audio detected — check your microphone" (`warning`).
-- Sync status line under the timer, always visible and honest, driven by `chunk.ack`/`persistedSeq`:
-  - All acked: `Synced` with `Check` (muted, quiet).
-  - Chunks in flight/buffered: `Saving to server… (12s buffered on device)`.
+- Sync status line under the timer, driven by `chunk.ack`/`persistedSeq` — and silent whenever there is nothing to say (§9):
+  - All acked: **nothing at all**. The breathing indicator and the running timer already confirm the recording is alive; a standing `Synced` would be text the user can act on in no way.
+  - Chunks still waiting: `Saving your recording… (12s still on this device)`, after a short delay and with a minimum time on screen, so the ordinary sub-second round trip never flashes up.
 - Screen wake lock active; leaving the screen keeps the session and shows the persistent `RecordingBar` on other screens.
 
 **Behavior**
@@ -117,3 +117,16 @@ Defined per component in COMPONENTS.md §12 — the designated home of playfulne
 - Persistent conditions live in persistent UI (banners, badges, stepper); toasts only for transient confirmations.
 - All celebrations and micro-interactions honor `prefers-reduced-motion` (DESIGN-SYSTEM.md §5).
 - All copy above is direction, not final — final strings live in the i18n catalog.
+
+## 9. The resting state is silent
+
+A status surface says nothing while everything is fine. "Working as intended" is not news, and a standing reassurance — `Synced`, `Connected`, `All good` — is text the reader can do nothing with; it costs attention every time the eye passes it, and it dulls the states that do matter.
+
+Every visible status string must survive one question: **what does the reader now know, and what could they do with it?** If the answer is "nothing", or "nothing they weren't already doing", the surface stays empty. Status text is for conditions that inform a decision: work still outstanding (with the real figure attached), a degraded or lost connection, a failure, a choice to be made.
+
+Absence of a message is not absence of feedback. Liveness is carried by the elements that are alive anyway — the breathing indicator, a running timer, a filling level meter. They already prove the system is working, and they do it without words. This is the same honesty rule as the rest of this file; it just recognizes that for the healthy case, saying nothing is the accurate report.
+
+Two consequences worth stating outright:
+
+- A message that does appear must be readable. Transient conditions get a short delay before they appear at all and a minimum time on screen once they have, so a state that resolves in a heartbeat never flashes up unread (the recording sync line, §2 and §3).
+- The screen-reader live region stays mounted even while it is empty, so the message that does arrive is announced rather than lost together with the element that carried it.

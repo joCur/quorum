@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "Quorum",
-    "tagline": "Your meetings. Your infrastructure.",
+    "tagline": "Your meetings. Your data.",
     "skipToContent": "Skip to content"
   },
   "common": {
@@ -15,10 +15,55 @@
     "completing": "Signing you in…",
     "error": "Sign-in did not complete."
   },
-  "record": {
-    "unavailable": {
-      "title": "Recording is not wired up yet",
-      "body": "The capture flow arrives in the next change. Everything around it is ready for it."
+  "consent": {
+    "title": "Before you record",
+    "body": "You are responsible for informing all participants that this meeting is being recorded, and for obtaining any consent required where you are. Quorum cannot notify participants outside this app.",
+    "confirm": "I have informed the participants"
+  },
+  "recording": {
+    "title": "New recording",
+    "start": "Record",
+    "starting": "Starting…",
+    "stop": "Stop",
+    "resume": "Resume",
+    "pause": "Pause",
+    "finishing": "Finishing…",
+    "noAudio": "No audio detected — check your microphone.",
+    "levelMeter": "Microphone input level",
+    "wakeLockUnsupported": "This browser cannot keep the screen awake. Recording continues if the screen turns off, but keep the tab open.",
+    "indicator": {
+      "recording": "REC",
+      "paused": "PAUSED"
+    },
+    "titleField": {
+      "label": "Meeting title",
+      "placeholder": "Optional — you can add it later"
+    },
+    "confirmStop": {
+      "question": "Stop recording?",
+      "confirm": "Stop"
+    },
+    "sync": {
+      "saving": "Saving your recording… ({{seconds}}s still on this device)",
+      "unstable": "Connection unstable — {{seconds}}s still on this device"
+    },
+    "banner": {
+      "offline": "Offline — recording continues, your audio is safe on this device ({{seconds}}s buffered)",
+      "reconnecting": "Reconnecting… {{seconds}}s buffered on this device",
+      "storage": "Device storage is almost full. Reconnect so the buffered audio can upload."
+    },
+    "error": {
+      "permission-denied": "Quorum needs access to your microphone to record. Allow it in your browser and try again.",
+      "unsupported": "This browser cannot record audio. Try a current version of Chrome, Firefox or Safari.",
+      "storage": "The recording was stopped because audio could not be stored on this device.",
+      "connection": "The connection failed. Your audio is safe on this device.",
+      "unknown": "Recording could not be started."
+    },
+    "recovery": {
+      "title": "A recording was interrupted",
+      "body": "Audio from {{date}} is still on this device and has not been saved yet.",
+      "upload": "Upload and finish",
+      "discard": "Discard"
     }
   },
   "nav": {
@@ -39,15 +84,15 @@
   },
   "howItWorks": {
     "title": "How Quorum works",
-    "intro": "Three steps, all of them on hardware you control.",
+    "intro": "Three steps — you only do the first one.",
     "steps": {
       "record": {
         "title": "Record",
-        "body": "Audio streams to your server while you record, so nothing is lost if a tab closes."
+        "body": "Your audio is saved as you record, so a closed tab or a dropped connection costs you nothing."
       },
       "transcribe": {
         "title": "Transcribe",
-        "body": "Speech recognition runs on your own infrastructure — no audio leaves it."
+        "body": "Speech recognition turns the recording into text you can read, search and jump around in."
       },
       "summarize": {
         "title": "Summarize",
@@ -78,7 +123,7 @@
     "about": {
       "title": "About",
       "version": "Version",
-      "selfHosted": "This is a self-hosted Quorum instance."
+      "privacy": "Your recordings, transcripts and summaries stay in your account."
     }
   },
   "notFound": {

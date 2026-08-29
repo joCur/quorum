@@ -25,7 +25,7 @@ export default defineConfig({
       manifest: {
         name: "Quorum",
         short_name: "Quorum",
-        description: "Record meetings, get transcripts and summaries on your own infrastructure.",
+        description: "Record your meetings and get transcripts and summaries you can shape.",
         start_url: "/",
         scope: "/",
         display: "standalone",

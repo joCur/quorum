@@ -21,6 +21,18 @@ export function App() {
       <Route path="/login" element={<LoginRoute />} />
       <Route path={AUTH_CALLBACK_PATH} element={<AuthCallbackRoute />} />
 
+      {/* The recording screen sits outside the shell: it is full-screen and
+          distraction-free on every size, with no navigation competing with the
+          record control. */}
+      <Route
+        path="/record"
+        element={
+          <RequireAuth>
+            <RecordRoute />
+          </RequireAuth>
+        }
+      />
+
       <Route
         element={
           <RequireAuth>
@@ -30,7 +42,6 @@ export function App() {
       >
         <Route index element={<Navigate to="/meetings" replace />} />
         <Route path="/meetings" element={<MeetingsRoute />} />
-        <Route path="/record" element={<RecordRoute />} />
         <Route path="/templates" element={<TemplatesRoute />} />
         <Route path="/settings" element={<SettingsRoute />} />
         <Route path="*" element={<NotFoundRoute />} />
