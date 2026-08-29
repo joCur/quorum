@@ -43,10 +43,20 @@ Root scripts (the same ones CI runs):
 | `pnpm run lint`      | ESLint plus a Prettier formatting check                        |
 | `pnpm run format`    | Rewrites files with Prettier                                   |
 | `pnpm run e2e`       | Placeholder until the Playwright suite lands (issue #10)        |
+| `pnpm run dev:client` | Starts the PWA dev server on http://localhost:5173            |
 
 Workspaces:
 
 - `shared/` — package `@quorum/shared`, the zod schemas shared by client and server
+- `server/` — package `@quorum/server`, the Fastify API and the WebSocket recording endpoint
+- `client/` — package `@quorum/client`, the React + Vite PWA
+
+### Web client
+
+The PWA reads its configuration from `VITE_*` variables; copy `client/.env.example` to
+`client/.env.local` and point `VITE_OIDC_ISSUER_URL` at the Keycloak realm before running
+`pnpm run dev:client`. Fonts and icons are bundled — the app makes no requests to any CDN at
+runtime, which a self-hosted deployment depends on.
 
 ## Nächste Schritte (Walking Skeleton)
 

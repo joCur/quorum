@@ -1,9 +1,23 @@
 {
   "files": [],
   "references": [
-    { "path": "./shared" },
-    { "path": "./shared/tsconfig.test.json" },
-    { "path": "./server" },
-    { "path": "./server/tsconfig.test.json" }
+    {
+      "path": "./shared"
+    },
+    {
+      "path": "./shared/tsconfig.test.json"
+    },
+    {
+      "path": "./server"
+    },
+    {
+      "path": "./server/tsconfig.test.json"
+    },
+    {
+      "path": "./client"
+    },
+    {
+      "path": "./client/tsconfig.test.json"
+    }
   ]
 }

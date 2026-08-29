@@ -1,0 +1,38 @@
+/**
+ * Global stylesheet.
+ *
+ * `tokens.css` is a verbatim copy of the design system's token file and is the
+ * only place raw color values appear. Components consume the semantic Tailwind
+ * classes generated from those tokens in `tailwind.config.ts`.
+ */
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    /* Keeps the app from bouncing when a bottom sheet or dialog opens. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "tnum" 0;
+  }
+
+  /* Durations and timestamps must never jitter as digits change. */
+  .tabular-figures {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
