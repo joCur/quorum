@@ -92,6 +92,31 @@ export async function findSummary(sessionId: string): Promise<SummaryRow | null>
 }
 
 /**
+ * Queue rows pg-boss still holds for a meeting, live and archived.
+ *
+ * These are queue internals, and the deletion cascade reaches into them on purpose: a `transcribe`
+ * job left behind would be picked up after the delete and write a fresh transcript for a meeting
+ * that no longer exists. That is the one thing the deletion promise cannot survive, so the suite
+ * checks it rather than trusting the comment.
+ */
+export async function countQueueRows(meetingId: string): Promise<number> {
+  let total = 0;
+  for (const table of ["job", "archive"] as const) {
+    const [present] = await sql<{ exists: boolean }[]>`
+      SELECT to_regclass(${`pgboss.${table}`}) IS NOT NULL AS exists
+    `;
+    if (present?.exists !== true) continue;
+    const rows = await sql<{ count: string }[]>`
+      SELECT count(*) AS count
+      FROM ${sql("pgboss")}.${sql(table)}
+      WHERE data->'job'->>'meetingId' = ${meetingId}
+    `;
+    total += Number.parseInt(rows[0]?.count ?? "0", 10);
+  }
+  return total;
+}
+
+/**
  * How many rows a table still holds for a session — the shape a deletion assertion needs.
  */
 export async function countRowsForSession(

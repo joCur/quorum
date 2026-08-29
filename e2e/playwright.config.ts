@@ -15,7 +15,11 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env["CI"],
-  retries: process.env["CI"] ? 1 : 0,
+  // No retries anywhere, and a flaky test fails the run. A suite that guards critical paths is
+  // only worth reading if green means "every test passed on its first attempt" — a retry that
+  // turns red into green hides exactly the races these tests exist to catch.
+  retries: 0,
+  failOnFlakyTests: true,
   timeout: 120_000,
   expect: { timeout: 15_000 },
   reporter: process.env["CI"] ? [["github"], ["html", { open: "never" }]] : [["list"]],

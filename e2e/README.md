@@ -120,6 +120,14 @@ claim, those two are the evidence.
 Specs share one stack and run serially. A spec that breaks the stack on purpose puts it back in an
 `afterAll`.
 
+**There are no retries, locally or in CI, and a flaky test fails the run** (`failOnFlakyTests`).
+Green has to mean every test passed on its first attempt, or the suite stops being evidence: a
+retry that turns red into green hides exactly the races these tests exist to catch. So wait on the
+state that actually settles the question, never on a timer — and prefer the signal the system
+itself emits. The deletion spec is the worked example: the endpoint removes the audio first and the
+database rows second, so "the audio is gone" is true in a window where the rows still exist, and
+only the read API answering 404 means both steps are done.
+
 ## What the specs cover
 
 | Spec                       | Critical path  | What it proves                                                                                                                       |
@@ -127,7 +135,13 @@ Specs share one stack and run serially. A spec that breaks the stack on purpose 
 | `auth.spec.ts`             | Auth flows     | Sign-in through Keycloak's own form; the protected view renders; the token carries the tenant claim and the API agrees; no token means 401; a second tenant cannot address the first tenant's session |
 | `recording.spec.ts`        | The core path  | Consent → capture → stop; every chunk in object storage under the right tenant/user prefix with no gap; manifest consistent; `transcribe` job queued; transcript row written and scoped; the summary derived from it stored and scoped |
 | `crash-recovery.spec.ts`   | Crash recovery | The API is killed mid-recording: the banner names the buffered duration, capture keeps running, and after the restart the stored sequence is gap-free and duplicate-free |
-| `deletion-cascade.spec.ts` | Deletion       | A recorded meeting with a transcript and a summary is deleted through the list's delete flow: no audio left under the session prefix, no transcript, summary or job rows, the meeting gone from the read API, another tenant refused, and a repeat delete still a 404 |
+| `deletion-cascade.spec.ts` | Deletion       | A recorded meeting with a transcript and a summary is deleted through the list's delete flow: no audio left under the session prefix, no transcript, summary or job rows — pg-boss's own queue rows included — the meeting gone from the read API, another tenant refused, and a repeat delete still a 404 |
+
+## Reading the log
+
+`[vite] ws proxy error: ECONNREFUSED` lines during the run are expected: the crash-recovery spec
+stops the API on purpose, and the app reconnecting through the preview proxy while it is down is
+the behavior under test. They appear between that spec's start and the API coming back.
 
 ## Known concessions
 

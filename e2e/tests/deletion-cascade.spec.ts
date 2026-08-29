@@ -9,7 +9,12 @@ import {
 } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
 import { fetchToken } from "../support/keycloak.js";
-import { countRowsForSession, findSummary, findTranscript } from "../support/database.js";
+import {
+  countQueueRows,
+  countRowsForSession,
+  findSummary,
+  findTranscript,
+} from "../support/database.js";
 import { listKeys, sessionPrefix } from "../support/storage.js";
 
 /**
@@ -70,16 +75,31 @@ test("deletes a meeting and everything derived from it", async ({ page, signIn }
 
   await expect(deleteButton).toBeHidden({ timeout: 30_000 });
 
-  // The cascade, checked where the data lives. The list hides the row as soon as the request is
-  // accepted, so the storage side is polled rather than read once.
-  await waitFor(async () => (await listKeys(prefix)).length === 0, 30_000, "the audio to be gone");
+  // The list hides the row as soon as the request is accepted, so the row disappearing is not yet
+  // proof that anything was deleted. The endpoint deletes storage first and the database second —
+  // deliberately, so a crash in between leaves a meeting the user can simply delete again — which
+  // means a 404 from the read API is the one signal that says *both* steps are done. Waiting for
+  // that, rather than for the audio to vanish, is what makes the assertions below unambiguous.
+  await waitFor(
+    async () => {
+      const probe = await page.request.get(meetingUrl, {
+        headers: asAlice,
+        failOnStatusCode: false,
+      });
+      return probe.status() === 404;
+    },
+    30_000,
+    "the meeting to be gone from the read API",
+  );
+
+  // The cascade, checked where the data lives.
   expect(await listKeys(prefix)).toEqual([]);
   expect(await countRowsForSession("transcripts", sessionId)).toBe(0);
   expect(await countRowsForSession("summaries", sessionId)).toBe(0);
   expect(await countRowsForSession("jobs", sessionId)).toBe(0);
-
-  const after = await page.request.get(meetingUrl, { headers: asAlice, failOnStatusCode: false });
-  expect(after.status()).toBe(404);
+  // Including pg-boss's own rows: a job left in the queue would write a transcript for a meeting
+  // that no longer exists.
+  expect(await countQueueRows(meetingId)).toBe(0);
 
   // Deleting again is a 404, not an error — which is what makes a retry after a crash safe.
   const again = await page.request.delete(meetingUrl, {
