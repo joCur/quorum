@@ -16,6 +16,25 @@ working login without a single click in the admin console (ADR-006 §7).
 | User profile attribute `tenant_id` | Declared attribute so the tenant claim survives Keycloak's declarative user profile.              |
 | Dev users                          | See below.                                                                                        |
 
+## Transport security: `sslRequired`
+
+The realm sets `"sslRequired": "none"`, and that setting is the single clearest reason this file
+must never be imported anywhere but a development machine.
+
+Keycloak's default, `external`, demands HTTPS for every request that does not come from a local
+address. In the compose stack the browser reaches Keycloak through Docker's port proxy over plain
+HTTP, and the client address Keycloak sees is a bridge-network gateway — not a loopback address,
+and therefore "external" as far as that check is concerned. The result is an intermittent
+`HTTPS required` error on login: whether it happens depends on the network the container was given,
+so it works on one machine and fails on the next. `none` turns the check off, and a fresh checkout
+plus `docker compose up` logs in reliably over `http://localhost`.
+
+**Production must run behind TLS with `sslRequired` set back to `external`.** Terminate TLS in the
+reverse proxy, forward the protocol headers (`KC_PROXY_HEADERS=xforwarded`), and set `KC_HOSTNAME`
+to the public HTTPS origin. Without that, passwords, tokens and the admin console travel in clear
+text. The realm JSON here is a development fixture, not a production template — see "Before using
+this realm outside development" below.
+
 ## Session lifetimes
 
 Two different clocks are at work, and they are easy to confuse:
@@ -63,9 +82,11 @@ denial testable in the end-to-end auth suite.
 
 1. Delete the `quorum-dev-cli` client and the three `dev.*` users.
 2. Replace the `localhost` redirect URIs and web origins of `quorum-pwa` with the real origins.
-3. Start Keycloak with `start` instead of `start-dev` (see the comments on the `keycloak` service
+3. Set `"sslRequired": "external"` — see "Transport security" above. The `none` in this file is a
+   development convenience and unsafe anywhere else.
+4. Start Keycloak with `start` instead of `start-dev` (see the comments on the `keycloak` service
    in `docker-compose.yml`), behind TLS, with `KC_HOSTNAME` set to the public issuer origin.
-4. Set a real `KEYCLOAK_ADMIN_PASSWORD`; the value in `.env.example` is a placeholder.
+5. Set a real `KEYCLOAK_ADMIN_PASSWORD`; the value in `.env.example` is a placeholder.
 
 ## Changing the realm
 
