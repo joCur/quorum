@@ -4,20 +4,25 @@ import type { AudioFormat } from "@quorum/shared";
  * Tenant/user scope of a recording connection (ADR-001: every data object carries
  * the tenant and user scope from day one).
  *
- * Ticket #3 introduces the real JWT auth plugin. Until both branches land, the
- * recording plugin only depends on this interface, so wiring the real provider is
- * a one-line change in the server bootstrap.
+ * The recording plugin depends only on the provider interface below, so the source of the scope —
+ * a validated access token in production, request headers in local development — is a single
+ * argument in the server bootstrap.
  */
 export interface RecordingContext {
   tenantId: string;
   userId: string;
 }
 
+/** The part of an incoming WebSocket upgrade request a context provider may look at. */
+export interface RecordingContextRequest {
+  headers: Record<string, string | string[] | undefined>;
+  /** Set by the auth plugin when the upgrade carried a valid access token. */
+  auth?: RecordingContext | undefined;
+}
+
 /** Resolves the recording context for an incoming WebSocket upgrade request. */
 export interface RecordingContextProvider {
-  resolve(request: {
-    headers: Record<string, string | string[] | undefined>;
-  }): Promise<RecordingContext>;
+  resolve(request: RecordingContextRequest): Promise<RecordingContext>;
 }
 
 /** Persisted session metadata — written before the first chunk is acknowledged. */
@@ -63,7 +68,7 @@ export interface RecordingManifest {
   finalizedAt: string;
 }
 
-/** Thin queue port — the transcription worker itself is ticket #6. */
+/** Thin queue port — the transcription worker that consumes these jobs lives elsewhere. */
 export interface JobQueue {
   enqueueTranscribe(input: {
     jobId: string;

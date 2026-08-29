@@ -30,7 +30,7 @@ export interface S3StorageOptions {
  * function of the sequence number, which makes re-sends after a reconnect
  * idempotent overwrites and lets the server rebuild `persistedSeq` from a plain
  * prefix listing after a crash. Concatenation into a single audio object is the
- * worker's job (#6), driven by the manifest written on `session.end`.
+ * transcription worker's job, driven by the manifest written on `session.end`.
  */
 export class S3RecordingStorage implements RecordingStorage {
   private readonly client: S3Client;

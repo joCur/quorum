@@ -2,7 +2,7 @@ import { PgBoss } from "pg-boss";
 import { JobSchema, type Job } from "@quorum/shared";
 import type { JobQueue } from "../types.js";
 
-/** Queue name consumed by the transcription worker (ticket #6). */
+/** Queue name consumed by the transcription worker. */
 export const TRANSCRIBE_QUEUE = "transcribe";
 
 /**

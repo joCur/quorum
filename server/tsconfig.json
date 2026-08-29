@@ -4,6 +4,7 @@
     "composite": true,
     "rootDir": "./src",
     "outDir": "./dist",
+    "types": ["node"],
     "tsBuildInfoFile": "./dist/.tsbuildinfo"
   },
   "include": ["src/**/*.ts"],
