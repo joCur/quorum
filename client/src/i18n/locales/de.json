@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "Quorum",
-    "tagline": "Deine Meetings. Deine Infrastruktur.",
+    "tagline": "Deine Meetings. Deine Daten.",
     "skipToContent": "Zum Inhalt springen"
   },
   "common": {
@@ -44,9 +44,8 @@
       "confirm": "Stoppen"
     },
     "sync": {
-      "synced": "Synchronisiert",
-      "saving": "Wird zum Server übertragen… ({{seconds}} s auf diesem Gerät gepuffert)",
-      "unstable": "Verbindung instabil — {{seconds}} s auf diesem Gerät gepuffert"
+      "saving": "Aufnahme wird gesichert… ({{seconds}} s noch auf diesem Gerät)",
+      "unstable": "Verbindung instabil — {{seconds}} s noch auf diesem Gerät"
     },
     "banner": {
       "offline": "Offline — die Aufnahme läuft weiter, dein Audio liegt sicher auf diesem Gerät ({{seconds}} s gepuffert)",
@@ -57,12 +56,12 @@
       "permission-denied": "Quorum braucht Zugriff auf dein Mikrofon, um aufzunehmen. Erlaube den Zugriff im Browser und versuch es erneut.",
       "unsupported": "Dieser Browser kann kein Audio aufnehmen. Nimm eine aktuelle Version von Chrome, Firefox oder Safari.",
       "storage": "Die Aufnahme wurde gestoppt, weil Audio nicht auf diesem Gerät gespeichert werden konnte.",
-      "connection": "Die Verbindung zum Server ist fehlgeschlagen.",
+      "connection": "Die Verbindung ist fehlgeschlagen. Dein Audio liegt sicher auf diesem Gerät.",
       "unknown": "Die Aufnahme konnte nicht gestartet werden."
     },
     "recovery": {
       "title": "Eine Aufnahme wurde unterbrochen",
-      "body": "Audio vom {{date}} liegt noch auf diesem Gerät und hat den Server nicht erreicht.",
+      "body": "Audio vom {{date}} liegt noch auf diesem Gerät und wurde noch nicht gesichert.",
       "upload": "Hochladen und abschließen",
       "discard": "Verwerfen"
     }
@@ -85,15 +84,15 @@
   },
   "howItWorks": {
     "title": "So funktioniert Quorum",
-    "intro": "Drei Schritte, alle auf Hardware, die dir gehört.",
+    "intro": "Drei Schritte — nur den ersten machst du selbst.",
     "steps": {
       "record": {
         "title": "Aufnehmen",
-        "body": "Das Audio wird schon während der Aufnahme auf deinen Server übertragen — ein geschlossener Tab kostet dich nichts."
+        "body": "Dein Audio wird schon während der Aufnahme gesichert — ein geschlossener Tab oder eine abgerissene Verbindung kostet dich nichts."
       },
       "transcribe": {
         "title": "Transkribieren",
-        "body": "Die Spracherkennung läuft auf deiner eigenen Infrastruktur — kein Audio verlässt sie."
+        "body": "Die Spracherkennung macht aus der Aufnahme einen Text, den du lesen, durchsuchen und anspringen kannst."
       },
       "summarize": {
         "title": "Zusammenfassen",
@@ -124,7 +123,7 @@
     "about": {
       "title": "Über",
       "version": "Version",
-      "selfHosted": "Dies ist eine selbst gehostete Quorum-Instanz."
+      "privacy": "Deine Aufnahmen, Transkripte und Zusammenfassungen bleiben in deinem Konto."
     }
   },
   "notFound": {

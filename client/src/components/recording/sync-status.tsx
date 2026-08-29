@@ -1,4 +1,4 @@
-import { Check, UploadCloud } from "lucide-react";
+import { UploadCloud } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { roundSeconds } from "@/lib/duration";
 import { cn } from "@/lib/utils";
@@ -6,17 +6,19 @@ import { useTransientStatus } from "@/hooks/use-transient-status";
 import type { RecordingClientStatus } from "@/features/recording/protocol-client";
 
 /**
- * The honest line under the timer: what is on the server, and what is still only
- * on this device. Driven entirely by `chunk.ack`/`persistedSeq` — it never
- * claims more than the server has confirmed.
+ * The line under the timer, for the states that are worth a sentence.
  *
- * Honest does not mean twitchy. With one-second chunks a healthy connection has
- * something in flight for a fraction of every second, and rendering that
- * directly gives a line that flashes without ever being readable. The syncing
- * message therefore has to hold for a moment before it appears, and once it has
- * appeared it stays long enough to read. Nothing that matters is hidden: a
- * connection that is genuinely struggling keeps the condition true, so the
- * message appears and stays.
+ * When everything is on its way as it should be, this surface says nothing at
+ * all: the breathing indicator and the running timer already confirm the
+ * recording is alive, and a standing "Synced" would be text a user can do
+ * nothing with. Only states that inform a decision appear — audio still waiting
+ * on the device, and a connection that is not carrying it away.
+ *
+ * Silent does not mean twitchy either. With one-second chunks a healthy
+ * connection has something in flight for a fraction of every second, so the
+ * message has to hold for a moment before it appears, and stays long enough to
+ * read once it has. A connection that is genuinely struggling keeps the
+ * condition true, so the message appears and stays.
  */
 export function SyncStatus({ status }: { status: RecordingClientStatus | null }) {
   const { t } = useTranslation();
@@ -28,29 +30,29 @@ export function SyncStatus({ status }: { status: RecordingClientStatus | null })
     roundSeconds(status?.pendingSeconds ?? 0),
   );
 
-  if (!status) return null;
+  const message = degraded
+    ? t("recording.sync.unstable", { seconds })
+    : t("recording.sync.saving", { seconds });
 
   return (
-    <p
-      aria-live="polite"
-      className={cn(
-        "flex items-center gap-1.5 text-sm transition-colors ease-enter",
-        visible && degraded ? "text-warning" : "text-muted-foreground",
-      )}
-    >
+    <>
+      {/* The live region stays mounted so a state change is announced, rather
+          than lost together with the element that carried it. */}
+      <span className="sr-only" aria-live="polite">
+        {visible ? message : ""}
+      </span>
       {visible ? (
-        <>
+        <p
+          aria-hidden="true"
+          className={cn(
+            "flex animate-rise-in items-center gap-1.5 text-sm transition-colors ease-enter",
+            degraded ? "text-warning" : "text-muted-foreground",
+          )}
+        >
           <UploadCloud className="size-4" aria-hidden="true" />
-          {degraded
-            ? t("recording.sync.unstable", { seconds })
-            : t("recording.sync.saving", { seconds })}
-        </>
-      ) : (
-        <>
-          <Check className="size-4" aria-hidden="true" />
-          {t("recording.sync.synced")}
-        </>
-      )}
-    </p>
+          {message}
+        </p>
+      ) : null}
+    </>
   );
 }

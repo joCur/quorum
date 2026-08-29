@@ -92,7 +92,7 @@ export function SettingsRoute() {
             {t("settings.about.version")}{" "}
             <span className="font-mono tabular-figures">{APP_VERSION}</span>
           </span>
-          <span>{t("settings.about.selfHosted")}</span>
+          <span>{t("settings.about.privacy")}</span>
         </CardContent>
       </Card>
     </div>

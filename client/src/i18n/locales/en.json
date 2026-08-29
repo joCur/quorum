@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "Quorum",
-    "tagline": "Your meetings. Your infrastructure.",
+    "tagline": "Your meetings. Your data.",
     "skipToContent": "Skip to content"
   },
   "common": {
@@ -44,9 +44,8 @@
       "confirm": "Stop"
     },
     "sync": {
-      "synced": "Synced",
-      "saving": "Saving to server… ({{seconds}}s buffered on this device)",
-      "unstable": "Connection unstable — {{seconds}}s buffered on this device"
+      "saving": "Saving your recording… ({{seconds}}s still on this device)",
+      "unstable": "Connection unstable — {{seconds}}s still on this device"
     },
     "banner": {
       "offline": "Offline — recording continues, your audio is safe on this device ({{seconds}}s buffered)",
@@ -57,12 +56,12 @@
       "permission-denied": "Quorum needs access to your microphone to record. Allow it in your browser and try again.",
       "unsupported": "This browser cannot record audio. Try a current version of Chrome, Firefox or Safari.",
       "storage": "The recording was stopped because audio could not be stored on this device.",
-      "connection": "The connection to the server failed.",
+      "connection": "The connection failed. Your audio is safe on this device.",
       "unknown": "Recording could not be started."
     },
     "recovery": {
       "title": "A recording was interrupted",
-      "body": "Audio from {{date}} is still saved on this device and has not reached the server.",
+      "body": "Audio from {{date}} is still on this device and has not been saved yet.",
       "upload": "Upload and finish",
       "discard": "Discard"
     }
@@ -85,15 +84,15 @@
   },
   "howItWorks": {
     "title": "How Quorum works",
-    "intro": "Three steps, all of them on hardware you control.",
+    "intro": "Three steps — you only do the first one.",
     "steps": {
       "record": {
         "title": "Record",
-        "body": "Audio streams to your server while you record, so nothing is lost if a tab closes."
+        "body": "Your audio is saved as you record, so a closed tab or a dropped connection costs you nothing."
       },
       "transcribe": {
         "title": "Transcribe",
-        "body": "Speech recognition runs on your own infrastructure — no audio leaves it."
+        "body": "Speech recognition turns the recording into text you can read, search and jump around in."
       },
       "summarize": {
         "title": "Summarize",
@@ -124,7 +123,7 @@
     "about": {
       "title": "About",
       "version": "Version",
-      "selfHosted": "This is a self-hosted Quorum instance."
+      "privacy": "Your recordings, transcripts and summaries stay in your account."
     }
   },
   "notFound": {
