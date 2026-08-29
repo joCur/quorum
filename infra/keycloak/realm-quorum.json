@@ -1,0 +1,237 @@
+{
+  "realm": "quorum",
+  "displayName": "Quorum",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "maxFailureWaitSeconds": 900,
+  "failureFactor": 10,
+  "accessTokenLifespan": 300,
+  "accessTokenLifespanForImplicitFlow": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespanEnabled": true,
+  "offlineSessionMaxLifespan": 5184000,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "accessCodeLifespanLogin": 1800,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "defaultSignatureAlgorithm": "RS256",
+  "attributes": {
+    "frontendUrl": ""
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "quorum-user",
+        "description": "Regular Quorum user: may record, transcribe and summarize within the own tenant.",
+        "composite": false,
+        "clientRole": false
+      },
+      {
+        "name": "quorum-admin",
+        "description": "Tenant administrator: may manage members and settings of the own tenant.",
+        "composite": false,
+        "clientRole": false
+      }
+    ]
+  },
+  "defaultRoles": ["offline_access", "uma_authorization"],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "name": "declarative-user-profile",
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"validations\":{\"length\":{\"min\":3,\"max\":255},\"username-prohibited-characters\":{},\"up-username-not-idn-homograph\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"${email}\",\"validations\":{\"email\":{},\"length\":{\"max\":255}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"firstName\",\"displayName\":\"${firstName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"lastName\",\"displayName\":\"${lastName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"tenant_id\",\"displayName\":\"Tenant ID\",\"validations\":{\"length\":{\"max\":64}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\"]},\"multivalued\":false}],\"groups\":[]}"
+          ]
+        }
+      }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "quorum-pwa",
+      "name": "Quorum PWA",
+      "description": "Public browser client. Authorization Code + PKCE (S256) only, no client secret.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "rootUrl": "http://localhost:5173",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://localhost:5173/*",
+        "http://127.0.0.1:5173/*",
+        "http://localhost:4173/*",
+        "http://localhost:8080/*"
+      ],
+      "webOrigins": [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://localhost:8080"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*##http://127.0.0.1:5173/*##http://localhost:4173/*",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "backchannel.logout.session.required": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "quorum-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "quorum-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true",
+            "multivalued": "false",
+            "aggregate.attrs": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "quorum-dev-cli",
+      "name": "Quorum dev CLI (DEVELOPMENT ONLY)",
+      "description": "DEV ONLY. Public client with the Resource Owner Password grant so that a developer can fetch an access token with a single curl call. Remove this client before importing the realm into any non-development environment.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "quorum-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "quorum-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "tenant-id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tenant_id",
+            "jsonType.label": "String",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "introspection.token.claim": "true",
+            "multivalued": "false",
+            "aggregate.attrs": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "dev.alice",
+      "email": "alice@acme.dev.invalid",
+      "firstName": "Alice",
+      "lastName": "Anderson",
+      "enabled": true,
+      "emailVerified": true,
+      "attributes": {
+        "tenant_id": ["tenant-acme"]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["quorum-user", "quorum-admin"]
+    },
+    {
+      "username": "dev.bob",
+      "email": "bob@acme.dev.invalid",
+      "firstName": "Bob",
+      "lastName": "Baker",
+      "enabled": true,
+      "emailVerified": true,
+      "attributes": {
+        "tenant_id": ["tenant-acme"]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["quorum-user"]
+    },
+    {
+      "username": "dev.carol",
+      "email": "carol@globex.dev.invalid",
+      "firstName": "Carol",
+      "lastName": "Carter",
+      "enabled": true,
+      "emailVerified": true,
+      "attributes": {
+        "tenant_id": ["tenant-globex"]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": ["quorum-user", "quorum-admin"]
+    }
+  ]
+}

@@ -47,6 +47,17 @@ Root scripts (the same ones CI runs):
 Workspaces:
 
 - `shared/` — package `@quorum/shared`, the zod schemas shared by client and server
+- `server/` — package `@quorum/server`, the Fastify API: health endpoint, Keycloak JWT validation
+  and the tenant-scoped request context. See `server/README.md` for the scoping convention and the
+  manual auth verification path.
+
+Infrastructure configuration:
+
+- `infra/keycloak/` — the versioned `quorum` realm imported by the `keycloak` service on startup
+  (ADR-006 §7), so `git clone && docker compose up` yields a working login with no admin-console
+  clicking. Dev-only test users are documented in `infra/keycloak/README.md`.
+- `infra/postgres/init/` — provisions Keycloak's own logical database on the shared Postgres
+  instance (no second database container).
 
 ## Nächste Schritte (Walking Skeleton)
 

@@ -1,0 +1,35 @@
+{
+  "name": "@quorum/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fastify API server — health endpoint, Keycloak JWT validation and tenant-scoped request context.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "node --watch --experimental-strip-types src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@quorum/shared": "workspace:*",
+    "fastify": "^5.7.1",
+    "fastify-plugin": "^5.1.0",
+    "jose": "^6.2.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  }
+}
