@@ -1,9 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Quorum">
-  <rect width="64" height="64" rx="14" fill="#1e6b62" />
-  <g fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round">
-    <rect x="26" y="14" width="12" height="22" rx="6" fill="#ffffff" stroke="none" />
-    <path d="M20 32a12 12 0 0 0 24 0" />
-    <path d="M32 44v6" />
-    <path d="M25 50h14" />
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Quorum">
+  <!-- Quorum app icon: "the quorum ring" — a circle of gathering with one
+       voice lit (the breathing-dot motif), together forming a Q.
+       Colors from the design tokens: warm teal (primary), honey accent. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#279181"/>
+      <stop offset="1" stop-color="#1c6f5c"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#tile)"/>
+  <circle cx="256" cy="256" r="122" fill="none" stroke="#fffdf7" stroke-width="60"/>
+  <circle cx="346" cy="346" r="70" fill="#f5b214"/>
 </svg>
