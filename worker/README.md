@@ -9,6 +9,18 @@ Together they are the core path of the product: recording → transcript → sum
 
 The worker is a separate process and a separate workspace from the API server: this work is long-running and CPU/GPU/network-bound, and scaling or restarting it must not touch the HTTP surface.
 
+## Container image
+
+`Dockerfile` in this directory builds the production image, but its build context is the **repository root** — the worker consumes the `@quorum/shared` workspace and the root pnpm lockfile:
+
+```bash
+docker build -f worker/Dockerfile .      # or: docker compose build worker
+```
+
+It mirrors the API image stage for stage: pnpm comes from Corepack with the version pinned in the root `packageManager` field, both workspaces are compiled in a build stage, and the runtime stage carries only production dependencies and runs as the unprivileged `node` user with `NODE_ENV=production`. Unlike the API it exposes no port and declares no health check: a queue consumer has no HTTP surface, its liveness is the pg-boss connection, and a process that loses that connection exits and is restarted by the compose restart policy.
+
+The `worker` service in `docker-compose.yml` runs it against the stack. It waits for Postgres and for the one-shot bucket bootstrap, because the first job it picks up reads chunk objects from that bucket.
+
 **Why both job types live in one workspace.** They are two handlers behind the same queue library, the same job schema, the same error taxonomy, the same database and the same idempotency rules — a second workspace would duplicate all of that to gain a deployment boundary nobody has asked for. The split that would matter is a *process* one (summaries are network-bound and want different concurrency than a GPU-bound transcription), and that is already available without touching the code: `SUMMARY_CONCURRENCY` and `WORKER_CONCURRENCY` are separate, and starting one replica per queue is a wiring change in `src/index.ts`, not an architectural one.
 
 ## Transcription pipeline
