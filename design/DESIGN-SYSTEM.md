@@ -171,13 +171,16 @@ Implement these consistently (utilities in `tokens.css` / Tailwind config):
 - Ambient/looping motion is reserved for genuinely live things: the recording pulse and active-job shimmer. Everything else animates on transition only.
 - Never animate during audio capture in ways that suggest capture stopped (no pausing the pulse for a celebration).
 - Motion must never delay interaction: elements are interactive immediately; animation is cosmetic overlay.
+- Celebrations are strictly visual — no sound, no haptics, on any platform. Quorum is used in and around live meetings; the app never makes noise.
 - **`prefers-reduced-motion`:** all transitions collapse to fades ≤ 120ms or none; pulse becomes a static solid dot + "REC" label; celebrations become an instant badge change. State is always carried by icon + text.
 
 ## 6. Iconography & illustration
 
 [Lucide](https://lucide.dev) (ISC license, ships with shadcn/ui). 20px default in dense UI, 24px in nav/controls. Stroke width 2 (1.75 at small sizes). Key mappings: `Mic` record, `Square` stop, `Pause`/`Play`, `FileText` transcript, `ScrollText` summary, `CloudOff` offline, `Loader2` processing (spin), `Trash2` delete, `Settings`, `ListChecks` templates, `Sparkles` arrival moments.
 
-**Spot illustrations** (empty states, onboarding): simple inline SVG compositions built from the system's own vocabulary — rounded blobs and arcs in `honey-subtle`/`plum-subtle`/`accent` fills with `primary`/`honey`/`plum` strokes, plus a Lucide icon as the focal point. No external illustration libraries, no mascot character in V1 (open question for PO). All SVGs theme via tokens so they work in dark mode.
+**Spot illustrations** (empty states, onboarding): simple inline SVG compositions built from the system's own vocabulary — rounded blobs and arcs in `honey-subtle`/`plum-subtle`/`accent` fills with `primary`/`honey`/`plum` strokes, plus a Lucide icon as the focal point. No external illustration libraries. All SVGs theme via tokens so they work in dark mode.
+
+**Mascot — Quill (approved, used sparingly):** a small, soft blob character derived from the breathing-dot motif — a rounded honey-colored squircle with two dot eyes and a quiet smile, drawn in the same inline-SVG vocabulary as the spot illustrations. Placement rules are strict: Quill appears only in empty states and onboarding (the designated playful zones), always small and secondary to the message, never animated in a looping way, and **never** near consent, recording, failures, or deletion. If a screen has any stakes, Quill is not on it. One character, one expression per state, no speech bubbles — Quill observes warmly; the UI does the talking.
 
 ## 7. Accessibility baseline
 

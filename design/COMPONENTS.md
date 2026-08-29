@@ -1,6 +1,8 @@
 # Quorum Component Inventory (V1)
 
-All components build on shadcn/ui primitives (Radix under the hood) themed via `tokens.css`. This file lists purpose, states, motion, and the shadcn base for each. Icons: Lucide. Naming below = suggested component names in `src/components/`. Motion references: DESIGN-SYSTEM.md §5 (durations, easings, micro-interaction catalog).
+All components build on shadcn/ui primitives (Radix under the hood) themed via `tokens.css`. This file lists purpose, states, motion, and the shadcn base for each. Naming below = suggested component names in `src/components/`. Motion references: DESIGN-SYSTEM.md §5 (durations, easings, micro-interaction catalog).
+
+**Icon standard: [Lucide](https://lucide.dev) (ISC license)** — the only icon set in the product; never hand-drawn glyphs or mixed sets. In React use `lucide-react` (tree-shaken, bundled — zero external requests); in static assets/mockups inline the actual Lucide SVG paths. Concrete assignments: `Mic` (record), `Square` (stop), `Pause`/`Play` (playback + session pause), `SkipBack`/`SkipForward` (±15s), `LayoutList` (meetings nav), `ListChecks` (templates nav), `Settings` (settings nav), `FileText` (transcript), `ScrollText` (summary), `Search` (list search), `X` (clear/close), `RefreshCw` (regenerate), `UploadCloud` (uploading), `Clock` (queued), `LoaderCircle` (running jobs, spinning), `Check` (ready/confirm), `AlertTriangle` (failed), `CloudOff` (offline), `Ban` (canceled), `Trash2` (delete), `MoreVertical` (overflow menu), `ShieldCheck` (consent), `Sparkles` (arrival moments).
 
 Install baseline shadcn primitives: `button, card, dialog, alert-dialog, sheet, input, textarea, label, select, badge, skeleton, separator, dropdown-menu, progress, slider, sonner (toast), form, switch, tabs, tooltip, scroll-area`.
 
@@ -45,7 +47,8 @@ Quorum's signature element — the honest "you are on the record" signal, with p
 - **Row anatomy:** title (or "Untitled meeting" fallback), date + duration in `text-sm text-muted-foreground font-mono` (duration), `StatusBadge`, overflow menu (`DropdownMenu`: Open, Rename, Delete).
 - **Motion:** rows enter with `animate-rise-in` staggered 30ms (cap 10); a row whose status changes gets the badge flip (pop-out/pop-in); confirmed-deleted rows collapse their height smoothly.
 - **States:** default, hover/pressed (`bg-accent` + slight lift), focused (ring), processing (badge animates), failed (badge + row retains full functionality — audio is still playable), deleting (row dimmed 50%, spinner, non-interactive).
-- **Empty state:** see `EmptyState` (§12) — the meetings list is the flagship playful empty state.
+- **Search (V1):** pill-shaped `Input` (shadcn `input`, `rounded-full`) with a leading `Search` icon and a trailing `X` clear button when non-empty, placed in the list header. Client-side live title filter; matching is case-insensitive substring. Empty result: calm note "No meetings match “…”" + "Clear search" ghost button — no illustration (search-empty is not a playful moment, the user is looking for something).
+- **Empty state:** see `EmptyState` (§12) — the meetings list is the flagship playful empty state (shown only when the list itself is empty, never for empty search results).
 - **Loading:** 3–5 `Skeleton` rows matching row geometry.
 - Virtualize when list > ~50 entries (later; not a V1 blocker).
 
@@ -97,7 +100,7 @@ Playback of finished recordings, synced with the transcript. Round, friendly con
 
 - Segment blocks: speaker label (when present) `text-sm font-semibold`, text `text-base leading-relaxed max-w-[65ch]`, timestamp `font-mono text-xs text-muted-foreground` in the gutter (tap segment to reveal on mobile).
 - Active segment during playback: `bg-accent` block highlight (the highlight glides between segments, 220ms); active word: underline/darker weight — never color alone.
-- **Arrival moment:** when the transcript first flips to Ready in view, the first ~8 segments rise in staggered (`animate-rise-in`), then everything is static. One warm beat, then business.
+- **Arrival moment:** when the transcript first flips to Ready in view, the first ~8 segments rise in staggered (`animate-rise-in`), then everything is static. One warm beat, then business. Strictly visual — celebrations never play sound (PO decision; also: the user may still be in a meeting).
 - Displays `editedText ?? text` (overlay model, ADR-003); V1 is read-only, edits are V2.
 - Low-confidence segments (`confidence < 0.5`): dotted underline + tooltip "Low transcription confidence".
 - Transcript content itself is sacred data: no decorative color, no playful styling inside the text.
@@ -109,6 +112,7 @@ The summary is the "thinking" side of the product — it carries the plum identi
 - Renders `Summary.sections` in template order: section title `text-lg font-semibold`, content per `format` (prose paragraphs / `ul` bullets / simple table in `overflow-x-auto`). Sections rise in staggered on arrival.
 - Footer meta: template name + version snapshot, model, generated-at, in `text-xs text-muted-foreground`.
 - Copy-to-clipboard button per section and for the whole summary (Markdown); copy confirms with a springy `Check` swap on the button itself.
+- **Regenerate (V1):** `outline` button with `RefreshCw` icon in the summary header. Creates a new summarize job with the currently selected template (cheap by design — ADR-003/004 reprocessing); the tab flips back to the processing state with the stepper at "Summarizing". The previous summary remains visible (dimmed, labeled "Previous version") until the new one arrives — no data vanishes optimistically. No confirm dialog: regenerating destroys nothing.
 
 ## 12. EmptyState (custom) — where playfulness lives
 

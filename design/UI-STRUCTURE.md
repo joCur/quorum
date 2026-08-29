@@ -18,7 +18,7 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
 ## 2. Screen inventory
 
 ### 2.1 Meetings list (`/meetings`)
-- Header: "Meetings", search (V1: simple title filter, optional).
+- Header: "Meetings" + search field (pill-shaped `Input` with `Search` icon; client-side title filter in V1, live as you type, clear button when non-empty; "no results" shows a calm empty note with a "Clear search" action — no illustration).
 - List of `MeetingListItem`s, newest first: title, date, duration, `StatusBadge`, overflow menu (Open / Rename / Delete).
 - Recovery card at top if an interrupted local session exists (STATES.md §2).
 - Empty state (first run): playful spot illustration + "Your first meeting awaits" + primary "Start recording" + ghost link "How Quorum works" opening the 3-step onboarding sheet (COMPONENTS.md §12). This is the app's front door — it should feel like an invitation, not a void.
@@ -33,7 +33,7 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
 - Header: title (inline-editable), date, duration, `StatusBadge`, overflow (Rename / Delete).
 - **Tabs: Transcript | Summary** (shadcn `tabs`), each with independent processing/failed/ready states.
   - Transcript tab: `TranscriptView` with word timestamps; playback-synced highlighting; tap word → seek.
-  - Summary tab: `SummaryView` (sections per template snapshot) + "Regenerate" affordance (V1 optional; creates a new summarize job) + copy actions.
+  - Summary tab: `SummaryView` (sections per template snapshot) + **Regenerate** action (in V1: creates a new summarize job with the current template; button shows the `RefreshCw` icon, flips the tab back into the processing state — stepper at "Summarizing") + copy actions.
 - **Sticky bottom `AudioPlayer`** (available as soon as audio is finalized, independent of transcript state).
 
 ### 2.4 Templates (`/templates`)

@@ -72,7 +72,7 @@ Done steps: `success` check that pops in. Active step: `info` pill with a gentle
 - Waiting is non-blocking: user can leave, list badge reflects state (poll/SSE). No screen ever forces the user to watch a spinner.
 - Audio player is available as soon as audio is finalized, independent of transcript state.
 - Partial readiness is normal: transcript `Ready` while summary still running — tabs carry independent state.
-- **Arrival moment:** when a stage the user is looking at completes, play the celebration beat (DESIGN-SYSTEM.md §5): tab dot pops (honey), content rises in staggered, badge springs to `success`, and a one-line toast if the user is elsewhere in the app: "Transcript's ready."
+- **Arrival moment:** when a stage the user is looking at completes, play the celebration beat (DESIGN-SYSTEM.md §5): tab dot pops (honey), content rises in staggered, badge springs to `success`, and a one-line toast if the user is elsewhere in the app: "Transcript's ready." Celebrations are strictly visual on every platform — no sound, no haptics (PO decision; the user may still be sitting in a meeting).
 
 ## 5. Failed
 
