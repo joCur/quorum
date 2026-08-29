@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
 import type { RequestContext } from "./context.js";
 import { AuthError } from "./errors.js";
+import { extractSubprotocolToken, offersBearerSubprotocol } from "./subprotocol.js";
 import { extractBearerToken } from "./token-verifier.js";
 import type { TokenVerifier } from "./token-verifier.js";
 
@@ -29,6 +30,27 @@ declare module "fastify" {
 export interface AuthPluginOptions {
   /** Verifier built by `createTokenVerifier`. Injected so tests can use a local key pair. */
   readonly verifyAccessToken: TokenVerifier;
+}
+
+/**
+ * Reads the raw access token from the request.
+ *
+ * The `Authorization` header stays the primary and preferred channel and is used whenever it is
+ * present. A browser cannot set that header on a WebSocket upgrade, so an upgrade request may
+ * instead carry the token in the `quorum.bearer.v1` subprotocol; both channels then run through
+ * exactly the same verification.
+ */
+function readAccessToken(request: FastifyRequest): string {
+  if (request.headers.authorization !== undefined) {
+    return extractBearerToken(request.headers.authorization);
+  }
+
+  const offered = request.headers["sec-websocket-protocol"];
+  if (typeof request.headers.upgrade === "string" && offersBearerSubprotocol(offered)) {
+    return extractSubprotocolToken(offered);
+  }
+
+  return extractBearerToken(undefined);
 }
 
 function unauthorized(
@@ -73,8 +95,7 @@ const authPluginImpl: FastifyPluginAsync<AuthPluginOptions> = async (app, option
     if (request.routeOptions.config.public === true) return;
 
     try {
-      const token = extractBearerToken(request.headers.authorization);
-      request.auth = await options.verifyAccessToken(token);
+      request.auth = await options.verifyAccessToken(readAccessToken(request));
     } catch (error) {
       const authError =
         error instanceof AuthError
