@@ -16,8 +16,8 @@
   "failureFactor": 10,
   "accessTokenLifespan": 300,
   "accessTokenLifespanForImplicitFlow": 300,
-  "ssoSessionIdleTimeout": 1800,
-  "ssoSessionMaxLifespan": 36000,
+  "ssoSessionIdleTimeout": 1209600,
+  "ssoSessionMaxLifespan": 2592000,
   "offlineSessionIdleTimeout": 2592000,
   "offlineSessionMaxLifespanEnabled": true,
   "offlineSessionMaxLifespan": 5184000,
@@ -233,5 +233,9 @@
       ],
       "realmRoles": ["quorum-user", "quorum-admin"]
     }
-  ]
+  ],
+  "ssoSessionIdleTimeoutRememberMe": 1209600,
+  "ssoSessionMaxLifespanRememberMe": 2592000,
+  "clientSessionIdleTimeout": 0,
+  "clientSessionMaxLifespan": 0
 }

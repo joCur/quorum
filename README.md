@@ -42,14 +42,14 @@ Root scripts (the same ones CI runs):
 | `pnpm run build`     | Builds every workspace that has a `build` script               |
 | `pnpm run lint`      | ESLint plus a Prettier formatting check                        |
 | `pnpm run format`    | Rewrites files with Prettier                                   |
-| `pnpm run e2e`       | Placeholder until the Playwright suite lands (issue #10)        |
+| `pnpm run e2e`       | Placeholder until the Playwright suite lands                    |
 
 Workspaces:
 
 - `shared/` — package `@quorum/shared`, the zod schemas shared by client and server
-- `server/` — package `@quorum/server`, the Fastify API: health endpoint, Keycloak JWT validation
-  and the tenant-scoped request context. See `server/README.md` for the scoping convention and the
-  manual auth verification path.
+- `server/` — package `@quorum/server`, the Fastify API: Keycloak JWT validation with a
+  tenant-scoped request context, plus the WebSocket recording endpoint. See `server/README.md`
+  for the scoping convention and the manual auth verification path.
 
 Infrastructure configuration:
 

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Fastify API server — health endpoint, Keycloak JWT validation and tenant-scoped request context.",
+  "description": "Quorum API server — Keycloak JWT auth with tenant-scoped request context and the WebSocket recording endpoint (ADR-002).",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -17,19 +17,23 @@
   ],
   "scripts": {
     "build": "tsc --build",
-    "dev": "node --watch --experimental-strip-types src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/index.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1121.0",
+    "@fastify/websocket": "^11.3.0",
     "@quorum/shared": "workspace:*",
-    "fastify": "^5.7.1",
-    "fastify-plugin": "^5.1.0",
+    "fastify": "^5.12.1",
+    "fastify-plugin": "^6.0.0",
     "jose": "^6.2.0",
+    "pg-boss": "^12.28.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/node": "^22.19.0",
+    "@types/node": "^26.4.0",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "ws": "^8.21.3"
   }
 }

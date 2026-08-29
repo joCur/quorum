@@ -2,19 +2,48 @@
 
 The `quorum` realm lives in `realm-quorum.json` and is imported by the `keycloak` service on
 startup (`start-dev --import-realm`). A fresh checkout plus `docker compose up` therefore yields a
-working login without a single click in the admin console (ADR-006 §7, issue #3).
+working login without a single click in the admin console (ADR-006 §7).
 
 ## What the realm contains
 
 | Object                            | Purpose                                                                                         |
 | --------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Realm `quorum`                     | Access tokens 5 min, SSO idle 30 min, SSO max 10 h, refresh-token rotation with reuse detection. |
+| Realm `quorum`                     | Short access tokens with long sessions — see "Session lifetimes" below.                          |
 | Protocol mappers on each client    | Add the `quorum-api` audience and the `tenant_id` claim to the access token.                      |
 | Client `quorum-pwa`                | Public browser client, Authorization Code + PKCE (S256) enforced. No secret, no direct grants.    |
 | Client `quorum-dev-cli`            | **Development only** — password grant so a developer can fetch a token with one `curl`.           |
 | Realm roles `quorum-user`, `quorum-admin` | Regular user vs. tenant administrator.                                                     |
 | User profile attribute `tenant_id` | Declared attribute so the tenant claim survives Keycloak's declarative user profile.              |
 | Dev users                          | See below.                                                                                        |
+
+## Session lifetimes
+
+Two different clocks are at work, and they are easy to confuse:
+
+| Setting                  | Value           | In plain terms                                                                                                  |
+| ------------------------ | --------------- | --------------------------------------------------------------------------------------------------------------- |
+| `accessTokenLifespan`    | 5 minutes       | How long one access token is accepted by the API. The app swaps it for a fresh one in the background.             |
+| `ssoSessionIdleTimeout`  | 14 days         | **Idle clock.** Reset every time the app refreshes. You are only signed out after not using Quorum for two weeks. |
+| `ssoSessionMaxLifespan`  | 30 days         | **Absolute clock.** Runs regardless of activity: after 30 days you log in again even with daily use.              |
+| `revokeRefreshToken` + `refreshTokenMaxReuse: 0` | on / 0 | Every refresh issues a new refresh token and invalidates the old one; replaying an old one kills the session.     |
+
+So the answer to "am I always logged out after N hours of not using the app?" is: the idle clock is
+what does that, and it is 14 days. A returning user who opens Quorum within two weeks is still
+signed in; someone using it daily re-authenticates once a month.
+
+The remember-me variants (`ssoSessionIdleTimeoutRememberMe`, `ssoSessionMaxLifespanRememberMe`) are
+set to the same values, so ticking "remember me" does not silently create a longer-lived session
+than the defaults.
+
+The short access token is what makes this safe: the long-lived thing is a session that Keycloak can
+revoke centrally, not a bearer token floating around. Revoking a session or disabling a user takes
+effect within five minutes, because that is the longest an already-issued access token stays valid.
+Rotation with reuse detection means a stolen refresh token is usable at most once before the whole
+session is torn down.
+
+Shorter values are appropriate for a deployment with stricter requirements — that is a per-tenant
+policy decision, not a code change: `accessTokenLifespan`, `ssoSessionIdleTimeout` and
+`ssoSessionMaxLifespan` in this file are the three knobs.
 
 ## Dev-only test users
 
@@ -28,7 +57,7 @@ secrets, and the realm must never be imported as-is into a non-development envir
 | `dev.carol`  | `dev-password` | `tenant-globex` | `quorum-user`, `quorum-admin` |
 
 Alice and Bob share a tenant; Carol is in a second one. That is what makes cross-tenant access
-denial testable (issue #10).
+denial testable in the end-to-end auth suite.
 
 ## Before using this realm outside development
 

@@ -1,37 +1,28 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { buildApp } from "../src/app.js";
+import { buildServer } from "../src/app.js";
 import { createTokenVerifier } from "../src/auth/token-verifier.js";
-import type { ServerConfig } from "../src/config.js";
+import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
+import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
 import { AUDIENCE, INTERNAL_ISSUER, ISSUER, createTestKeyPair, signAccessToken } from "./keys.js";
 import type { TestKeyPair } from "./keys.js";
 
 const keys: TestKeyPair = await createTestKeyPair();
 
-const config: ServerConfig = {
-  host: "127.0.0.1",
-  port: 0,
-  logLevel: "silent",
-  oidc: {
-    issuer: INTERNAL_ISSUER,
-    acceptedIssuers: [INTERNAL_ISSUER, ISSUER],
-    jwksUri: undefined,
-    audience: AUDIENCE,
-    tenantClaim: "tenant_id",
-  },
-};
-
 let app: FastifyInstance;
 
 beforeAll(async () => {
-  app = await buildApp({
-    config,
-    verifyAccessToken: createTokenVerifier({
-      issuers: config.oidc.acceptedIssuers,
-      audience: config.oidc.audience,
-      tenantClaim: config.oidc.tenantClaim,
-      keySource: keys.jwks,
-    }),
+  app = await buildServer({
+    storage: new InMemoryRecordingStorage(),
+    queue: new InMemoryJobQueue(),
+    auth: {
+      verifyAccessToken: createTokenVerifier({
+        issuers: [INTERNAL_ISSUER, ISSUER],
+        audience: AUDIENCE,
+        tenantClaim: "tenant_id",
+        keySource: keys.jwks,
+      }),
+    },
   });
   await app.ready();
 });
@@ -54,9 +45,15 @@ describe("auth plugin", () => {
     expect(response.json()).toMatchObject({ error: "missing_token" });
   });
 
-  it("denies a protected route for an unknown route as well (default-deny)", async () => {
+  it("denies an unknown route as well (default-deny)", async () => {
     const response = await app.inject({ method: "GET", url: "/api/does-not-exist" });
     expect(response.statusCode).toBe(401);
+  });
+
+  it("denies the recording upgrade without a token", async () => {
+    const response = await app.inject({ method: "GET", url: "/ws/recording" });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ error: "missing_token" });
   });
 
   it("exposes the tenant-scoped context for a valid token", async () => {
@@ -117,5 +114,25 @@ describe("auth plugin", () => {
 
     const anonymous = await app.inject({ method: "GET", url: "/api/me" });
     expect(anonymous.statusCode).toBe(401);
+  });
+});
+
+describe("unauthenticated instance", () => {
+  it("has no protected identity route and leaves the recording upgrade to its provider", async () => {
+    const plain = await buildServer({
+      storage: new InMemoryRecordingStorage(),
+      queue: new InMemoryJobQueue(),
+      contextProvider: {
+        async resolve() {
+          return { tenantId: "t", userId: "u" };
+        },
+      },
+    });
+    await plain.ready();
+
+    expect((await plain.inject({ method: "GET", url: "/healthz" })).statusCode).toBe(200);
+    expect((await plain.inject({ method: "GET", url: "/api/me" })).statusCode).toBe(404);
+
+    await plain.close();
   });
 });

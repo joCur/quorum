@@ -31,10 +31,25 @@ export interface AuthPluginOptions {
   readonly verifyAccessToken: TokenVerifier;
 }
 
-function unauthorized(reply: FastifyReply, error: AuthError): FastifyReply {
+function unauthorized(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  error: AuthError,
+): FastifyReply {
   if (error.statusCode === 401) {
     reply.header("WWW-Authenticate", `Bearer error="invalid_token"`);
   }
+
+  // A refused WebSocket upgrade is answered with a plain HTTP response on a socket that the
+  // WebSocket plugin has already taken over, so nothing else will ever close it. Left alone it
+  // keeps the process alive and stalls a graceful shutdown, hence the explicit teardown.
+  if (typeof request.headers.upgrade === "string") {
+    reply.header("Connection", "close");
+    reply.raw.once("finish", () => {
+      request.raw.socket.destroy();
+    });
+  }
+
   return reply.code(error.statusCode).send({
     error: error.code,
     message: error.message,
@@ -69,7 +84,7 @@ const authPluginImpl: FastifyPluginAsync<AuthPluginOptions> = async (app, option
         { code: authError.code, url: request.url },
         "rejected request without a valid access token",
       );
-      return unauthorized(reply, authError);
+      return unauthorized(request, reply, authError);
     }
 
     // Every log line of an authenticated request carries the scope it ran under.
