@@ -11,6 +11,7 @@ Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, gepl
   - ADR-003: Transcript-Datenmodell (Immutability, 1:n, Wort-Timestamps)
   - ADR-004: Summary-Templates (Vererbung, Snapshot, strukturierter Output)
   - ADR-005: Self-hosted Whisper + OpenAI-kompatible Summary-API
+  - ADR-006: Stack decision (Fastify, React + Vite PWA, pg-boss, PostgreSQL, MinIO, whisperX, Keycloak)
 - `PITCH.md` — Warum wir das bauen, V1-Demo-Definition, rechtliche Haltung
 - `ROADMAP.md` — V1 → V2 → später (wird bei Projektstart zu GitHub-Issues)
 - `OPEN-QUESTIONS.md` — Stack-Vorschläge, Observability, Missbrauchsschutz (bewusst offen)
