@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Founding documents are still in German and get migrated with issue #13.
+# Reformatting them now would only create review noise.
+*.md
+adr/
+.github/pull_request_template.md
+
+# Compose files use hand-aligned trailing comments that Prettier would collapse.
+docker-compose*.yml

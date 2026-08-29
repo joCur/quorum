@@ -22,6 +22,29 @@ Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, gepl
   - `summary.ts` — Templates, Overrides, erzeugte Summaries mit Snapshot
   - `job.ts` — Async-Job-API (Status, Fehlerformat, Ergebnis-Referenz)
 
+## Development
+
+npm workspaces monorepo, Node.js 22+. Install once at the repo root:
+
+```bash
+npm install
+```
+
+Root scripts (the same ones CI runs):
+
+| Script              | What it does                                                       |
+| ------------------- | ------------------------------------------------------------------ |
+| `npm run typecheck` | `tsc --build` over all packages (strict) plus the test sources      |
+| `npm test`          | Vitest unit and schema round-trip tests                            |
+| `npm run build`     | Builds every workspace that has a `build` script                   |
+| `npm run lint`      | ESLint plus a Prettier formatting check                            |
+| `npm run format`    | Rewrites files with Prettier                                       |
+| `npm run e2e`       | Placeholder until the Playwright suite lands (issue #10)           |
+
+Workspaces:
+
+- `shared/` — package `@quorum/shared`, the zod schemas shared by client and server
+
 ## Nächste Schritte (Walking Skeleton)
 
 1. Auth aufsetzen (OIDC via fertige Lösung, Authorization Code + PKCE) — Mandanten-/User-Scope in jedem Datenobjekt ab Tag 1
