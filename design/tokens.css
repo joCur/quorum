@@ -1,0 +1,123 @@
+/**
+ * Quorum design tokens — CSS custom properties.
+ * Source of truth for all colors, radii, shadows, motion, and fonts.
+ * Consumed by Tailwind config (see tailwind-tokens.md) and shadcn/ui theme.
+ *
+ * Convention: color tokens are raw HSL channel triplets (shadcn style),
+ * consumed as hsl(var(--token) / <alpha>).
+ */
+
+:root {
+  /* ---- Core surfaces & text ---- */
+  --background: 220 20% 98%;
+  --foreground: 222 25% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 25% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 25% 12%;
+
+  /* ---- Brand & interaction ---- */
+  --primary: 190 65% 26%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 15% 93%;
+  --secondary-foreground: 222 25% 16%;
+  --muted: 220 15% 94%;
+  --muted-foreground: 220 10% 42%;
+  --accent: 190 50% 92%;
+  --accent-foreground: 190 65% 18%;
+  --destructive: 9 72% 44%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 14% 88%;
+  --input: 220 14% 84%;
+  --ring: 190 65% 32%;
+
+  /* ---- Product status colors ---- */
+  --recording: 0 78% 45%;
+  --recording-foreground: 0 0% 100%;
+  --recording-subtle: 0 78% 96%;
+  --success: 152 45% 32%;
+  --success-foreground: 0 0% 100%;
+  --success-subtle: 152 45% 94%;
+  --warning: 38 85% 38%;
+  --warning-foreground: 0 0% 100%;
+  --warning-subtle: 40 90% 94%;
+  --info: 215 60% 42%;
+  --info-foreground: 0 0% 100%;
+  --info-subtle: 215 60% 95%;
+
+  /* ---- Radius ---- */
+  --radius: 0.625rem; /* 10px — shadcn base; sm = radius - 4px, lg = radius + 4px */
+
+  /* ---- Elevation ---- */
+  --shadow-sm: 0 1px 2px hsl(222 25% 12% / 0.06);
+  --shadow-md: 0 4px 12px hsl(222 25% 12% / 0.1);
+  --shadow-lg: 0 12px 32px hsl(222 25% 12% / 0.16);
+
+  /* ---- Motion ---- */
+  --duration-micro: 120ms;
+  --duration-default: 200ms;
+  --duration-large: 300ms;
+  --ease-enter: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* ---- Typography (self-hosted; no CDN at runtime) ---- */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+.dark {
+  --background: 222 18% 9%;
+  --foreground: 220 15% 92%;
+  --card: 222 16% 13%;
+  --card-foreground: 220 15% 92%;
+  --popover: 222 16% 15%;
+  --popover-foreground: 220 15% 92%;
+
+  --primary: 188 55% 55%;
+  --primary-foreground: 222 25% 10%;
+  --secondary: 222 14% 19%;
+  --secondary-foreground: 220 15% 88%;
+  --muted: 222 14% 17%;
+  --muted-foreground: 220 10% 62%;
+  --accent: 190 40% 20%;
+  --accent-foreground: 188 55% 80%;
+  --destructive: 9 70% 58%;
+  --destructive-foreground: 222 25% 10%;
+  --border: 222 12% 24%;
+  --input: 222 12% 28%;
+  --ring: 188 55% 55%;
+
+  --recording: 0 75% 60%;
+  --recording-foreground: 222 25% 10%;
+  --recording-subtle: 0 50% 16%;
+  --success: 152 42% 52%;
+  --success-foreground: 222 25% 10%;
+  --success-subtle: 152 40% 14%;
+  --warning: 40 85% 58%;
+  --warning-foreground: 222 25% 10%;
+  --warning-subtle: 40 60% 14%;
+  --info: 213 65% 65%;
+  --info-foreground: 222 25% 10%;
+  --info-subtle: 215 45% 16%;
+
+  --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.3);
+  --shadow-md: 0 4px 12px hsl(0 0% 0% / 0.4);
+  --shadow-lg: 0 12px 32px hsl(0 0% 0% / 0.5);
+}
+
+/* Recording pulse — the only ambient animation in the product.
+   Runs ONLY while audio is actually being captured. */
+@keyframes quorum-recording-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.92); }
+}
+
+.animate-recording-pulse {
+  animation: quorum-recording-pulse 2s var(--ease-enter) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-recording-pulse {
+    animation: none;
+  }
+}
