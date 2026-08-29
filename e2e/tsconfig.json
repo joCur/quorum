@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true,
+    // `page.evaluate` bodies are compiled here but execute in the browser.
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "tsBuildInfoFile": "../node_modules/.cache/tsconfig.e2e.tsbuildinfo"
+  },
+  "include": ["*.ts", "support/**/*.ts", "tests/**/*.ts"],
+  "references": [{ "path": "../shared" }]
+}

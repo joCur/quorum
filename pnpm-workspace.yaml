@@ -3,3 +3,4 @@ packages:
   - "server"
   - "worker"
   - "client"
+  - "e2e"

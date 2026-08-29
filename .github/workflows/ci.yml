@@ -37,50 +37,57 @@ jobs:
         run: pnpm run lint
 
   docker:
-    name: Docker image (${{ matrix.image }})
+    name: Docker image (server)
     runs-on: ubuntu-latest
-    strategy:
-      # Both images share the base, deps and prod-deps stages; building them as separate jobs
-      # keeps the wall clock at one image and gives each its own cache scope.
-      fail-fast: false
-      matrix:
-        include:
-          - image: server
-            dockerfile: server/Dockerfile
-          - image: worker
-            dockerfile: worker/Dockerfile
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Build the ${{ matrix.image }} image
+      - name: Build the API image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: server/Dockerfile
           push: false
-          # Layer caching in the Actions cache keeps repeat builds to a few seconds. The scope is
-          # per image, because two images writing one scope evict each other's layers.
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          # Layer caching in the Actions cache keeps repeat builds to a few seconds.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   e2e:
     name: E2E (critical paths)
     runs-on: ubuntu-latest
+    # The whole run — compose stack, worker, PWA, browser — fits in a few minutes. The limit is
+    # there so a hung stack fails the job instead of occupying a runner for six hours.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Detect E2E suite
-        id: e2e
-        run: |
-          if [ -d e2e ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
       - uses: pnpm/action-setup@v4
-        if: steps.e2e.outputs.present == 'true'
+
       - uses: actions/setup-node@v4
-        if: steps.e2e.outputs.present == 'true'
         with:
           node-version: 22
           cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # `--with-deps` pulls the system libraries the runner image does not ship. The suite also
+      # installs the browser itself, which is then a no-op.
+      - name: Install Playwright browsers
+        run: pnpm --filter @quorum/e2e exec playwright install --with-deps chromium
+
+      # Against a mocked transcription endpoint. The real-Whisper variant (E2E_WHISPER=real) is a
+      # local run: on a CPU runner it spends minutes downloading and loading a model to transcribe
+      # audio no assertion looks at. See e2e/README.md.
       - name: Run E2E
-        if: steps.e2e.outputs.present == 'true'
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run e2e
+        run: pnpm run e2e
+
+      - name: Upload the report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            e2e/playwright-report
+            e2e/test-results
+          retention-days: 7

@@ -42,7 +42,7 @@ Root scripts (the same ones CI runs):
 | `pnpm run build`     | Builds every workspace that has a `build` script               |
 | `pnpm run lint`      | ESLint plus a Prettier formatting check                        |
 | `pnpm run format`    | Rewrites files with Prettier                                   |
-| `pnpm run e2e`       | Placeholder until the Playwright suite lands                    |
+| `pnpm run e2e`       | Playwright end-to-end suite against the compose stack           |
 | `pnpm run dev:client` | Starts the PWA dev server on http://localhost:5173            |
 
 Workspaces:
@@ -55,6 +55,10 @@ Workspaces:
   See `worker/README.md` for the transcription backends, the idempotency rules and the retry
   and dead-letter behavior.
 - `client/` — package `@quorum/client`, the React + Vite PWA
+- `e2e/` — package `@quorum/e2e`, the Playwright suite covering the critical paths. `pnpm run e2e`
+  from the repository root brings the stack up, runs the tests and tears it down again. See
+  `e2e/README.md` for the options, the mocked-versus-real transcription trade-off, and the rule
+  that a change to a critical path extends the suite.
 
 ### Web client
 
@@ -75,31 +79,28 @@ Infrastructure configuration:
 
 ```bash
 cp .env.example .env      # then replace every CHANGE_ME, see the comments in that file
-docker compose up -d      # postgres, keycloak, minio (+ bucket bootstrap), whisper, api, worker
+docker compose up -d      # postgres, keycloak, minio (+ bucket bootstrap), whisper, api
 curl http://localhost:8080/healthz
 ```
 
-The `api` and `worker` services are built from `server/Dockerfile` and `worker/Dockerfile`. Both
-build contexts are the repository root, because each consumes the `@quorum/shared` workspace and
-the root pnpm lockfile:
+The `api` service is built from `server/Dockerfile`. Its build context is the repository root,
+because the server consumes the `@quorum/shared` workspace and the root pnpm lockfile:
 
 ```bash
-docker compose build api worker   # equivalent to: docker build -f server/Dockerfile . (etc.)
+docker compose build api          # equivalent to: docker build -f server/Dockerfile .
 ```
 
-Both images follow the same multi-stage shape: pnpm comes from Corepack with the version pinned in
-the root `packageManager` field, TypeScript is compiled in a build stage, and the runtime stage
-carries only production dependencies and runs as the unprivileged `node` user with
-`NODE_ENV=production`. The API additionally health-checks itself against `/healthz`; the worker is
-a queue consumer with no HTTP surface, so it exposes no port and is supervised by its restart
-policy.
+The image is multi-stage: pnpm comes from Corepack with the version pinned in the root
+`packageManager` field, TypeScript is compiled in a build stage, and the runtime stage carries only
+production dependencies, runs as the unprivileged `node` user with `NODE_ENV=production`, and
+health-checks itself against `/healthz`.
 
 On a machine without an NVIDIA GPU (macOS in particular) set `WHISPER_IMAGE_TAG=latest-cpu` and
 `WHISPER_DEVICE=cpu` in `.env` before starting, as described in `.env.example`.
 
-The `worker` service consumes the `transcribe` and `summarize` queues from pg-boss. It needs no
-inbound port; it reaches Postgres, MinIO and the Whisper endpoint over the compose network and
-takes its Whisper and summary configuration from the same `.env` as everything else.
+The transcription worker is present in `docker-compose.yml` as a commented-out service: its
+workspace does not exist yet, and an active service pointing at a missing build context would break
+`docker compose up` for everyone. Uncomment it once that workspace lands.
 
 **Dev flow (server on the host):** run only the infrastructure in containers and the API locally,
 which keeps the fast edit/restart loop. The base compose file keeps Postgres and the MinIO S3 API
