@@ -9,7 +9,12 @@ import {
 } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
 import { fetchToken } from "../support/keycloak.js";
-import { findSummaries, findSummary, findTranscript } from "../support/database.js";
+import {
+  findSummaries,
+  findSummary,
+  findTranscript,
+  findUserTemplateId,
+} from "../support/database.js";
 
 /**
  * Critical path 1 continued: a user's own template, and a summary produced again with it.
@@ -124,4 +129,86 @@ test("shapes a template and summarizes an existing recording again with it", asy
   // The summary made with it survives its template — that is what the snapshot is for.
   const survivors = await findSummaries(sessionId);
   expect(survivors.some((summary) => summary.id === second.id)).toBe(true);
+});
+
+const DEFAULT_TEMPLATE_NAME = "E2E default layout";
+
+/**
+ * The same core path, but with the user's own template chosen up front: a recording is summarized
+ * the way its owner asked for without anybody pressing "Regenerate" afterwards. The recording flow
+ * itself is untouched — the choice is made on the templates screen, long before the microphone.
+ */
+test("summarizes a new recording with the template the user set as their default", async ({
+  page,
+  signIn,
+}) => {
+  const protocol = watchRecordingProtocol(page);
+  await signIn(devUsers.alice);
+
+  // --- A template, and the decision to summarize with it ---------------------------------------
+  await page.goto("/templates");
+  await page.getByRole("button", { name: "Create a template" }).first().click();
+  await page.getByLabel("Name").fill(DEFAULT_TEMPLATE_NAME);
+  await page.getByRole("button", { name: "Add a section" }).click();
+  await page.getByLabel("Heading").last().fill("Budget");
+  await page.getByLabel("What belongs in it").last().fill("Money that was talked about.");
+  await page.getByRole("button", { name: "Save template" }).click();
+
+  const card = page.getByTestId("template-card").filter({ hasText: DEFAULT_TEMPLATE_NAME });
+  await expect(card).toBeVisible();
+
+  const system = page.getByTestId("template-card").filter({ hasText: "Standard meeting summary" });
+  // Until a choice is made the system template is the one recordings land on, and the list says so
+  // rather than leaving the question open.
+  await expect(system.getByText("Default", { exact: true })).toBeVisible();
+
+  await card
+    .getByRole("button", { name: `Use ${DEFAULT_TEMPLATE_NAME} for new recordings` })
+    .click();
+  await expect(card.getByText("Default", { exact: true })).toBeVisible();
+  await expect(system.getByText("Default", { exact: true })).toHaveCount(0);
+
+  const templateId = await waitForValue(
+    () => findUserTemplateId(DEFAULT_TEMPLATE_NAME),
+    10_000,
+    "the stored template",
+  );
+
+  // --- A recording made afterwards -------------------------------------------------------------
+  await page.goto("/record");
+  await startRecording(page);
+  const sessionId = await protocol.waitForSessionId();
+  await protocol.waitForAck(3);
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+
+  await waitForValue(
+    () => findTranscript(sessionId),
+    stackEnv.whisperMode === "real" ? 300_000 : 60_000,
+    "the transcript row",
+  );
+
+  // The first summary of this meeting — nobody regenerated anything — carries the user's template.
+  const summary = await waitForValue(() => findSummary(sessionId), 60_000, "the first summary row");
+  expect(summary.templateId).toBe(templateId);
+  expect((await findSummaries(sessionId)).length).toBe(1);
+
+  // --- Giving the choice up --------------------------------------------------------------------
+  // Unsetting is not "no default": it hands the mark back to the system template, so a user is
+  // never left without one.
+  await page.goto("/templates");
+  const chosen = page.getByTestId("template-card").filter({ hasText: DEFAULT_TEMPLATE_NAME });
+  await chosen
+    .getByRole("button", { name: `Stop using ${DEFAULT_TEMPLATE_NAME} for new recordings` })
+    .click();
+  await expect(
+    page
+      .getByTestId("template-card")
+      .filter({ hasText: "Standard meeting summary" })
+      .getByText("Default", { exact: true }),
+  ).toBeVisible();
+
+  await chosen.getByRole("button", { name: `Delete ${DEFAULT_TEMPLATE_NAME}` }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete template" }).click();
+  await expect(chosen).toHaveCount(0);
 });

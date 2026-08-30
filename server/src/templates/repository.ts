@@ -60,6 +60,18 @@ export interface SummaryTemplateStore {
   ): Promise<SummaryTemplate | null>;
   /** Removes every version of a user template. `false` when the caller owns none. */
   deleteTemplate(scope: TemplateScope, templateId: string): Promise<boolean>;
+  /**
+   * The caller's default template, or `null` when they have chosen none — or
+   * when the template they chose no longer exists.
+   */
+  findDefaultTemplateId(scope: TemplateScope): Promise<string | null>;
+  /**
+   * Makes one of the caller's own templates their default. `false` when they own
+   * no template with that id, so the caller can answer 404 without a second read.
+   */
+  setDefaultTemplate(scope: TemplateScope, templateId: string): Promise<boolean>;
+  /** Drops the caller's default, which puts them back on the system template. */
+  clearDefaultTemplate(scope: TemplateScope): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -191,17 +203,107 @@ export class PostgresSummaryTemplateStore implements SummaryTemplateStore {
    */
   async deleteTemplate(scope: TemplateScope, templateId: string): Promise<boolean> {
     try {
-      const deleted = await this.sql<{ id: string }[]>`
-        DELETE FROM summary_templates
-         WHERE id = ${templateId}
-           AND scope = 'user'
-           AND tenant_id = ${scope.tenantId}
-           AND user_id = ${scope.userId}
-        RETURNING id
-      `;
-      return deleted.length > 0;
+      return await this.sql.begin(async (sql) => {
+        const deleted = await sql<{ id: string }[]>`
+          DELETE FROM summary_templates
+           WHERE id = ${templateId}
+             AND scope = 'user'
+             AND tenant_id = ${scope.tenantId}
+             AND user_id = ${scope.userId}
+          RETURNING id
+        `;
+        if (deleted.length === 0) return false;
+        // Deleting the default puts the user back on the system template. The
+        // resolution below already treats a dangling pointer that way, so this
+        // is not what makes the fallback correct — it keeps the stored state
+        // from disagreeing with what is resolved, which is what an operator
+        // reading the table would otherwise have to reason about.
+        await sql`
+          UPDATE user_settings
+             SET default_template_id = NULL, updated_at = now()
+           WHERE tenant_id = ${scope.tenantId}
+             AND user_id = ${scope.userId}
+             AND default_template_id = ${templateId}
+        `;
+        return true;
+      });
     } catch (error) {
       if (isUndefinedTable(error)) return false;
+      throw error;
+    }
+  }
+
+  /**
+   * The user's default, ignoring a pointer whose template is gone.
+   *
+   * The `EXISTS` clause is why deleting a template cannot leave the setting in a
+   * state that names nothing: an unresolvable default reads as no default, which
+   * the routes turn into the system template.
+   */
+  async findDefaultTemplateId(scope: TemplateScope): Promise<string | null> {
+    try {
+      const rows = await this.sql<{ default_template_id: string }[]>`
+        SELECT s.default_template_id
+          FROM user_settings s
+         WHERE s.tenant_id = ${scope.tenantId}
+           AND s.user_id = ${scope.userId}
+           AND EXISTS (
+             SELECT 1 FROM summary_templates t
+              WHERE t.id = s.default_template_id
+                AND t.scope = 'user'
+                AND t.tenant_id = ${scope.tenantId}
+                AND t.user_id = ${scope.userId}
+           )
+         LIMIT 1
+      `;
+      return rows[0]?.default_template_id ?? null;
+    } catch (error) {
+      if (isUndefinedTable(error)) return null;
+      throw error;
+    }
+  }
+
+  /**
+   * Stores the choice, but only for a template the caller actually owns.
+   *
+   * Ownership is checked as part of the same statement rather than beforehand,
+   * so another user's template id cannot be written into this user's settings by
+   * winning a race against a separate check.
+   */
+  async setDefaultTemplate(scope: TemplateScope, templateId: string): Promise<boolean> {
+    try {
+      const rows = await this.sql<{ tenant_id: string }[]>`
+        INSERT INTO user_settings (tenant_id, user_id, default_template_id)
+        SELECT ${scope.tenantId}, ${scope.userId}, ${templateId}
+         WHERE EXISTS (
+           SELECT 1 FROM summary_templates t
+            WHERE t.id = ${templateId}
+              AND t.scope = 'user'
+              AND t.tenant_id = ${scope.tenantId}
+              AND t.user_id = ${scope.userId}
+         )
+        ON CONFLICT (tenant_id, user_id) DO UPDATE
+           SET default_template_id = EXCLUDED.default_template_id, updated_at = now()
+        RETURNING tenant_id
+      `;
+      return rows.length > 0;
+    } catch (error) {
+      if (isUndefinedTable(error)) throw new TemplatesUnavailableError();
+      throw error;
+    }
+  }
+
+  async clearDefaultTemplate(scope: TemplateScope): Promise<void> {
+    try {
+      await this.sql`
+        UPDATE user_settings
+           SET default_template_id = NULL, updated_at = now()
+         WHERE tenant_id = ${scope.tenantId}
+           AND user_id = ${scope.userId}
+      `;
+    } catch (error) {
+      // Nothing was ever stored, so there is nothing to clear.
+      if (isUndefinedTable(error)) return;
       throw error;
     }
   }
