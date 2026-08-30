@@ -131,6 +131,25 @@ export async function findSummaries(sessionId: string): Promise<SummaryRow[]> {
 }
 
 /**
+ * The id of a user template by the name it was saved under.
+ *
+ * Asserting which template a summary was made with means naming that template, and the UI only
+ * ever shows its name — the id lives in the store. Reading it here keeps the assertion about the
+ * row that was actually written rather than about "not the system one".
+ */
+export async function findUserTemplateId(name: string): Promise<string | null> {
+  if (!(await tableExists("summary_templates"))) return null;
+
+  const rows = await sql<{ id: string }[]>`
+    SELECT id FROM summary_templates
+     WHERE name = ${name} AND scope = 'user'
+     ORDER BY version DESC
+     LIMIT 1
+  `;
+  return rows[0]?.id ?? null;
+}
+
+/**
  * Queue rows pg-boss still holds for a meeting, live and archived.
  *
  * These are queue internals, and the deletion cascade reaches into them on purpose: a `transcribe`

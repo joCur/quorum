@@ -86,6 +86,19 @@ export async function deleteTemplate(templateId: string, options: RequestOptions
   await call(`/api/summary-templates/${templateId}`, { ...options, method: "DELETE" });
 }
 
+/** Makes this template the one new recordings are summarized with. */
+export async function setDefaultTemplate(
+  templateId: string,
+  options: RequestOptions,
+): Promise<void> {
+  await call(`/api/summary-templates/${templateId}/default`, { ...options, method: "PUT" });
+}
+
+/** Gives up the choice, which puts new recordings back on the system template. */
+export async function clearDefaultTemplate(options: RequestOptions): Promise<void> {
+  await call("/api/summary-templates/default", { ...options, method: "DELETE" });
+}
+
 /** Asks for the meeting's active transcript to be summarized again with the chosen template. */
 export async function regenerateSummary(
   meetingId: string,
