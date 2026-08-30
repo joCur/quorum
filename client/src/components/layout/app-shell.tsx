@@ -83,10 +83,8 @@ function RecordAction({ variant }: { variant: "fab" | "sidebar" }) {
  */
 export function AppShell() {
   const { t } = useTranslation();
-  // Meeting detail owns the bottom of the screen with its playback bar, and there is nothing to
-  // record on a recording that already exists. The raised record button is dropped there rather
-  // than moving the player out of the way — the design keeps focused contexts free of controls
-  // that do not belong to them.
+  // The meeting detail is a leaf view: it owns the bottom of the small screen with its playback
+  // bar, and its own back link is the way out. Below `md` it is shown without the tab bar.
   const onMeetingDetail = useMatch("/meetings/:meetingId") !== null;
 
   return (
@@ -118,22 +116,26 @@ export function AppShell() {
         <Outlet />
       </main>
 
-      <nav
-        aria-label={t("nav.label")}
-        className={cn(
-          "fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 items-center border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden",
-          TAB_BAR_HEIGHT,
-        )}
-      >
-        <NavItem destination={MEETINGS} variant="bar" />
-        {/* The cell stays even when the button does not, so the four columns keep their
-            positions and the other destinations do not shift under the user's thumb. */}
-        <div className="relative flex h-full items-center justify-center">
-          {onMeetingDetail ? null : <RecordAction variant="fab" />}
-        </div>
-        <NavItem destination={TEMPLATES} variant="bar" />
-        <NavItem destination={SETTINGS} variant="bar" />
-      </nav>
+      {/* A leaf view takes the whole small screen: the tab bar and its record button step aside
+          on the meeting detail, which carries its own way back and puts its playback bar where
+          the tab bar would be. The sidebar above `md` is unaffected — it never competes for the
+          bottom edge. */}
+      {onMeetingDetail ? null : (
+        <nav
+          aria-label={t("nav.label")}
+          className={cn(
+            "fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 items-center border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden",
+            TAB_BAR_HEIGHT,
+          )}
+        >
+          <NavItem destination={MEETINGS} variant="bar" />
+          <div className="relative flex h-full items-center justify-center">
+            <RecordAction variant="fab" />
+          </div>
+          <NavItem destination={TEMPLATES} variant="bar" />
+          <NavItem destination={SETTINGS} variant="bar" />
+        </nav>
+      )}
     </div>
   );
 }

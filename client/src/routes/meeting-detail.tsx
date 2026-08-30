@@ -73,8 +73,15 @@ function MeetingDetailScreen({
       when the page does not scroll, and `sticky` holds it at the identical offset when it does —
       so the bar never jumps between the two cases.
     */
-    <div className="-mb-28 flex flex-1 flex-col gap-5 pb-16 md:-mb-10 md:pb-4">
-      <div className="flex flex-col gap-2">
+    <div className="-mb-28 flex flex-1 flex-col gap-5 pb-4 md:-mb-10">
+      {/*
+        Below `md` this block is the screen's title bar: with the tab bar gone, the back link is
+        the only way out, so it stays at the top edge instead of scrolling away. The negative
+        insets let the band span the full width and start at y=0 while the content keeps the
+        same resting position it had before. From `md` up the sidebar does the navigating and
+        the header is an ordinary block again.
+      */}
+      <div className="sticky top-0 z-30 -mx-4 -mt-6 flex flex-col gap-2 bg-background px-4 pb-2 pt-6 md:static md:mx-0 md:mt-0 md:px-0 md:pb-0 md:pt-0">
         <Link
           to="/meetings"
           className="flex w-fit items-center gap-1 rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -138,12 +145,13 @@ function MeetingDetailScreen({
         leave the bar floating directly under the last segment, so the auto margin eats the free
         space and pushes it to the bottom of the column instead.
 
-        `bottom-16` clears the mobile tab bar (the same `h-16`); from `md` up the tab bar is gone
-        and a small inset is enough. Both values match the column's padding above, which is what
-        keeps the resting and pinned positions identical.
+        The offset is the same at every width: this screen is shown without the mobile tab bar,
+        so there is nothing left to clear and the bar keeps a plain margin from the bottom edge.
+        It matches the column's padding above, which is what keeps the resting and pinned
+        positions identical.
       */}
       {meeting.hasAudio ? (
-        <div className="sticky bottom-16 z-20 mt-auto md:bottom-4">
+        <div className="sticky bottom-4 z-20 mt-auto">
           <AudioPlayer
             ref={player}
             url={audio.url}
