@@ -66,7 +66,14 @@ function MeetingDetailScreen({
   }, []);
 
   return (
-    <div className="flex flex-col gap-5">
+    /*
+      The column fills the height `main` gives it and cancels `main`'s bottom padding, replacing
+      it with padding equal to the player's own resting offset. That makes the content box end
+      exactly where the bar belongs: `mt-auto` then drops the bar onto the viewport's bottom edge
+      when the page does not scroll, and `sticky` holds it at the identical offset when it does —
+      so the bar never jumps between the two cases.
+    */
+    <div className="-mb-28 flex flex-1 flex-col gap-5 pb-16 md:-mb-10 md:pb-4">
       <div className="flex flex-col gap-2">
         <Link
           to="/meetings"
@@ -127,12 +134,16 @@ function MeetingDetailScreen({
         the last element of the content column keeps the player exactly as wide as the column at
         every breakpoint, with no offset to keep in sync with the sidebar's width.
 
+        `mt-auto` handles the short-content case: with nothing to scroll, sticky alone would
+        leave the bar floating directly under the last segment, so the auto margin eats the free
+        space and pushes it to the bottom of the column instead.
+
         `bottom-16` clears the mobile tab bar (the same `h-16`); from `md` up the tab bar is gone
-        and a small inset is enough. The margin below reserves the resting gap that the removed
-        page padding used to provide.
+        and a small inset is enough. Both values match the column's padding above, which is what
+        keeps the resting and pinned positions identical.
       */}
       {meeting.hasAudio ? (
-        <div className="sticky bottom-16 z-20 mb-2 md:bottom-4">
+        <div className="sticky bottom-16 z-20 mt-auto md:bottom-4">
           <AudioPlayer
             ref={player}
             url={audio.url}

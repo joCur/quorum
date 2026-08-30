@@ -1,7 +1,7 @@
 import { LayoutList, ListChecks, Mic, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useMatch, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -83,9 +83,17 @@ function RecordAction({ variant }: { variant: "fab" | "sidebar" }) {
  */
 export function AppShell() {
   const { t } = useTranslation();
+  // Meeting detail owns the bottom of the screen with its playback bar, and there is nothing to
+  // record on a recording that already exists. The raised record button is dropped there rather
+  // than moving the player out of the way — the design keeps focused contexts free of controls
+  // that do not belong to them.
+  const onMeetingDetail = useMatch("/meetings/:meetingId") !== null;
 
   return (
-    <div className="min-h-dvh md:flex">
+    // Always a flex container, a column below `md` and a row above it, so `main` is a flex item
+    // in both directions and can be told to fill the remaining height. A page that wants to put
+    // something at the bottom of the viewport needs a column with a definite height to do it in.
+    <div className="flex min-h-dvh flex-col md:flex-row">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-card focus:px-3 focus:py-2"
@@ -103,7 +111,10 @@ export function AppShell() {
         </nav>
       </aside>
 
-      <main id="main" className="mx-auto w-full max-w-3xl flex-1 px-4 pb-28 pt-6 md:px-6 md:pb-10">
+      <main
+        id="main"
+        className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pb-28 pt-6 md:px-6 md:pb-10"
+      >
         <Outlet />
       </main>
 
@@ -115,8 +126,10 @@ export function AppShell() {
         )}
       >
         <NavItem destination={MEETINGS} variant="bar" />
+        {/* The cell stays even when the button does not, so the four columns keep their
+            positions and the other destinations do not shift under the user's thumb. */}
         <div className="relative flex h-full items-center justify-center">
-          <RecordAction variant="fab" />
+          {onMeetingDetail ? null : <RecordAction variant="fab" />}
         </div>
         <NavItem destination={TEMPLATES} variant="bar" />
         <NavItem destination={SETTINGS} variant="bar" />
