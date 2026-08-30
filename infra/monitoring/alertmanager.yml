@@ -1,0 +1,38 @@
+# Alertmanager for the opt-in `monitoring` profile.
+#
+# There is deliberately no real receiver configured. Routing an alert somewhere means choosing a
+# destination and putting a credential in the environment, and both are deployment decisions, not
+# repository ones. Out of the box alerts land in the Alertmanager UI and in Grafana, which is what
+# a development stack needs; production replaces the receiver below with a real one.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: default
+  # Grouped by alert and queue so a failing backend produces one notification rather than one per
+  # affected job type.
+  group_by: ["alertname", "queue"]
+  group_wait: 30s
+  group_interval: 5m
+  # Long on purpose: the alerts here describe conditions someone has to act on, not blips. A
+  # four-hour re-notify is a reminder, not a pager storm.
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: default
+      repeat_interval: 1h
+
+receivers:
+  # A black hole with a name. Replace `webhook_configs` (or add email/Slack/ntfy) per deployment.
+  - name: default
+
+inhibit_rules:
+  # While the worker is down, "nothing is consuming the queue" and "a job is stuck" are both true
+  # and neither is news. Suppress them in favor of the one alert that names the cause.
+  - source_matchers:
+      - alertname = "QuorumTargetDown"
+    target_matchers:
+      - alertname =~ "QuorumJobStuckInQueue|QuorumNothingConsumingQueue"
+    equal: ["stack"]

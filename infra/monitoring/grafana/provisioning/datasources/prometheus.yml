@@ -1,0 +1,17 @@
+# Provisioned so the stack comes up with a working data source; nobody clicks through a setup
+# wizard to look at a queue.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    # Fixed uid: the provisioned dashboard references it by name, and a generated one would break
+    # every panel on the first restart.
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Matches the scrape interval, so the graph resolution reflects the real sample rate.
+      timeInterval: 15s
