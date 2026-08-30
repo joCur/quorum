@@ -23,7 +23,10 @@ export interface TranscribeHandlerDependencies {
    * transcript — which is what the tests of the transcription half do.
    */
   summaries?: SummaryEnqueuer | undefined;
-  /** Template the automatic summary uses; the system default in production. */
+  /**
+   * Template the automatic summary uses when the user has chosen no default of
+   * their own; the system template in production.
+   */
   summaryTemplateId?: string | undefined;
   now?: () => Date;
 }
@@ -218,11 +221,12 @@ async function enqueueSummary(
   log: WorkerLogger,
 ): Promise<boolean> {
   if (!deps.summaries || !deps.summaryTemplateId) return false;
+  const templateId = await resolveTemplateId(input, deps, deps.summaryTemplateId, log);
   try {
     await deps.summaries.enqueue({
       transcriptId: input.transcriptId,
       meetingId: input.job.meetingId,
-      templateId: deps.summaryTemplateId,
+      templateId,
       tenantId: input.tenantId,
       userId: input.userId,
       sessionId: input.sessionId,
@@ -232,7 +236,7 @@ async function enqueueSummary(
       {
         event: "summary.enqueued",
         transcriptId: input.transcriptId,
-        templateId: deps.summaryTemplateId,
+        templateId,
       },
       "summary job enqueued for the persisted transcript",
     );
@@ -243,6 +247,40 @@ async function enqueueSummary(
       "transcript was persisted but the summary job could not be enqueued",
     );
     return false;
+  }
+}
+
+/**
+ * Picks the template the automatic summary is produced with: the user's own
+ * default if they have set one, otherwise the system template.
+ *
+ * This is resolved here, at enqueue time, rather than in the summarize handler,
+ * because the transcribe payload is where the tenant and the user are known
+ * from the recording session. The resolved id then travels in the summarize
+ * payload, which keeps the summarize handler a pure function of its payload —
+ * a replayed summarize job produces the same summary as the first attempt
+ * instead of silently following a preference that has since changed. An
+ * explicit choice, i.e. regenerate, is unaffected: it names its template.
+ *
+ * A lookup failure is not allowed to cost the summary. The transcript is
+ * committed at this point, so falling back to the system template produces a
+ * usable summary the user can regenerate, which is strictly better than none.
+ */
+async function resolveTemplateId(
+  input: TranscribeJobPayload,
+  deps: TranscribeHandlerDependencies,
+  fallbackTemplateId: string,
+  log: WorkerLogger,
+): Promise<string> {
+  try {
+    const chosen = await deps.repository.findDefaultTemplateId(input.tenantId, input.userId);
+    return chosen ?? fallbackTemplateId;
+  } catch (error) {
+    log.warn(
+      { event: "summary.default_template_lookup_failed", err: error },
+      "could not read the user's default template; using the system template",
+    );
+    return fallbackTemplateId;
   }
 }
 

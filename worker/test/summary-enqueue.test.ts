@@ -98,6 +98,76 @@ describe("enqueueing the summary when a transcript is persisted", () => {
   });
 });
 
+/**
+ * The first summary of a recording is made with the template its owner chose, without anybody
+ * picking one before recording. The choice is resolved at enqueue time, because this is where the
+ * recording's tenant and user are known; the resolved id then travels in the payload, so a
+ * replayed summarize job cannot follow a preference that changed in the meantime.
+ */
+describe("the template the automatic summary is made with", () => {
+  const OWN_TEMPLATE = "9a3f2c1d-4b5e-4a77-8c91-2d6e5f4a3b21";
+
+  function withDefault(templateId: string): InMemoryRepository {
+    const repository = new InMemoryRepository();
+    repository.defaultTemplates.set("tenant-a user-1", templateId);
+    return repository;
+  }
+
+  it("is the user's default when they have chosen one", async () => {
+    const dependencies = deps({ repository: withDefault(OWN_TEMPLATE) });
+    await runTranscribeJob(transcribePayload(), 0, dependencies);
+
+    expect((dependencies.summaries as RecordingEnqueuer).enqueued[0]?.templateId).toBe(
+      OWN_TEMPLATE,
+    );
+  });
+
+  it("is the system template when they have chosen none", async () => {
+    const dependencies = deps();
+    await runTranscribeJob(transcribePayload(), 0, dependencies);
+
+    expect((dependencies.summaries as RecordingEnqueuer).enqueued[0]?.templateId).toBe(
+      SYSTEM_SUMMARY_TEMPLATE.id,
+    );
+  });
+
+  it("belongs to the recording's own user, not to whoever else set one", async () => {
+    const dependencies = deps({ repository: withDefault(OWN_TEMPLATE) });
+    await runTranscribeJob(transcribePayload({ userId: "user-2" }), 0, dependencies);
+
+    expect((dependencies.summaries as RecordingEnqueuer).enqueued[0]?.templateId).toBe(
+      SYSTEM_SUMMARY_TEMPLATE.id,
+    );
+  });
+
+  /**
+   * The transcript is already committed when this runs, so a settings read that fails may cost
+   * the shape of the summary but never the summary itself.
+   */
+  it("falls back to the system template when the setting cannot be read", async () => {
+    const repository = new InMemoryRepository();
+    repository.defaultTemplateLookupError = new Error("settings unavailable");
+    const dependencies = deps({ repository });
+
+    const outcome = await runTranscribeJob(transcribePayload(), 0, dependencies);
+
+    expect(outcome.summaryEnqueued).toBe(true);
+    expect((dependencies.summaries as RecordingEnqueuer).enqueued[0]?.templateId).toBe(
+      SYSTEM_SUMMARY_TEMPLATE.id,
+    );
+  });
+
+  it("names the chosen template in the job id, so it is its own summary", async () => {
+    const dependencies = deps({ repository: withDefault(OWN_TEMPLATE) });
+    await runTranscribeJob(transcribePayload(), 0, dependencies);
+    const enqueued = (dependencies.summaries as RecordingEnqueuer).enqueued[0];
+
+    expect(enqueued && summarizeJobPayload(enqueued).job.id).toBe(
+      summarizeJobIdFor(transcriptIdForJob(JOB_ID), OWN_TEMPLATE),
+    );
+  });
+});
+
 describe("the payload put on the summary queue", () => {
   const input = {
     transcriptId: transcriptIdForJob(JOB_ID),

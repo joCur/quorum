@@ -18,6 +18,10 @@ const badgeVariants = cva(
         warning: "bg-warning-subtle text-warning",
         destructive: "bg-destructive/10 text-destructive",
         recording: "bg-recording-subtle text-recording",
+        // Expressive, not status: plum is the identity color of summaries and
+        // templates (DESIGN-SYSTEM.md), which is exactly what "your summaries
+        // come out of this one" is saying.
+        plum: "bg-plum-subtle text-plum",
       },
     },
     defaultVariants: { variant: "neutral" },

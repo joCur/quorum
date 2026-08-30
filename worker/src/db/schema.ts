@@ -87,6 +87,27 @@ export const MIGRATIONS: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS summary_templates_tenant_idx
      ON summary_templates (tenant_id, scope)`,
 
+  // Per-user preferences, one row per (tenant, user) — for now only the default
+  // summary template a new recording is summarized with.
+  //
+  // WHY NOT A FLAG ON `summary_templates`: that table is keyed by (id, version)
+  // and every edit inserts a new row, so a flag would have to be carried forward
+  // on each insert and guarded by a partial unique index to keep two templates
+  // from both claiming the default. The choice is not a property of the template
+  // either — it belongs to the user, and switching defaults twice must not
+  // rewrite rows that are immutable on purpose (ADR-004 §2).
+  //
+  // A `default_template_id` with no template behind it is not an error state:
+  // the template it names may have been deleted, and resolution treats that as
+  // "no default", which falls back to the system template.
+  `CREATE TABLE IF NOT EXISTS user_settings (
+     tenant_id           text NOT NULL,
+     user_id             text NOT NULL,
+     default_template_id uuid,
+     updated_at          timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (tenant_id, user_id)
+   )`,
+
   `CREATE TABLE IF NOT EXISTS summaries (
      id               uuid PRIMARY KEY,
      job_id           uuid NOT NULL UNIQUE,

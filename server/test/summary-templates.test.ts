@@ -368,3 +368,101 @@ describe("deleting a template", () => {
     expect(response.statusCode).toBe(404);
   });
 });
+
+describe("the default template", () => {
+  /** The templates the caller sees, keyed by id, so an assertion can name one. */
+  async function listed(scope: {
+    tenantId: string;
+    userId: string;
+  }): Promise<Map<string, SummaryTemplateView>> {
+    const response = await call("GET", "/api/summary-templates", scope);
+    const body = response.json() as { templates: SummaryTemplateView[] };
+    return new Map(body.templates.map((view) => [view.template.id, view]));
+  }
+
+  async function create(
+    scope: { tenantId: string; userId: string },
+    name: string,
+  ): Promise<string> {
+    const created = await call("POST", "/api/summary-templates", scope, draft({ name }));
+    return (created.json() as SummaryTemplateView).template.id;
+  }
+
+  it("marks the system template until the user chooses one of their own", async () => {
+    const id = await create(ACME, "Not chosen yet");
+    const before = await listed(ACME);
+
+    expect(before.get(SYSTEM_TEMPLATE_ID)?.isDefault).toBe(true);
+    expect(before.get(id)?.isDefault).toBe(false);
+
+    await call("DELETE", `/api/summary-templates/${id}`, ACME);
+  });
+
+  it("moves the mark to the chosen template and gives it back when it is unset", async () => {
+    const id = await create(ACME, "Chosen");
+
+    expect((await call("PUT", `/api/summary-templates/${id}/default`, ACME)).statusCode).toBe(204);
+    const chosen = await listed(ACME);
+    expect(chosen.get(id)?.isDefault).toBe(true);
+    // Exactly one template is ever marked — the system one steps aside.
+    expect(chosen.get(SYSTEM_TEMPLATE_ID)?.isDefault).toBe(false);
+
+    expect((await call("DELETE", "/api/summary-templates/default", ACME)).statusCode).toBe(204);
+    const released = await listed(ACME);
+    expect(released.get(id)?.isDefault).toBe(false);
+    expect(released.get(SYSTEM_TEMPLATE_ID)?.isDefault).toBe(true);
+
+    await call("DELETE", `/api/summary-templates/${id}`, ACME);
+  });
+
+  /**
+   * The point of the fallback: a user who deletes the template they summarize with keeps getting
+   * summaries — made with the system template — rather than a pipeline pointing at nothing.
+   */
+  it("falls back to the system template when the chosen one is deleted", async () => {
+    const id = await create(ACME, "Deleted while default");
+    await call("PUT", `/api/summary-templates/${id}/default`, ACME);
+
+    expect((await call("DELETE", `/api/summary-templates/${id}`, ACME)).statusCode).toBe(204);
+
+    const after = await listed(ACME);
+    expect(after.has(id)).toBe(false);
+    expect(after.get(SYSTEM_TEMPLATE_ID)?.isDefault).toBe(true);
+  });
+
+  it("refuses the system template as a choice, because that is what no choice means", async () => {
+    const response = await call(
+      "PUT",
+      `/api/summary-templates/${SYSTEM_TEMPLATE_ID}/default`,
+      ACME,
+    );
+    expect(response.statusCode).toBe(404);
+  });
+
+  /** ADR-001 again: another user's template id must not be storable as this user's choice. */
+  it("cannot be pointed at a template belonging to somebody else", async () => {
+    const foreign = await create(GLOBEX, "Not yours");
+
+    const response = await call("PUT", `/api/summary-templates/${foreign}/default`, ACME);
+    expect(response.statusCode).toBe(404);
+    expect((await listed(ACME)).get(SYSTEM_TEMPLATE_ID)?.isDefault).toBe(true);
+
+    await call("DELETE", `/api/summary-templates/${foreign}`, GLOBEX);
+  });
+
+  it("is one user's choice, not the whole tenant's", async () => {
+    const mine = await create(ACME, "Mine only");
+    await call("PUT", `/api/summary-templates/${mine}/default`, ACME);
+
+    const colleague = await listed(ACME_OTHER_USER);
+    expect(colleague.has(mine)).toBe(false);
+    expect(colleague.get(SYSTEM_TEMPLATE_ID)?.isDefault).toBe(true);
+
+    await call("DELETE", "/api/summary-templates/default", ACME);
+    await call("DELETE", `/api/summary-templates/${mine}`, ACME);
+  });
+
+  it("answers unsetting a choice that was never made with the same 204", async () => {
+    expect((await call("DELETE", "/api/summary-templates/default", ACME)).statusCode).toBe(204);
+  });
+});
