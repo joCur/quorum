@@ -10,6 +10,8 @@ import { summaryRoutes } from "./summaries/routes.js";
 import type { SummaryTemplateStore } from "./templates/repository.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./recording/types.js";
+import type { ServerMetrics } from "./observability/metrics.js";
+import { LOGGER_BASE, LOGGER_FORMATTERS, LOGGER_TIMESTAMP } from "./observability/logging.js";
 import type { RecordingLimitsResolver } from "./recording/limits.js";
 
 export interface BuildServerOptions {
@@ -39,6 +41,11 @@ export interface BuildServerOptions {
   templates?: SummaryTemplateStore;
   auth?: { verifyAccessToken: TokenVerifier };
   /**
+   * Prometheus exposition served on `GET /metrics`, unauthenticated like `/healthz`. Omitting it
+   * leaves the route off the instance entirely, which is what most unit tests want.
+   */
+  metrics?: ServerMetrics;
+  /**
    * Source of the recording tenant/user scope. Defaults to the validated access token; pass the
    * development header provider (or a stub) to override.
    */
@@ -59,7 +66,19 @@ export interface BuildServerOptions {
 
 /** Builds the Fastify application: auth foundation plus the WebSocket recording endpoint. */
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
-  const app = Fastify({ logger: options.logger ?? false });
+  const app = Fastify({
+    logger:
+      typeof options.logger === "object"
+        ? {
+            level: options.logger.level,
+            // Same shape as the worker's pino configuration, so one log query matches both
+            // services (`docs/observability.md`).
+            base: LOGGER_BASE,
+            timestamp: LOGGER_TIMESTAMP,
+            formatters: LOGGER_FORMATTERS,
+          }
+        : (options.logger ?? false),
+  });
 
   const authenticated = options.auth !== undefined;
   if (options.auth !== undefined) {
@@ -72,6 +91,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     status: "ok",
     service: "quorum-server",
   }));
+
+  const metrics = options.metrics;
+  if (metrics) {
+    // Public for the same reason `/healthz` is: the scraper holds no access token. The payload is
+    // queue depth and process counters — no tenant data and no meeting identifiers — but it still
+    // belongs on the internal network only, which is why compose never publishes the API port
+    // without a reverse proxy in front of it.
+    app.get("/metrics", { config: { public: true } }, async (_request, reply) => {
+      reply.header("content-type", metrics.contentType);
+      return reply.send(await metrics.render());
+    });
+  }
 
   if (authenticated) {
     // Smallest possible protected route: proves that a token was validated and shows the scope

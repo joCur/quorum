@@ -12,6 +12,12 @@ export const WorkerConfigSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
   DATABASE_URL: z.string().min(1),
 
+  /**
+   * Port for the worker's tiny HTTP surface: `GET /metrics` and `GET /healthz`.
+   * Internal to the compose network — never published to a host port.
+   */
+  WORKER_METRICS_PORT: z.coerce.number().int().positive().max(65535).default(9091),
+
   S3_ENDPOINT: z.string().min(1),
   S3_REGION: z.string().default("us-east-1"),
   S3_BUCKET: z.string().min(1),

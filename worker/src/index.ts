@@ -8,6 +8,8 @@ import { OpenAiChatClient } from "./summary/chat-client.js";
 import { PgBossSummaryEnqueuer } from "./summary/enqueue.js";
 import { SYSTEM_SUMMARY_TEMPLATE } from "./summary/template.js";
 import { startSummarizeWorker, startTranscribeWorker } from "./worker.js";
+import { createWorkerMetrics } from "./observability/metrics.js";
+import { startMetricsServer } from "./observability/server.js";
 
 export { loadConfig, WorkerConfigSchema, type WorkerConfig } from "./config.js";
 export { createLogger, type WorkerLogger } from "./logger.js";
@@ -55,6 +57,12 @@ export {
   type SummarizeHandlerDependencies,
   type SummarizeOutcome,
 } from "./summary/handler.js";
+export * from "./observability/metrics.js";
+export {
+  startMetricsServer,
+  type MetricsServer,
+  type MetricsServerOptions,
+} from "./observability/server.js";
 export {
   startTranscribeWorker,
   startSummarizeWorker,
@@ -99,6 +107,12 @@ async function main(): Promise<void> {
     jsonMode: config.SUMMARY_JSON_MODE,
   });
 
+  const metrics = createWorkerMetrics();
+  const metricsServer = await startMetricsServer({
+    metrics,
+    port: config.WORKER_METRICS_PORT,
+  });
+
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });
   boss.on("error", (error: unknown) => logger.error({ err: error }, "pg-boss error"));
   await boss.start();
@@ -116,6 +130,7 @@ async function main(): Promise<void> {
     summaries: new PgBossSummaryEnqueuer(boss),
     summaryTemplateId: SYSTEM_SUMMARY_TEMPLATE.id,
     concurrency: config.WORKER_CONCURRENCY,
+    metrics,
     retryLimit: config.WORKER_RETRY_LIMIT,
     retryDelaySeconds: config.WORKER_RETRY_DELAY_SECONDS,
     jobExpireSeconds: config.WORKER_JOB_EXPIRE_SECONDS,
@@ -128,6 +143,7 @@ async function main(): Promise<void> {
     logger,
     maxInputTokens: config.SUMMARY_MAX_INPUT_TOKENS,
     concurrency: config.SUMMARY_CONCURRENCY,
+    metrics,
     retryLimit: config.WORKER_RETRY_LIMIT,
     retryDelaySeconds: config.WORKER_RETRY_DELAY_SECONDS,
     jobExpireSeconds: config.WORKER_JOB_EXPIRE_SECONDS,
@@ -142,6 +158,7 @@ async function main(): Promise<void> {
       summaryModel: config.SUMMARY_MODEL,
       concurrency: config.WORKER_CONCURRENCY,
       summaryConcurrency: config.SUMMARY_CONCURRENCY,
+      metricsPort: metricsServer.port,
     },
     "worker is consuming transcribe and summarize jobs",
   );
@@ -152,6 +169,7 @@ async function main(): Promise<void> {
         logger.info({ event: "worker.stopping", signal }, "shutting down");
         // Graceful: running jobs finish, nothing new is fetched.
         await boss.stop({ graceful: true });
+        await metricsServer.close();
         await repository.close();
       })();
     });

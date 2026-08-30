@@ -11,6 +11,7 @@ import {
 import { runSummarizeJob, type SummarizeHandlerDependencies } from "./summary/handler.js";
 import { toJobError } from "./errors.js";
 import type { WorkerLogger } from "./logger.js";
+import type { JobOutcome, WorkerMetrics } from "./observability/metrics.js";
 
 /** Queue policy shared by both job types; the numbers come from the config. */
 export interface QueuePolicy {
@@ -18,6 +19,11 @@ export interface QueuePolicy {
   retryLimit: number;
   retryDelaySeconds: number;
   jobExpireSeconds: number;
+  /**
+   * Job counters and durations. Optional so the handler tests stay free of it;
+   * the running worker always supplies one.
+   */
+  metrics?: WorkerMetrics | undefined;
 }
 
 export interface TranscribeWorkerOptions extends TranscribeHandlerDependencies, QueuePolicy {
@@ -50,7 +56,7 @@ export async function startTranscribeWorker(options: TranscribeWorkerOptions): P
     TRANSCRIBE_QUEUE,
     workOptions(options),
     async (jobs: JobWithMetadata<unknown>[]) =>
-      settleAll(jobs, options.logger, (job) =>
+      settleAll(jobs, options, (job) =>
         runTranscribeJob(parseTranscribeJobPayload(job.data), job.retryCount, options),
       ),
   );
@@ -74,7 +80,7 @@ export async function startSummarizeWorker(options: SummarizeWorkerOptions): Pro
     SUMMARIZE_QUEUE,
     workOptions(options),
     async (jobs: JobWithMetadata<unknown>[]) =>
-      settleAll(jobs, options.logger, (job) =>
+      settleAll(jobs, options, (job) =>
         runSummarizeJob(parseSummarizeJobPayload(job.data), job.retryCount, options),
       ),
   );
@@ -106,30 +112,60 @@ function workOptions(policy: QueuePolicy) {
   } as const;
 }
 
+interface SettleContext {
+  logger: WorkerLogger;
+  metrics?: WorkerMetrics | undefined;
+}
+
 async function settleAll(
   jobs: JobWithMetadata<unknown>[],
-  logger: WorkerLogger,
+  context: SettleContext,
   run: (job: JobWithMetadata<unknown>) => Promise<unknown>,
 ): Promise<JobResult[]> {
   const results: JobResult[] = [];
   for (const job of jobs) {
-    results.push(await settle(job, logger, run));
+    results.push(await settle(job, context, run));
   }
   return results;
 }
 
+/**
+ * Runs one attempt and turns its outcome into a pg-boss result, a log line and a
+ * metric sample.
+ *
+ * This is the only place that sees every attempt of both queues, which is why
+ * the instrumentation sits here rather than in the two handlers: one funnel
+ * means the two job types cannot drift into reporting different things, and a
+ * third queue is instrumented by construction.
+ */
 async function settle(
   job: JobWithMetadata<unknown>,
-  logger: WorkerLogger,
+  { logger, metrics }: SettleContext,
   run: (job: JobWithMetadata<unknown>) => Promise<unknown>,
 ): Promise<JobResult> {
+  const startedAt = process.hrtime.bigint();
+  metrics?.jobStarted(job.name);
+  const record = (outcome: JobOutcome): void => {
+    metrics?.jobFinished(job.name);
+    metrics?.observeJob({
+      queue: job.name,
+      outcome,
+      durationSeconds: Number(process.hrtime.bigint() - startedAt) / 1e9,
+    });
+  };
+
   try {
     const outcome = await run(job);
+    // A meeting deleted mid-flight is neither a success nor a failure: nothing
+    // was produced and nothing is wrong. Counting it as `succeeded` would make
+    // a bulk deletion look like a throughput spike.
+    record(isAbandoned(outcome) ? "abandoned" : "succeeded");
     return { id: job.id, status: "completed", output: outcome };
   } catch (error) {
     const jobError = toJobError(error);
     const exhausted = job.retryCount >= job.retryLimit;
     const status = jobError.retryable && !exhausted ? "failed" : "deadletter";
+    record(status === "deadletter" ? "deadletter" : "failed");
     logger.error(
       {
         event: "job.settled",
@@ -151,4 +187,14 @@ async function settle(
       output: { code: jobError.code, message: jobError.message },
     };
   }
+}
+
+/** The abandonment marker both handlers set when the meeting was deleted mid-run. */
+function isAbandoned(outcome: unknown): boolean {
+  return (
+    typeof outcome === "object" &&
+    outcome !== null &&
+    "abandoned" in outcome &&
+    (outcome as { abandoned?: unknown }).abandoned !== undefined
+  );
 }

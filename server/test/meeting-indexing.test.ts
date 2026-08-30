@@ -27,6 +27,7 @@ function harness(registry?: MeetingRegistry): Harness {
     newId: idSequence(),
     now: () => new Date("2026-08-29T10:00:00.000Z"),
     logger: {
+      info() {},
       warn(_details, message) {
         warnings.push(message);
       },

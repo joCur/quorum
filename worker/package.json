@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Quorum job worker \u2014 consumes transcribe jobs, calls the OpenAI-compatible Whisper endpoint and persists transcripts.",
+  "description": "Quorum job worker — consumes transcribe jobs, calls the OpenAI-compatible Whisper endpoint and persists transcripts.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
+    "@prometheus-io/client": "^0.16.1",
     "@quorum/shared": "workspace:*",
     "pg-boss": "^12.28.1",
     "pino": "^10.3.1",
