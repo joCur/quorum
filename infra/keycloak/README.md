@@ -78,30 +78,33 @@ secrets, and the realm must never be imported as-is into a non-development envir
 Alice and Bob share a tenant; Carol is in a second one. That is what makes cross-tenant access
 denial testable in the end-to-end auth suite.
 
-## Before using this realm outside development
+## The production realm is a different file
 
-Do not. Derive a production realm from it instead:
+This file is the **development** realm, imported by `docker-compose.yml` on first start. It is
+not used anywhere else, and it must not be: `sslRequired: none`, a password-grant client and
+three users with committed passwords.
 
-```bash
-./scripts/keycloak-production-realm.sh https://quorum.example.com > realm-production.json
-```
+Production uses `realm-production.json` in this directory. It is the same realm with four
+differences and no others — `sslRequired: external`, no `quorum-dev-cli` client, no `dev.*`
+users, and the PWA client's redirect URIs and web origins taken from `$(env:QUORUM_PUBLIC_URL)`
+instead of `localhost`. Session lifetimes, refresh-token rotation, the audience and tenant
+mappers and the realm roles are identical, because those are decisions rather than development
+conveniences.
 
-The script applies exactly the four changes this file needs and nothing else — `sslRequired` to
-`external`, the `quorum-dev-cli` client removed, the `dev.*` users removed, and the `localhost`
-redirect URIs and web origins replaced with the real origin. Everything else, including the
-session lifetimes, the refresh token rotation and the mappers, is carried over unchanged.
+That file is applied by the `keycloak-config` service in `docker-compose.release.yml` on every
+deploy, using [keycloak-config-cli](https://github.com/adorsys/keycloak-config-cli). It is
+declarative and idempotent: the tool makes the live realm match the file, so a second run with an
+unchanged file is a no-op, and a setting changed by hand in the admin console is reverted on the
+next deploy. **Realm changes in production are pull requests against `realm-production.json`.**
 
-It is a script rather than a second committed JSON file because a hand-maintained production copy
-drifts: a mapper or a session setting added here, reviewed as a diff exactly as intended, and the
-production copy quietly keeps the old shape until a login fails weeks later for reasons nobody
-connects to a realm edit.
+The one exception is users: the service runs with `IMPORT_MANAGED_USER=no-delete`, because users
+are runtime data rather than configuration. Everything else absent from the file is removed from
+the realm.
 
-The remaining two steps are configuration, not realm content, and `docker-compose.release.yml`
-already does them: Keycloak runs `start --optimized` behind TLS with `KC_HOSTNAME` set to the
-public issuer origin, and the release preflight refuses to start the stack on a placeholder
-`KEYCLOAK_ADMIN_PASSWORD`. The derived realm is imported once, by hand — the release stack mounts
-no import directory, so a container restart can neither repeat nor undo it. `docs/deployment.md`
-walks through it.
+Keep the two files in step when you change either. A change here that belongs in production
+belongs in `realm-production.json` too — they are deliberately not generated from one another, so
+that a development-only convenience cannot leak into production by construction, but that also
+means nothing warns you when you update only one.
 
 ## Changing the realm
 

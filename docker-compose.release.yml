@@ -130,6 +130,10 @@ services:
         condition: service_completed_successfully
       keycloak:
         condition: service_healthy
+      # Not just "Keycloak is up" but "the realm is the one this release expects" — the API
+      # validates tokens against it, so starting before it is applied means rejecting logins.
+      keycloak-config:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD
@@ -189,6 +193,8 @@ services:
       minio:
         condition: service_healthy
       minio-init:
+        condition: service_completed_successfully
+      keycloak-config:
         condition: service_completed_successfully
       whisper:
         condition: service_started
@@ -282,6 +288,61 @@ services:
           # A JVM under a hard memory limit is killed rather than throttled, so this sits well
           # above the heap Keycloak actually uses at this scale.
           memory: ${KEYCLOAK_MEMORY_LIMIT:-1g}
+    logging: *logging
+
+  # One-shot realm configuration, applied on every deploy the way a database migration is.
+  #
+  # infra/keycloak/realm-production.json is the source of truth for what the realm contains, and
+  # this service makes the running Keycloak match it. Two consequences, both deliberate:
+  #
+  #   * A realm change is a pull request against that file, reviewed as a diff. There is no step
+  #     where someone clicks it into a running instance and nobody else finds out.
+  #   * Configuration drift is REVERTED, not merged. A setting changed by hand in the admin
+  #     console lasts until the next deploy. That is the feature: the file describes the realm,
+  #     so the file wins.
+  #
+  # Running it every time rather than once is what makes it idempotent — it computes the
+  # difference against the live realm, so a second run with an unchanged file is a no-op.
+  keycloak-config:
+    # Pinned to a build of keycloak-config-cli made for our Keycloak version. The tag carries
+    # both: <config-cli version>-<keycloak version>. These two are upgraded together — bumping
+    # KEYCLOAK_VERSION without bumping this tag pairs the tool with an admin API it was not built
+    # against. docs/deployment.md says the same thing next to the upgrade procedure.
+    image: adorsys/keycloak-config-cli:${KEYCLOAK_CONFIG_CLI_VERSION:-6.5.1-26.5.5}
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    environment:
+      # Over the Compose network, so the admin API is never exposed to do this.
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_USER: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD must be set}
+      KEYCLOAK_AVAILABILITYCHECK_ENABLED: "true"
+      KEYCLOAK_AVAILABILITYCHECK_TIMEOUT: 120s
+      IMPORT_FILES_LOCATIONS: /config/realm-production.json
+      # Lets the realm file carry $(env:QUORUM_PUBLIC_URL) instead of a hard-coded origin, so one
+      # committed file serves every deployment.
+      IMPORT_VARSUBSTITUTION_ENABLED: "true"
+      QUORUM_PUBLIC_URL: ${QUORUM_PUBLIC_URL}
+      # WITHOUT THIS, DRIFT IS NOT REVERTED. By default the tool stores a checksum of the file it
+      # imported and skips the whole run when the file has not changed — which is fine for
+      # applying new configuration and useless for the property we actually want, because a
+      # setting changed by hand in the admin console lives on untouched until someone happens to
+      # edit the file. Turning the cache off makes every deploy a real reconciliation. Measured
+      # cost: a skipped run takes ~0.5s, a real one ~3s.
+      IMPORT_CACHE_ENABLED: "false"
+      # THE ONE EXCEPTION TO "the file wins": users are runtime data, not configuration. Under the
+      # default (`full`) this tool deletes every realm object absent from the file — which for
+      # users would mean wiping every account the deployment has ever created, on every deploy.
+      IMPORT_MANAGED_USER: no-delete
+    volumes:
+      - ./infra/keycloak/realm-production.json:/config/realm-production.json:ro
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
 
   # ---------------------------------------------------------------------------------------------

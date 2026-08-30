@@ -28,7 +28,6 @@ responsibility:
   use.
 - For GPU transcription: NVIDIA drivers and the NVIDIA container toolkit. Without them Whisper
   runs on the CPU, which is slower but works.
-- `jq`, for the realm derivation step below.
 
 ## 1. Get the release
 
@@ -102,7 +101,8 @@ docker compose -f docker-compose.release.yml -f docker-compose.gpu.yml up -d --w
 ```
 
 The preflights run first. If anything is missing or still a placeholder, the stack stops with a
-list of exactly which values and why, and nothing else starts.
+list of exactly which values and why, and nothing else starts. Once Keycloak is healthy, the
+`keycloak-config` service applies the production realm (step 5) and the API waits for it.
 
 When it comes up, the API is on `127.0.0.1:8080` and Keycloak on `127.0.0.1:8081`. Postgres, the
 MinIO S3 API and the MinIO console are not published at all — the only way to them is the Compose
@@ -133,49 +133,55 @@ pnpm install --frozen-lockfile
 pnpm --filter @quorum/client run build   # writes client/dist
 ```
 
-## 5. Create the production realm
+## 5. The realm is applied for you
 
 **The committed `infra/keycloak/realm-quorum.json` is a development fixture and is deliberately
 not imported by the release stack.** It sets `sslRequired: none`, ships a password-grant client
 and three users with published passwords. Importing it into a deployment would hand anyone who
 has read this repository a working login.
 
-The supported path is to derive a production realm from it, so the two cannot drift apart in the
-parts that matter:
+The production realm is `infra/keycloak/realm-production.json`, and you do not import it by hand.
+The `keycloak-config` service applies it on every `up`, using
+[keycloak-config-cli](https://github.com/adorsys/keycloak-config-cli): it compares the file
+against the live realm and makes the realm match. It ran as part of step 3, and the API waits for
+it to finish before starting, because the API validates tokens against that realm.
 
-```bash
-./scripts/keycloak-production-realm.sh https://quorum.example.com > realm-production.json
-```
+The file carries `$(env:QUORUM_PUBLIC_URL)` for the PWA client's redirect URIs and web origins, so
+one committed file serves every deployment; the value comes from your `.env`.
 
-That sets `sslRequired: external`, drops the `quorum-dev-cli` client, drops the three `dev.*`
-users, and rewrites the PWA client's redirect URIs and web origins to your origin. Everything
-else — session lifetimes, refresh token rotation, the audience and tenant mappers, the realm
-roles — is carried over unchanged, because those are decisions rather than conveniences.
+### Realm changes are pull requests, not clicks
 
-Import it once:
+This is the part worth internalising:
 
-```bash
-docker compose -f docker-compose.release.yml cp \
-  realm-production.json keycloak:/tmp/realm-production.json
-docker compose -f docker-compose.release.yml exec keycloak \
-  /opt/keycloak/bin/kc.sh import --file /tmp/realm-production.json
-docker compose -f docker-compose.release.yml restart keycloak
-```
+- **To change the realm, change the file** and deploy. Session lifetimes, clients, mappers, roles,
+  the password policy — all of it is reviewed as a diff, like any other change.
+- **Configuration drift is reverted, not merged.** A setting changed by hand in the admin console
+  survives until the next deploy, and then goes back to what the file says. That is the feature,
+  not a limitation: it is what makes the file an accurate description of every environment rather
+  than a hopeful one. (This is why the service runs with `IMPORT_CACHE_ENABLED=false`. By default
+  the tool remembers a checksum of the file it last applied and skips the run when the file has
+  not changed — which would leave hand edits in place indefinitely. Reconciling every time costs
+  about three seconds.)
+- **Users are the one exception.** The service runs with `IMPORT_MANAGED_USER=no-delete`, because
+  users are runtime data rather than configuration — without it, every deploy would delete every
+  account the deployment had ever created.
 
-The compose file mounts no import directory, so this is a one-time action a container restart can
-never repeat or undo. Realm changes after this point are made in the admin console — or by
-re-importing with `--override true`, which replaces the realm and everything in it.
+So do not make realm changes in the admin console expecting them to last. Accounts, group
+memberships and role assignments are fine; realm and client configuration is not.
 
-Then, in the admin console at `KEYCLOAK_PUBLIC_URL` (sign in with `KEYCLOAK_ADMIN` and
-`KEYCLOAK_ADMIN_PASSWORD`):
+### The one thing you still do by hand
 
-1. **Create your first user** in the `quorum` realm. Give them the `quorum-user` role, plus
-   `quorum-admin` for a tenant administrator, and set the `tenant_id` attribute — every data
-   object in Quorum is tenant-scoped (ADR-001), and a user without that attribute gets tokens the
-   API rejects.
-2. **Replace the bootstrap admin.** `KC_BOOTSTRAP_ADMIN_*` creates a temporary admin in the
-   `master` realm. Create a permanent admin account with its own password, then delete the
-   bootstrap one.
+In the admin console at `KEYCLOAK_PUBLIC_URL` (sign in with `KEYCLOAK_ADMIN` and
+`KEYCLOAK_ADMIN_PASSWORD`), **create your first user** in the `quorum` realm. Give them the
+`quorum-user` role, plus `quorum-admin` for a tenant administrator, and set the `tenant_id`
+attribute — every data object in Quorum is tenant-scoped (ADR-001), and a user without that
+attribute gets tokens the API rejects.
+
+Keep the `KEYCLOAK_ADMIN_PASSWORD` in `.env` working: it is not only a bootstrap credential any
+more, it is what `keycloak-config` authenticates with on every deploy. Treat it as a deployment
+credential. If you would rather deploys did not use the top-level admin, create a dedicated
+service account with realm-management rights and point `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD`
+at it.
 
 ## 6. Check it works
 
@@ -183,8 +189,9 @@ Then, in the admin console at `KEYCLOAK_PUBLIC_URL` (sign in with `KEYCLOAK_ADMI
 docker compose -f docker-compose.release.yml ps
 ```
 
-Every long-running service should read `healthy`; `preflight`, `kms-preflight` and `minio-init`
-should have exited 0. Then sign in through the PWA and record a short meeting: that exercises the
+Every long-running service should read `healthy`; `preflight`, `kms-preflight`, `minio-init` and
+`keycloak-config` should have exited 0. If `keycloak-config` exited non-zero, its log names the
+realm setting it could not apply, and the API will not have started. Then sign in through the PWA and record a short meeting: that exercises the
 whole critical path — chunk streaming, persistence, transcription and summary — and is the only
 check that covers all of it at once.
 
@@ -205,14 +212,21 @@ check that covers all of it at once.
 ## Upgrading
 
 ```bash
-git fetch --tags && git checkout v1.1.0     # compose file and scripts
+git fetch --tags && git checkout v1.1.0     # compose file, scripts and the realm file
 # raise QUORUM_VERSION in .env to match
 docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d --wait
 ```
 
 Take a database backup first. Read the release notes for the versions you are skipping — a
-release that changes the database schema says so there.
+release that changes the database schema says so there. Any realm change in the new version is
+applied automatically, because `keycloak-config` runs on every `up`.
+
+> **Keycloak and keycloak-config-cli are upgraded as a pair.** The `keycloak-config` image tag is
+> `<config-cli version>-<keycloak version>`, e.g. `6.5.1-26.5.5`, because each config-cli build
+> targets one Keycloak admin API. Raising `KEYCLOAK_VERSION` without raising
+> `KEYCLOAK_CONFIG_CLI_VERSION` to a build made for it pairs the tool with an API it was not built
+> against, and the realm apply is where you find out. Bump both tags in the same change.
 
 ## Security: what this stack does and does not do
 
@@ -235,7 +249,7 @@ with it.
 | Storage encryption key custody and rotation | `docs/runbooks/backup-restore.md`                                  |
 | Alert routing — the stack raises alerts, it does not deliver them anywhere | `infra/monitoring/alertmanager.yml`, `docs/runbooks/pipeline.md`   |
 | Disk capacity for recordings, and what happens when it runs out | `COST-MODEL.md` for the sizing, the storage quota variables for the limit |
-| Keycloak password policy, MFA, brute-force tuning, federation | The admin console; the realm ships Keycloak's brute-force protection on |
+| Keycloak password policy, MFA, brute-force tuning, federation | `infra/keycloak/realm-production.json` — configure them there, not in the admin console, or the next deploy reverts them. The realm ships Keycloak's brute-force protection on |
 | Anything at all about a second host — this is a single-host deployment | Not in scope for this release                                      |
 
 ## When something is wrong
