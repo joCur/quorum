@@ -80,13 +80,28 @@ denial testable in the end-to-end auth suite.
 
 ## Before using this realm outside development
 
-1. Delete the `quorum-dev-cli` client and the three `dev.*` users.
-2. Replace the `localhost` redirect URIs and web origins of `quorum-pwa` with the real origins.
-3. Set `"sslRequired": "external"` — see "Transport security" above. The `none` in this file is a
-   development convenience and unsafe anywhere else.
-4. Start Keycloak with `start` instead of `start-dev` (see the comments on the `keycloak` service
-   in `docker-compose.yml`), behind TLS, with `KC_HOSTNAME` set to the public issuer origin.
-5. Set a real `KEYCLOAK_ADMIN_PASSWORD`; the value in `.env.example` is a placeholder.
+Do not. Derive a production realm from it instead:
+
+```bash
+./scripts/keycloak-production-realm.sh https://quorum.example.com > realm-production.json
+```
+
+The script applies exactly the four changes this file needs and nothing else — `sslRequired` to
+`external`, the `quorum-dev-cli` client removed, the `dev.*` users removed, and the `localhost`
+redirect URIs and web origins replaced with the real origin. Everything else, including the
+session lifetimes, the refresh token rotation and the mappers, is carried over unchanged.
+
+It is a script rather than a second committed JSON file because a hand-maintained production copy
+drifts: a mapper or a session setting added here, reviewed as a diff exactly as intended, and the
+production copy quietly keeps the old shape until a login fails weeks later for reasons nobody
+connects to a realm edit.
+
+The remaining two steps are configuration, not realm content, and `docker-compose.release.yml`
+already does them: Keycloak runs `start --optimized` behind TLS with `KC_HOSTNAME` set to the
+public issuer origin, and the release preflight refuses to start the stack on a placeholder
+`KEYCLOAK_ADMIN_PASSWORD`. The derived realm is imported once, by hand — the release stack mounts
+no import directory, so a container restart can neither repeat nor undo it. `docs/deployment.md`
+walks through it.
 
 ## Changing the realm
 

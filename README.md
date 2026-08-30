@@ -25,6 +25,9 @@ Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, gepl
 - `infra/monitoring/` — Prometheus, Alertmanager and Grafana as code, behind the opt-in
   `monitoring` compose profile
 - `docker-compose.yml` + `docker-compose.gpu.yml` + `.env.example` — Self-Hosting-Skeleton, Hardware-Wechsel rein per Env
+- `docker-compose.release.yml` + `docs/deployment.md` — the production stack: published images,
+  no development realm, hardened containers, and a guide that takes a fresh host from clone to a
+  working login
 - `shared/src/` — Zod-Schemas als Single Source of Truth für Client & Server
   - `recording-protocol.ts` — WebSocket-Control-Messages + binäres Chunk-Format
   - `transcript.ts` — Transcript, Segmente, Sprecher, Wort-Timestamps
