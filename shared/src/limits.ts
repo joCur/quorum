@@ -23,6 +23,8 @@ export const LIMIT_ERROR_CODES = [
   "limit.storage_quota_exceeded",
   /** The user has recorded their allowance of hours for the current calendar month. */
   "limit.monthly_hours_quota_exceeded",
+  /** Too many REST requests in the current window. Answered with HTTP 429. */
+  "limit.request_rate_exceeded",
 ] as const;
 
 export const LimitErrorCodeSchema = z.enum(LIMIT_ERROR_CODES);

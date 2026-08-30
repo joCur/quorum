@@ -14,6 +14,7 @@ import {
 } from "@quorum/shared";
 import { buildServer } from "../src/app.js";
 import { createTokenVerifier } from "../src/auth/token-verifier.js";
+import { DEFAULT_USER_LIMITS, StaticUserLimitsResolver } from "../src/limits.js";
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
 import { InMemoryMeetingStore } from "../src/meetings/memory.js";
@@ -177,6 +178,12 @@ beforeAll(async () => {
         keySource: keys.jwks,
       }),
     },
+    // These tests exercise the regenerate handler, not the rate limiter, and there are more cases
+    // here than the production per-minute allowance for a route that costs a model call.
+    limits: new StaticUserLimitsResolver({
+      ...DEFAULT_USER_LIMITS,
+      apiSummaryRequestsPerWindow: 1_000,
+    }),
   });
   await app.ready();
 });

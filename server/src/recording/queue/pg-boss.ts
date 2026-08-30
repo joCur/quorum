@@ -1,6 +1,42 @@
 import { PgBoss } from "pg-boss";
+import postgres from "postgres";
 import { JobSchema, type Job } from "@quorum/shared";
 import type { JobQueue } from "../types.js";
+import { fairnessPriority } from "./fairness.js";
+
+/**
+ * How many jobs a user already has waiting on a queue.
+ *
+ * A port rather than a query inlined below, so the fairness decision can be exercised without a
+ * database and so the one place that reaches into pg-boss's own tables is explicit.
+ */
+export type PendingJobCounter = (
+  queue: string,
+  scope: { tenantId: string; userId: string },
+) => Promise<number>;
+
+/**
+ * Counts a user's waiting jobs directly in pg-boss's job table.
+ *
+ * Reaching into those tables is a deliberate, narrow exception — the same one the meeting deletion
+ * cascade already makes — because pg-boss has no "count by payload" API and the payload shape
+ * (`{ tenantId, userId }`, see below) is ours. Only rows that have not started yet are counted:
+ * a job already running is no longer competing for a slot.
+ */
+export function createPendingJobCounter(connectionString: string): PendingJobCounter {
+  const sql = postgres(connectionString, { max: 1 });
+  return async (queue, scope) => {
+    const rows = await sql<{ pending: string }[]>`
+      SELECT count(*)::text AS pending
+        FROM pgboss.job
+       WHERE name = ${queue}
+         AND state IN ('created', 'retry')
+         AND data->>'tenantId' = ${scope.tenantId}
+         AND data->>'userId' = ${scope.userId}
+    `;
+    return Number(rows[0]?.pending ?? 0);
+  };
+}
 
 /** Queue name consumed by the transcription worker. */
 export const TRANSCRIBE_QUEUE = "transcribe";
@@ -40,13 +76,33 @@ export interface SummarizeJobPayload extends TranscribeJobPayload {
  */
 export class PgBossJobQueue implements JobQueue {
   private readonly boss: PgBoss;
+  private readonly countPending: PendingJobCounter | undefined;
   private started = false;
 
-  constructor(bossOrConnectionString: PgBoss | string) {
+  constructor(bossOrConnectionString: PgBoss | string, countPending?: PendingJobCounter) {
     this.boss =
       typeof bossOrConnectionString === "string"
         ? new PgBoss({ connectionString: bossOrConnectionString })
         : bossOrConnectionString;
+    this.countPending = countPending;
+  }
+
+  /**
+   * Priority for a new job of this user, so one user cannot monopolize the GPU workers.
+   *
+   * A counting failure is not allowed to cost the recording its transcription: the job is then
+   * enqueued at the neutral priority, which is what it would have had without fairness at all.
+   */
+  private async priorityFor(
+    queue: string,
+    scope: { tenantId: string; userId: string },
+  ): Promise<number> {
+    if (!this.countPending) return 0;
+    try {
+      return fairnessPriority(await this.countPending(queue, scope));
+    } catch {
+      return 0;
+    }
   }
 
   async start(): Promise<void> {
@@ -88,9 +144,13 @@ export class PgBossJobQueue implements JobQueue {
       userId: input.userId,
       sessionId: input.sessionId,
     };
+    const priority = await this.priorityFor(TRANSCRIBE_QUEUE, {
+      tenantId: input.tenantId,
+      userId: input.userId,
+    });
     // The job id is used as the pg-boss singleton key so a retried
     // `session.end` cannot enqueue the same transcription twice.
-    await this.boss.send(TRANSCRIBE_QUEUE, payload, { singletonKey: input.jobId });
+    await this.boss.send(TRANSCRIBE_QUEUE, payload, { singletonKey: input.jobId, priority });
   }
 
   /**
@@ -133,6 +193,10 @@ export class PgBossJobQueue implements JobQueue {
       transcriptId: input.transcriptId,
       templateId: input.templateId,
     };
-    await this.boss.send(SUMMARIZE_QUEUE, payload, { singletonKey: input.jobId });
+    const priority = await this.priorityFor(SUMMARIZE_QUEUE, {
+      tenantId: input.tenantId,
+      userId: input.userId,
+    });
+    await this.boss.send(SUMMARIZE_QUEUE, payload, { singletonKey: input.jobId, priority });
   }
 }

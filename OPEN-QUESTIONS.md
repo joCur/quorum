@@ -26,15 +26,25 @@ Async-Pipelines scheitern leise — ein hängender Job heißt: Nutzer wartet end
 - Backup/Restore für Object Storage und DB — inkl. Löschkaskade in Backups (ADR-001: Entfernung nach definierter Frist)
 - Kandidaten: OpenTelemetry + Grafana-Stack (Loki/Tempo/Prometheus), passt zum Self-Hosting-Ansatz
 
-## Missbrauchs- & Kostenschutz (benannt, noch keine Entscheidung)
+## Abuse and cost protection (decided; implemented)
 
-Sobald fremde Nutzer auf dem System sind, ist der GPU-Worker das teuerste Angriffsziel:
+The GPU worker is the most expensive attack target once strangers are on the system. Every item
+that was open here is now built and documented in `server/README.md`:
 
-- Upload-Quotas pro Nutzer/Plan (Speicher gesamt, Stunden pro Monat)
-- Maximale Meeting-/Session-Dauer und maximale parallele Sessions pro Nutzer
-- Rate Limits am WebSocket (Chunks/s, Bytes/s) und an der REST-API
-- Serverseitige Validierung, dass eingehende Chunks dem angemeldeten Audio-Format entsprechen (kein beliebiger Blob-Upload)
-- Job-Priorisierung/Fairness, damit ein Nutzer die Queue nicht monopolisiert
+- Per-user quotas — total stored audio and recorded hours per calendar month — summed from the
+  meetings themselves rather than from counters, and enforced when a session starts.
+- Maximum session duration, with a server-side hard stop that finalizes what exists instead of
+  discarding it, and a maximum number of parallel sessions per user.
+- Rate limits on the WebSocket (chunks/s and bytes/s, per connection) and on the REST API (per
+  user, with a much smaller allowance on the one route that costs a model call).
+- Server-side validation that incoming chunks match the announced audio format — this one was
+  already in place with the recording endpoint.
+- Queue fairness: a job is enqueued with a priority that ranks it behind the ones its user is
+  already waiting on, so nobody monopolizes the workers.
+
+Every limit is resolved per tenant and user through one resolver, which in V1 answers with the
+environment configuration for everybody. What is still open is the tier structure on top of it:
+which plans exist and what numbers each one gets.
 
 ## Kostenmodell (To-do vor dem Pitch-Termin)
 
