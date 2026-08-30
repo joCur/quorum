@@ -31,4 +31,28 @@ export const MEETING_MIGRATIONS: readonly string[] = [
   // at least the tenant).
   `CREATE INDEX IF NOT EXISTS meetings_scope_created_idx
      ON meetings (tenant_id, user_id, created_at DESC)`,
+
+  /*
+   * WHAT A MEETING COST, ON THE MEETING.
+   *
+   * The storage and recording-time quotas need to know what a user has already consumed. These
+   * two columns carry that per meeting rather than as counters in a table of their own, and that
+   * is a deliberate choice:
+   *
+   * - A counter has to be decremented when a meeting is deleted. These columns are deleted *with*
+   *   the meeting by the ADR-001 cascade that already exists, so giving the storage back is not a
+   *   second thing that can fail.
+   * - A counter drifts the first time a decrement is lost, and drift in a quota stays invisible
+   *   until somebody is wrongly locked out. A sum over facts cannot drift.
+   * - Both values are recomputable from object storage, so a wrong number is repairable rather
+   *   than permanent.
+   *
+   * `audio_bytes` is what the session's objects occupy; `recorded_seconds` is audio time, so
+   * pauses do not count. The transcript-derived duration the meeting list shows is a different
+   * number with a different job: it exists only after transcription, and a quota cannot wait for
+   * the pipeline it is meant to protect.
+   */
+  `ALTER TABLE meetings ADD COLUMN IF NOT EXISTS audio_bytes bigint NOT NULL DEFAULT 0`,
+  `ALTER TABLE meetings
+     ADD COLUMN IF NOT EXISTS recorded_seconds double precision NOT NULL DEFAULT 0`,
 ];

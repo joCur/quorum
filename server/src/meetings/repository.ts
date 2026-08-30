@@ -9,6 +9,7 @@ import {
   type Summary,
   type Transcript,
 } from "@quorum/shared";
+import type { AccountUsage, RecordingUsage } from "../recording/types.js";
 import { deriveMeetingState, type StageState } from "./status.js";
 import { MEETING_MIGRATIONS } from "./schema.js";
 
@@ -59,6 +60,13 @@ export interface MeetingStore {
   recordSession(record: MeetingRecord): Promise<void>;
   /** Called when a recording is finalized; makes the audio playable and starts the pipeline. */
   markFinalized(scope: MeetingScope, sessionId: string, finalizedAt: string): Promise<void>;
+  /**
+   * Stores what a session has consumed. Monotonic: a stored value is only ever raised, never
+   * lowered, because a reconnecting connection starts counting from zero again.
+   */
+  recordUsage(scope: MeetingScope, sessionId: string, usage: RecordingUsage): Promise<void>;
+  /** What the user has consumed: stored bytes overall, recorded seconds since `monthStart`. */
+  readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage>;
   listMeetings(scope: MeetingScope, options?: ListMeetingsOptions): Promise<Meeting[]>;
   /** `null` when the meeting does not exist *or* belongs to another tenant or user. */
   findMeeting(scope: MeetingScope, meetingId: string): Promise<MeetingDetailRow | null>;
@@ -140,6 +148,44 @@ export class PostgresMeetingStore implements MeetingStore {
          AND user_id = ${scope.userId}
          AND finalized_at IS NULL
     `;
+  }
+
+  /**
+   * `GREATEST` rather than an assignment: a client that reconnects mid-recording starts its
+   * byte counter from zero, and the row must not fall back to that. The effect is that usage of
+   * one session only ever climbs, which is the direction a quota can safely be wrong in.
+   */
+  async recordUsage(scope: MeetingScope, sessionId: string, usage: RecordingUsage): Promise<void> {
+    await this.sql`
+      UPDATE meetings
+         SET audio_bytes = GREATEST(audio_bytes, ${Math.round(usage.audioBytes)}),
+             recorded_seconds = GREATEST(recorded_seconds, ${usage.recordedSeconds}),
+             updated_at = now()
+       WHERE session_id = ${sessionId}
+         AND tenant_id = ${scope.tenantId}
+         AND user_id = ${scope.userId}
+    `;
+  }
+
+  /**
+   * Usage is summed from the meetings themselves, so it is exactly as durable as the meetings
+   * are: nothing to reconcile after a restart, and a deleted meeting stops counting the moment
+   * the ADR-001 cascade removes its row.
+   */
+  async readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage> {
+    const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
+      SELECT COALESCE(SUM(audio_bytes), 0)::text AS storage_bytes,
+             COALESCE(SUM(recorded_seconds) FILTER (WHERE created_at >= ${monthStart}), 0)::text
+               AS month_seconds
+        FROM meetings
+       WHERE tenant_id = ${scope.tenantId}
+         AND user_id = ${scope.userId}
+    `;
+    const row = rows[0];
+    return {
+      storageBytes: Number(row?.storage_bytes ?? 0),
+      monthRecordedSeconds: Number(row?.month_seconds ?? 0),
+    };
   }
 
   async listMeetings(scope: MeetingScope, options: ListMeetingsOptions = {}): Promise<Meeting[]> {
