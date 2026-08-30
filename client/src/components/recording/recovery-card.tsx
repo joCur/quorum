@@ -2,7 +2,7 @@ import { CloudOff } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useRecording } from "@/features/recording/use-recording";
+import { useRecordingSession } from "@/features/recording/recording-context";
 
 /**
  * Shown when a previous recording never reached `session.finalized` — a closed
@@ -12,9 +12,14 @@ import { useRecording } from "@/features/recording/use-recording";
  */
 export function RecoveryCard() {
   const { t } = useTranslation();
-  const { state, recover, discardRecoverable } = useRecording();
-  const session = state.recoverable;
-  if (!session) return null;
+  const recording = useRecordingSession();
+  const session = recording?.state.recoverable ?? null;
+  if (!recording || !session) return null;
+
+  const { state, recover, discardRecoverable } = recording;
+  // A running recording is unfinished audio too, and the card must not offer to take it over:
+  // recovering replaces the protocol client, so the offer stands down until the session is done.
+  if (state.phase === "recording" || state.phase === "paused") return null;
 
   const busy = state.phase === "finalizing";
 

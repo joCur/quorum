@@ -133,6 +133,7 @@ export function useRecording() {
   // Set while a swap to another input is in flight, so the recorder we are deliberately stopping
   // is not mistaken for a second device loss.
   const swappingRef = React.useRef(false);
+  const phaseRef = React.useRef<RecordingPhase>("idle");
 
   const patch = React.useCallback((changes: Partial<RecordingState>) => {
     setState((current) => ({ ...current, ...changes }));
@@ -145,23 +146,33 @@ export function useRecording() {
     return bufferRef.current;
   }, []);
 
+  // The phase, readable from callbacks that must not close over a stale render.
+  React.useEffect(() => {
+    phaseRef.current = state.phase;
+  }, [state.phase]);
+
+  /**
+   * Looks for audio of a session that was never finalized.
+   *
+   * The session currently being recorded is unfinished too, by definition, and is excluded: the
+   * recovery offer is about audio nothing is taking care of any more. Rescanning after each
+   * recovery is what makes a second orphaned session reachable at all — the offer used to be
+   * made once, for one session, and never again.
+   */
+  const refreshRecoverable = React.useCallback(async () => {
+    const buffer = await openBuffer();
+    const liveSessionId = clientRef.current?.status.sessionId ?? null;
+    const sessions = await buffer.listUnfinishedSessions();
+    patch({ recoverable: sessions.find((each) => each.sessionId !== liveSessionId) ?? null });
+  }, [openBuffer, patch]);
+
   // An unfinished session in the buffer means a previous recording was cut
   // short — its audio is still here and can be delivered.
   React.useEffect(() => {
-    let active = true;
-    void openBuffer()
-      .then((buffer) => buffer.listUnfinishedSessions())
-      .then((sessions) => {
-        const first = sessions.at(0);
-        if (active && first) patch({ recoverable: first });
-      })
-      .catch(() => {
-        // A buffer we cannot open is reported when a recording is attempted.
-      });
-    return () => {
-      active = false;
-    };
-  }, [openBuffer, patch]);
+    void refreshRecoverable().catch(() => {
+      // A buffer we cannot open is reported when a recording is attempted.
+    });
+  }, [refreshRecoverable]);
 
   const releaseWakeLock = React.useCallback(() => {
     const handle = wakeLockRef.current;
@@ -467,6 +478,9 @@ export function useRecording() {
   /** Delivers the buffered audio of a session that was cut short. */
   const recover = React.useCallback(
     async (session: BufferedSession) => {
+      // Recovering replaces the protocol client, so it must never run while one is carrying a
+      // live recording — that would cut the running session loose to finalize an older one.
+      if (phaseRef.current === "recording" || phaseRef.current === "paused") return;
       const buffer = await openBuffer();
       const client = new RecordingClient({
         url: webSocketUrl(RECORDING_PATH),
@@ -475,7 +489,11 @@ export function useRecording() {
         createSocket: (url, protocols) => new WebSocket(url, protocols) as never,
         clientInfo: describeClient(),
         onStatusChange: (status) => patch({ status }),
-        onFinalized: ({ meetingId }) => patch({ phase: "finalized", meetingId, recoverable: null }),
+        onFinalized: ({ meetingId }) => {
+          patch({ phase: "finalized", meetingId });
+          // A device can hold more than one orphaned session; the next one is offered right away.
+          void refreshRecoverable().catch(() => undefined);
+        },
         onError: (error: RecordingClientError) => {
           if (error.code === "limit" && error.limit) {
             patch(
@@ -491,17 +509,46 @@ export function useRecording() {
       await client.resume(session);
       client.end();
     },
-    [accessToken, openBuffer, patch],
+    [accessToken, openBuffer, patch, refreshRecoverable],
   );
 
   const discardRecoverable = React.useCallback(
     async (session: BufferedSession) => {
       const buffer = await openBuffer();
       await buffer.deleteSession(session.sessionId);
-      patch({ recoverable: null });
+      await refreshRecoverable();
     },
-    [openBuffer, patch],
+    [openBuffer, refreshRecoverable],
   );
+
+  /**
+   * Returns the session state to rest after a finished or failed one.
+   *
+   * The state now outlives the recording screen, so the outcome of the last recording would
+   * otherwise still be on screen the next time it is opened. A live recording is never reset —
+   * reopening the screen re-attaches to it, which is the whole point.
+   */
+  const reset = React.useCallback(() => {
+    if (phaseRef.current === "recording" || phaseRef.current === "paused") return;
+    if (phaseRef.current === "finalizing") return;
+    // A failed session can leave a client still trying to reconnect; dropping the reference
+    // without disposing it would leave that running with nothing left to report to.
+    clientRef.current?.dispose();
+    clientRef.current = null;
+    patch({
+      phase: "idle",
+      elapsedSeconds: 0,
+      level: 0,
+      silent: false,
+      status: null,
+      error: null,
+      wakeLockActive: false,
+      storageLow: false,
+      inputFallback: false,
+      meetingId: null,
+      limit: null,
+    });
+  }, [patch]);
 
   // Elapsed time is audio time: it advances only while chunks are being captured.
   React.useEffect(() => {
@@ -570,5 +617,8 @@ export function useRecording() {
     [teardownCapture],
   );
 
-  return { state, start, pause, resume, stop, recover, discardRecoverable };
+  return { state, start, pause, resume, stop, reset, recover, discardRecoverable };
 }
+
+/** Everything the app can know and do about the one recording session it owns. */
+export type RecordingSession = ReturnType<typeof useRecording>;

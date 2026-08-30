@@ -14,7 +14,8 @@ import { RecordingIndicator } from "@/components/recording/recording-indicator";
 import { SyncStatus } from "@/components/recording/sync-status";
 import { isRecordingFinalizedDespite, limitMessageKey } from "@/features/limits/messages";
 import { useAudioInputs } from "@/features/recording/use-audio-inputs";
-import { useRecording } from "@/features/recording/use-recording";
+import { useRequiredRecordingSession } from "@/features/recording/recording-context";
+import type { RecordingState } from "@/features/recording/use-recording";
 import { useTemplates } from "@/features/templates/use-templates";
 import { formatDuration } from "@/lib/duration";
 import type { LimitErrorCode } from "@quorum/shared";
@@ -33,7 +34,7 @@ const FINALIZE_SETTLE_MS = 600;
 export function RecordRoute() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { state, start, pause, resume, stop } = useRecording();
+  const { state, start, pause, resume, stop, reset } = useRequiredRecordingSession();
   const [consentOpen, setConsentOpen] = React.useState(false);
   const [confirmStop, setConfirmStop] = React.useState(false);
   const [title, setTitle] = React.useState("");
@@ -55,6 +56,13 @@ export function RecordRoute() {
   const active = state.phase === "recording";
   const live = active || state.phase === "paused";
 
+  // The session outlives this screen now, so what is left of the last one — a finished recording,
+  // a failed start, a limit — would still be here on the next visit. Opening the screen clears
+  // it. A live recording is untouched by this: arriving on it re-attaches to what is running.
+  React.useEffect(() => {
+    reset();
+  }, [reset]);
+
   React.useEffect(() => {
     if (state.phase !== "finalized" || state.limit !== null) return;
     // The server closes the socket right after finalizing, and a hard stop at the maximum length
@@ -66,14 +74,6 @@ export function RecordRoute() {
     );
     return () => window.clearTimeout(handle);
   }, [state.phase, state.limit, navigate]);
-
-  // Closing the tab mid-recording is survivable, but it should not be silent.
-  React.useEffect(() => {
-    if (!live) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [live]);
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-background">
@@ -105,7 +105,6 @@ export function RecordRoute() {
           variant="ghost"
           size="icon"
           aria-label={t("common.close")}
-          disabled={live}
           onClick={() => void navigate("/meetings")}
         >
           <X aria-hidden="true" />
@@ -255,7 +254,7 @@ function ErrorPanel({
   error,
   onRetry,
 }: {
-  error: NonNullable<ReturnType<typeof useRecording>["state"]["error"]>;
+  error: NonNullable<RecordingState["error"]>;
   onRetry: () => void;
 }) {
   const { t } = useTranslation();

@@ -74,6 +74,14 @@ export function recordingTimer(page: Page) {
   return page.getByTestId("recording-timer");
 }
 
+/**
+ * The persistent strip that says a recording is still running, shown on every screen except the
+ * recording screen itself. It is also the way back to it.
+ */
+export function recordingBar(page: Page) {
+  return page.getByTestId("recording-bar");
+}
+
 /** Stopping is a two-step confirmation; the second "Stop" lives in the confirmation panel. */
 export async function stopRecording(page: Page): Promise<void> {
   await stopButton(page).click();

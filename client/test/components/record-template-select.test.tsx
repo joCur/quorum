@@ -3,7 +3,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SUMMARY_SCHEMA_VERSION, type SummaryTemplateView } from "@quorum/shared";
 import type { TemplatesState } from "@/features/templates/use-templates";
-import { renderWithProviders, useLanguage } from "./render";
+import { renderWithProviders, stubRecordingSession, useLanguage } from "./render";
 
 /**
  * The recording screen is driven by the microphone and a live WebSocket, neither of which exists
@@ -15,25 +15,6 @@ const startSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("@/features/templates/use-templates", () => ({
   useTemplates: () => templatesState.current,
-}));
-
-vi.mock("@/features/recording/use-recording", () => ({
-  useRecording: () => ({
-    state: {
-      phase: "idle",
-      status: null,
-      error: null,
-      level: 0,
-      silent: false,
-      elapsedSeconds: 0,
-      storageLow: false,
-      wakeLockSupported: true,
-    },
-    start: startSpy,
-    pause: vi.fn(),
-    resume: vi.fn(),
-    stop: vi.fn(),
-  }),
 }));
 
 const { RecordRoute } = await import("@/routes/record");
@@ -91,7 +72,7 @@ describe("record screen template choice", () => {
 
   it("stays silent when there is nothing to choose between", () => {
     setTemplates([view(SYSTEM, "Standard summary", true)]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     // One template is no choice. A select with a single option is a control that cannot do
     // anything, and the resting state says nothing rather than offering one.
@@ -103,7 +84,7 @@ describe("record screen template choice", () => {
 
   it("stays silent while the templates are still loading", () => {
     setTemplates([], "loading");
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     // A control that appears a beat late is worse than one that never appears: the user is
     // already reaching for the record button.
@@ -112,7 +93,7 @@ describe("record screen template choice", () => {
 
   it("offers the choice once the user has one of their own", () => {
     setTemplates([view(SYSTEM, "Standard summary", false), view(MINE, "Client call", true)]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     expect(screen.getByLabelText(TEMPLATE_LABEL)).toBeInTheDocument();
   });
@@ -120,14 +101,14 @@ describe("record screen template choice", () => {
   it("prefills the user's default rather than the first template in the list", () => {
     // The default is not necessarily first, and picking by position is the bug this pins down.
     setTemplates([view(SYSTEM, "Standard summary", false), view(MINE, "Client call", true)]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     expect(screen.getByLabelText<HTMLSelectElement>(TEMPLATE_LABEL).value).toBe(MINE);
   });
 
   it("falls back to the first template when no default is set", () => {
     setTemplates([view(SYSTEM, "Standard summary", false), view(MINE, "Client call", false)]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     // A select must show something; the system template is the sensible something.
     expect(screen.getByLabelText<HTMLSelectElement>(TEMPLATE_LABEL).value).toBe(SYSTEM);
@@ -136,7 +117,7 @@ describe("record screen template choice", () => {
   it("keeps an explicit choice, even against the default", async () => {
     const user = userEvent.setup();
     setTemplates([view(SYSTEM, "Standard summary", false), view(MINE, "Client call", true)]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     const select = screen.getByLabelText<HTMLSelectElement>(TEMPLATE_LABEL);
     await user.selectOptions(select, SYSTEM);
@@ -148,7 +129,7 @@ describe("record screen template choice", () => {
   it("sends the template that was on screen, prefilled default included", async () => {
     const user = userEvent.setup();
     setTemplates([view(SYSTEM, "Standard summary", false), view(MINE, "Client call", true)]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     await user.type(screen.getByLabelText(TITLE_LABEL), "Weekly sync");
     await user.click(screen.getByRole("button", { name: "Record" }));
@@ -163,7 +144,7 @@ describe("record screen template choice", () => {
   it("sends no template when the user has none to choose from", async () => {
     const user = userEvent.setup();
     setTemplates([], "ready");
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     await user.click(screen.getByRole("button", { name: "Record" }));
     await user.click(screen.getByRole("button", { name: "I have informed the participants" }));

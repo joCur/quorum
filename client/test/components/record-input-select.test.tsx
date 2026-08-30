@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { renderWithProviders, useLanguage } from "./render";
+import { renderWithProviders, stubRecordingSession, useLanguage } from "./render";
 
 /**
  * The microphone picker on the recording start screen.
@@ -23,26 +23,6 @@ vi.mock("@/features/templates/use-templates", () => ({
     update: vi.fn(),
     remove: vi.fn(),
     chooseDefault: vi.fn(),
-  }),
-}));
-
-vi.mock("@/features/recording/use-recording", () => ({
-  useRecording: () => ({
-    state: {
-      phase: "idle",
-      status: null,
-      error: null,
-      level: 0,
-      silent: false,
-      elapsedSeconds: 0,
-      storageLow: false,
-      inputFallback: false,
-      wakeLockSupported: true,
-    },
-    start: startSpy,
-    pause: vi.fn(),
-    resume: vi.fn(),
-    stop: vi.fn(),
   }),
 }));
 
@@ -84,7 +64,7 @@ describe("record screen microphone choice", () => {
 
   it("stays silent when there is only one microphone", async () => {
     setDevices([device(BUILT_IN, "Built-in Microphone")]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     // The resting state offers no control that cannot change anything.
     await waitFor(() => expect(screen.getByLabelText("Meeting title")).toBeInTheDocument());
@@ -95,7 +75,7 @@ describe("record screen microphone choice", () => {
     // Before the microphone permission is granted every browser returns empty labels. Offering
     // "Microphone 1 / Microphone 2" would be a choice the user cannot make.
     setDevices([device(HEADSET, ""), device(BUILT_IN, "")]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     await waitFor(() => expect(screen.getByLabelText("Meeting title")).toBeInTheDocument());
     expect(screen.queryByLabelText(MIC_LABEL)).toBeNull();
@@ -103,7 +83,7 @@ describe("record screen microphone choice", () => {
 
   it("offers the named inputs plus the system default", async () => {
     setDevices([device(HEADSET, "Headset"), device(BUILT_IN, "Built-in Microphone")]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     const select = await screen.findByLabelText<HTMLSelectElement>(MIC_LABEL);
     expect(select.value).toBe("");
@@ -114,7 +94,7 @@ describe("record screen microphone choice", () => {
   it("preselects the microphone that was used last", async () => {
     window.localStorage.setItem(STORAGE_KEY, HEADSET);
     setDevices([device(HEADSET, "Headset"), device(BUILT_IN, "Built-in Microphone")]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     expect(await screen.findByLabelText<HTMLSelectElement>(MIC_LABEL)).toHaveValue(HEADSET);
   });
@@ -123,7 +103,7 @@ describe("record screen microphone choice", () => {
     const user = userEvent.setup();
     window.localStorage.setItem(STORAGE_KEY, "gone-forever");
     setDevices([device(HEADSET, "Headset"), device(BUILT_IN, "Built-in Microphone")]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     const select = await screen.findByLabelText<HTMLSelectElement>(MIC_LABEL);
     expect(select.value).toBe("");
@@ -148,7 +128,7 @@ describe("record screen microphone choice", () => {
   it("records with the chosen microphone and remembers it", async () => {
     const user = userEvent.setup();
     setDevices([device(HEADSET, "Headset"), device(BUILT_IN, "Built-in Microphone")]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     const select = await screen.findByLabelText<HTMLSelectElement>(MIC_LABEL);
     await user.selectOptions(select, HEADSET);
@@ -162,7 +142,7 @@ describe("record screen microphone choice", () => {
   it("records on the default when nothing was chosen", async () => {
     const user = userEvent.setup();
     setDevices([device(HEADSET, "Headset"), device(BUILT_IN, "Built-in Microphone")]);
-    renderWithProviders(<RecordRoute />);
+    renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     await screen.findByLabelText(MIC_LABEL);
     await user.click(screen.getByRole("button", { name: "Record" }));
