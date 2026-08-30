@@ -12,7 +12,7 @@ import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js
 import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./recording/types.js";
 import type { ServerMetrics } from "./observability/metrics.js";
 import { LOGGER_BASE, LOGGER_FORMATTERS, LOGGER_TIMESTAMP } from "./observability/logging.js";
-import type { RecordingLimits } from "./recording/limits.js";
+import type { RecordingLimitsResolver } from "./recording/limits.js";
 
 export interface BuildServerOptions {
   storage: RecordingStorage;
@@ -56,10 +56,11 @@ export interface BuildServerOptions {
    */
   allowUnauthenticatedRecording?: boolean;
   /**
-   * Abuse and cost limits for the recording endpoint. Defaults to `DEFAULT_RECORDING_LIMITS`,
-   * which sits far above any real recording — an instance built without them is still protected.
+   * Where the recording endpoint looks up a user's abuse and cost limits. Defaults to the static
+   * resolver over `DEFAULT_RECORDING_LIMITS`, which sits far above any real recording — an
+   * instance built without one is still protected.
    */
-  limits?: RecordingLimits;
+  limits?: RecordingLimitsResolver;
   logger?: boolean | { level: string };
 }
 

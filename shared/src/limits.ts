@@ -19,6 +19,10 @@ export const LIMIT_ERROR_CODES = [
   "limit.chunk_rate_exceeded",
   /** Chunk frames carried more bytes per second than the per-session byte rate allows. */
   "limit.byte_rate_exceeded",
+  /** The stored audio of this user already fills their storage quota. */
+  "limit.storage_quota_exceeded",
+  /** The user has recorded their allowance of hours for the current calendar month. */
+  "limit.monthly_hours_quota_exceeded",
 ] as const;
 
 export const LimitErrorCodeSchema = z.enum(LIMIT_ERROR_CODES);

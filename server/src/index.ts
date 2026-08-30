@@ -7,6 +7,7 @@ import { PgBossJobQueue } from "./recording/queue/pg-boss.js";
 import { S3RecordingStorage } from "./recording/storage/s3.js";
 import { PostgresMeetingStore } from "./meetings/repository.js";
 import { PostgresSummaryTemplateStore } from "./templates/repository.js";
+import { StaticRecordingLimitsResolver } from "./recording/limits.js";
 import { createServerMetrics } from "./observability/metrics.js";
 import { PostgresQueueSnapshot } from "./observability/queue-snapshot.js";
 
@@ -79,7 +80,8 @@ export { PostgresQueueSnapshot } from "./observability/queue-snapshot.js";
 async function main(): Promise<void> {
   const config = loadConfig();
   const oidc = resolveOidcConfig(config);
-  const limits = resolveRecordingLimits(config);
+  // V1 has no plan tiers, so every user resolves to the same environment-configured limits.
+  const limits = new StaticRecordingLimitsResolver(resolveRecordingLimits(config));
 
   const storage = new S3RecordingStorage({
     endpoint: config.S3_ENDPOINT,

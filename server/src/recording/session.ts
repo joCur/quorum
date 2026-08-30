@@ -16,7 +16,10 @@ import { chunkKey } from "./keys.js";
 import {
   ConnectionRateMeter,
   DEFAULT_RECORDING_LIMITS,
+  StaticRecordingLimitsResolver,
+  monthStart,
   type RecordingLimits,
+  type RecordingLimitsResolver,
   type SessionRegistry,
 } from "./limits.js";
 import type {
@@ -64,10 +67,11 @@ export interface SessionDeps {
    */
   meetings?: MeetingRegistry | undefined;
   /**
-   * Abuse and cost limits. Defaults to `DEFAULT_RECORDING_LIMITS`, which sits far above any real
-   * recording — an instance that passes nothing is protected, not unprotected.
+   * Where the abuse and cost limits of the acting user come from. Defaults to the static resolver
+   * over `DEFAULT_RECORDING_LIMITS`, so an instance that passes nothing is protected rather than
+   * unprotected.
    */
-  limits?: RecordingLimits | undefined;
+  limits?: RecordingLimitsResolver | undefined;
   /**
    * Shared across every connection of one server process; this is what makes the parallel-session
    * cap mean anything. Without it the cap is not enforced.
@@ -101,6 +105,12 @@ interface ActiveSession {
   /** Sequence numbers persisted ahead of `persistedSeq` (out-of-order arrivals). */
   ahead: Set<number>;
   finalized: boolean;
+  /** Bytes this connection has persisted for the session — what the storage quota counts. */
+  audioBytes: number;
+  /** Highest audio-time offset seen, i.e. recorded seconds excluding pauses. */
+  recordedSeconds: number;
+  /** Chunks persisted since usage was last written to the meeting index. */
+  chunksSinceUsageFlush: number;
 }
 
 /**
@@ -115,8 +125,14 @@ export class RecordingSessionHandler {
   private context: RecordingContext | null;
   /** Rebound to a session-scoped child as soon as there is a session to name. */
   private log: SessionLogger | undefined;
-  private readonly limits: RecordingLimits;
-  private readonly rateMeter: ConnectionRateMeter;
+  private readonly limitsResolver: RecordingLimitsResolver;
+  /**
+   * Limits of the acting user, resolved once the session is known and then fixed for its whole
+   * life — a limit must not change under a running recording.
+   */
+  private limits: RecordingLimits = DEFAULT_RECORDING_LIMITS;
+  /** Exists only once the limits are resolved, which is before the first chunk can arrive. */
+  private rateMeter: ConnectionRateMeter | null = null;
   /** Scope and session this connection holds a slot for, so it can be released exactly once. */
   private registered: { scope: RecordingContext; sessionId: string } | null = null;
 
@@ -125,9 +141,19 @@ export class RecordingSessionHandler {
     this.deps = deps;
     this.context = deps.context ?? null;
     this.log = deps.logger;
-    this.limits = deps.limits ?? DEFAULT_RECORDING_LIMITS;
+    this.limitsResolver = deps.limits ?? new StaticRecordingLimitsResolver();
+  }
+
+  /**
+   * Looks up the limits of the acting user and arms the connection's rate meter with them.
+   *
+   * Every enforcement site in this class reads `this.limits`; none of them knows where a number
+   * came from. Plan tiers are then a different resolver, not a change here.
+   */
+  private async resolveLimits(context: RecordingContext): Promise<void> {
+    this.limits = await this.limitsResolver.resolve(context);
     this.rateMeter = new ConnectionRateMeter(this.limits, () =>
-      (deps.now?.() ?? new Date()).getTime(),
+      (this.deps.now?.() ?? new Date()).getTime(),
     );
   }
 
@@ -204,11 +230,13 @@ export class RecordingSessionHandler {
     }
     const context = this.requireContext();
     if (!context) return;
+    await this.resolveLimits(context);
     const check = checkAudioFormat(message.audioFormat);
     if (!check.ok) {
       this.connection.close(CLOSE_POLICY_VIOLATION, `rejected audio format: ${check.reason}`);
       return;
     }
+    if (!(await this.withinQuota(context))) return;
     const newId = this.deps.newId ?? randomUUID;
     const record: SessionRecord = {
       sessionId: newId(),
@@ -235,12 +263,82 @@ export class RecordingSessionHandler {
       persistedSeq: -1,
       ahead: new Set(),
       finalized: false,
+      audioBytes: 0,
+      recordedSeconds: 0,
+      chunksSinceUsageFlush: 0,
     };
     this.log?.info(
       { event: "session.started", container: record.audioFormat.container },
       "recording session started",
     );
     this.connection.send({ type: "session.ready", sessionId: record.sessionId });
+  }
+
+  /**
+   * Storage and monthly recording quotas, checked once when a session starts.
+   *
+   * Checked at the start rather than continuously: the numbers come from the meetings the user
+   * already has, and a session that is already running is bounded by the maximum session duration
+   * anyway. The worst overshoot is therefore one full-length session per open connection, which
+   * the parallel-session cap bounds in turn — a known, small amount, in exchange for not putting
+   * a database query on the chunk path.
+   *
+   * A failure to read the usage lets the recording through. Recording is the one thing this
+   * product must not lose, the other limits still apply, and the alternative is that a database
+   * hiccup stops everybody from recording.
+   */
+  private async withinQuota(context: RecordingContext): Promise<boolean> {
+    const readUsage = this.deps.meetings?.readUsage;
+    if (!readUsage || !this.deps.meetings) return true;
+    let usage;
+    try {
+      usage = await readUsage.call(
+        this.deps.meetings,
+        context,
+        monthStart(this.deps.now?.() ?? new Date()),
+      );
+    } catch (error) {
+      this.log?.warn(
+        { event: "quota.read_failed", err: error },
+        "failed to read the recording quota usage; letting the session start",
+      );
+      return true;
+    }
+    if (usage.storageBytes >= this.limits.maxStorageBytes) {
+      this.closeWithLimit("limit.storage_quota_exceeded");
+      return false;
+    }
+    if (usage.monthRecordedSeconds >= this.limits.maxMonthlyRecordedSeconds) {
+      this.closeWithLimit("limit.monthly_hours_quota_exceeded");
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Writes what the session has consumed into the meeting index.
+   *
+   * Best-effort, like the rest of the indexing this handler does: a quota that could not be
+   * updated must not cost the user their recording. Because the store keeps the larger of the two
+   * values, a lost flush is repaired by the next one.
+   */
+  private async flushUsage(session: ActiveSession): Promise<void> {
+    const recordUsage = this.deps.meetings?.recordUsage;
+    if (!recordUsage || !this.deps.meetings) return;
+    session.chunksSinceUsageFlush = 0;
+    try {
+      await recordUsage.call(
+        this.deps.meetings,
+        { tenantId: session.record.tenantId, userId: session.record.userId },
+        session.record.sessionId,
+        { audioBytes: session.audioBytes, recordedSeconds: session.recordedSeconds },
+      );
+    } catch (error) {
+      this.log?.warn(
+        { event: "quota.usage_write_failed", err: error, sessionId: session.record.sessionId },
+        "failed to record session usage; the quota may lag behind",
+      );
+    }
   }
 
   /**
@@ -273,6 +371,7 @@ export class RecordingSessionHandler {
   private async attach(sessionId: string): Promise<boolean> {
     const context = this.requireContext();
     if (!context) return false;
+    await this.resolveLimits(context);
     const { tenantId, userId } = context;
     let record: SessionRecord | null;
     try {
@@ -306,6 +405,11 @@ export class RecordingSessionHandler {
       persistedSeq: -1,
       ahead: new Set(seqs),
       finalized: false,
+      // A reconnected connection counts its own bytes from zero; the store keeps the larger of
+      // the two values, and the finalize replaces both with what storage actually holds.
+      audioBytes: 0,
+      recordedSeconds: 0,
+      chunksSinceUsageFlush: 0,
     };
     this.session = session;
     // Bound before the deadline check, so a recording that is finalized on reconnect still logs
@@ -331,7 +435,7 @@ export class RecordingSessionHandler {
   private claimSessionSlot(scope: RecordingContext, sessionId: string): boolean {
     const registry = this.deps.registry;
     if (!registry) return true;
-    if (!registry.acquire(scope, sessionId)) {
+    if (!registry.acquire(scope, sessionId, this.limits.maxParallelSessions)) {
       this.closeWithLimit("limit.parallel_sessions_exceeded");
       return false;
     }
@@ -392,18 +496,19 @@ export class RecordingSessionHandler {
   }
 
   async handleBinary(frame: Uint8Array): Promise<void> {
-    // Metered before anything else, on the whole frame: a frame costs bandwidth and a storage
-    // round trip whether or not it turns out to be well formed or a duplicate.
-    const exceeded = this.rateMeter.admit(frame.byteLength);
+    const session = this.session;
+    if (!session) {
+      this.connection.close(CLOSE_PROTOCOL_ERROR, "chunk received before session.start");
+      return;
+    }
+    // Metered before the frame is looked at, on its whole length: a frame costs bandwidth and a
+    // storage round trip whether or not it turns out to be well formed or a duplicate. The meter
+    // exists from the moment the session does, because that is when this user's limits are known.
+    const exceeded = this.rateMeter?.admit(frame.byteLength) ?? null;
     if (exceeded !== null) {
       this.closeWithLimit(
         exceeded === "chunks" ? "limit.chunk_rate_exceeded" : "limit.byte_rate_exceeded",
       );
-      return;
-    }
-    const session = this.session;
-    if (!session) {
-      this.connection.close(CLOSE_PROTOCOL_ERROR, "chunk received before session.start");
       return;
     }
     if (session.finalized) {
@@ -461,6 +566,15 @@ export class RecordingSessionHandler {
     }
     // Only now — after a successful write — does the chunk count as persisted.
     session.ahead.add(meta.seq);
+    session.audioBytes += payload.length;
+    // The offset is the start of the chunk, so this understates the recording by one chunk. That
+    // is the direction to be wrong in for a quota, and the exact length arrives with the
+    // transcript later anyway.
+    session.recordedSeconds = Math.max(session.recordedSeconds, meta.timestampOffset);
+    session.chunksSinceUsageFlush += 1;
+    if (session.chunksSinceUsageFlush >= this.limits.usageFlushChunks) {
+      await this.flushUsage(session);
+    }
     this.advance(session);
   }
 
@@ -536,6 +650,7 @@ export class RecordingSessionHandler {
     // recording. `recordSession` runs again first: it is idempotent on the session id and
     // repairs a meeting whose row could not be written when the session started.
     await this.indexMeeting(session.record);
+    await this.settleUsage(session);
     try {
       await this.deps.meetings?.markFinalized(
         { tenantId: session.record.tenantId, userId: session.record.userId },
@@ -567,6 +682,31 @@ export class RecordingSessionHandler {
       jobId,
     });
     return true;
+  }
+
+  /**
+   * Final, authoritative usage for the session.
+   *
+   * The byte count is taken from a listing of what object storage actually holds rather than from
+   * this connection's own counter, because a session that survived a reconnect was partly written
+   * by a connection that is gone. One listing per finalized recording, on a path that already
+   * costs a manifest write and an enqueue.
+   */
+  private async settleUsage(session: ActiveSession): Promise<void> {
+    try {
+      const objects = await this.deps.storage.listSessionObjects({
+        tenantId: session.record.tenantId,
+        userId: session.record.userId,
+        sessionId: session.record.sessionId,
+      });
+      session.audioBytes = objects.reduce((total, object) => total + object.size, 0);
+    } catch (error) {
+      this.log?.warn(
+        { event: "quota.usage_measure_failed", err: error, sessionId: session.record.sessionId },
+        "failed to measure the stored audio; the usage estimate of this connection is used",
+      );
+    }
+    await this.flushUsage(session);
   }
 
   /**

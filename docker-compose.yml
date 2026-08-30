@@ -33,6 +33,9 @@ services:
       RECORDING_MAX_CHUNKS_PER_SECOND: ${RECORDING_MAX_CHUNKS_PER_SECOND:-20}
       RECORDING_MAX_BYTES_PER_SECOND: ${RECORDING_MAX_BYTES_PER_SECOND:-4194304}
       RECORDING_RATE_BURST_SECONDS: ${RECORDING_RATE_BURST_SECONDS:-10}
+      QUOTA_STORAGE_BYTES: ${QUOTA_STORAGE_BYTES:-53687091200}
+      QUOTA_MONTHLY_RECORDED_SECONDS: ${QUOTA_MONTHLY_RECORDED_SECONDS:-360000}
+      QUOTA_USAGE_FLUSH_CHUNKS: ${QUOTA_USAGE_FLUSH_CHUNKS:-64}
       # Internal issuer — used for discovery and JWKS fetching from inside the compose network.
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/realms/quorum}
       # Public issuer — the value that ends up in the `iss` claim of browser-obtained tokens,

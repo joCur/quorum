@@ -80,6 +80,11 @@ Server (`quorum-server`):
 | `limit.parallel_sessions_exceeded` | info | A recording was refused: the user is already at the session cap   |
 | `limit.chunk_rate_exceeded`      | info  | A connection was closed for sending chunks too fast               |
 | `limit.byte_rate_exceeded`       | info  | A connection was closed for sending bytes too fast                |
+| `limit.storage_quota_exceeded`   | info  | A recording was refused: the user's stored audio fills their quota |
+| `limit.monthly_hours_quota_exceeded` | info | A recording was refused: the month's recording allowance is spent |
+| `quota.read_failed`              | warn  | Quota usage could not be read; the session was allowed to start   |
+| `quota.usage_write_failed`       | warn  | Session usage could not be stored; the quota may lag behind       |
+| `quota.usage_measure_failed`     | warn  | Stored audio could not be measured; this connection's estimate was used |
 | `summary.regenerate_queued`      | info  | A user asked for a new summary of an existing transcript          |
 
 The `limit.*` events are logged at `info`, not `warn`: a limit doing its job is normal operation,

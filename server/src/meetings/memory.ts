@@ -1,4 +1,5 @@
 import type { Job, Meeting, Summary, Transcript } from "@quorum/shared";
+import type { AccountUsage, RecordingUsage } from "../recording/types.js";
 import { deriveMeetingState, type StageState } from "./status.js";
 import {
   DEFAULT_MEETING_LIMIT,
@@ -12,6 +13,8 @@ import {
 
 interface StoredMeeting extends MeetingRecord {
   finalizedAt: string | null;
+  audioBytes: number;
+  recordedSeconds: number;
 }
 
 /** Pipeline artifacts a test attaches to a meeting to exercise the derived status. */
@@ -40,7 +43,34 @@ export class InMemoryMeetingStore implements MeetingStore {
     this.meetings.set(record.meetingId, {
       ...record,
       finalizedAt: existing?.finalizedAt ?? null,
+      audioBytes: existing?.audioBytes ?? 0,
+      recordedSeconds: existing?.recordedSeconds ?? 0,
     });
+  }
+
+  /** Monotonic, exactly like the `GREATEST` of the SQL implementation. */
+  async recordUsage(scope: MeetingScope, sessionId: string, usage: RecordingUsage): Promise<void> {
+    for (const meeting of this.meetings.values()) {
+      if (
+        meeting.sessionId === sessionId &&
+        meeting.tenantId === scope.tenantId &&
+        meeting.userId === scope.userId
+      ) {
+        meeting.audioBytes = Math.max(meeting.audioBytes, usage.audioBytes);
+        meeting.recordedSeconds = Math.max(meeting.recordedSeconds, usage.recordedSeconds);
+      }
+    }
+  }
+
+  async readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage> {
+    let storageBytes = 0;
+    let monthRecordedSeconds = 0;
+    for (const meeting of this.meetings.values()) {
+      if (meeting.tenantId !== scope.tenantId || meeting.userId !== scope.userId) continue;
+      storageBytes += meeting.audioBytes;
+      if (meeting.createdAt >= monthStart) monthRecordedSeconds += meeting.recordedSeconds;
+    }
+    return { storageBytes, monthRecordedSeconds };
   }
 
   async markFinalized(scope: MeetingScope, sessionId: string, finalizedAt: string): Promise<void> {

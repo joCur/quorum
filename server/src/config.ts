@@ -41,6 +41,20 @@ export const ServerConfigSchema = z.object({
     .default(4 * 1024 * 1024),
   /** Seconds' worth of both rates a connection may spend at once — the reconnect replay. */
   RECORDING_RATE_BURST_SECONDS: z.coerce.number().positive().default(10),
+  /** Stored audio one user may hold, in bytes. Default 50 GiB, roughly 3,000 hours of Opus. */
+  QUOTA_STORAGE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(50 * 1024 * 1024 * 1024),
+  /** Seconds a user may record per calendar month (UTC). Default 100 h. */
+  QUOTA_MONTHLY_RECORDED_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(100 * 60 * 60),
+  /** Chunks between two usage writes — what makes the quotas survive a crash. */
+  QUOTA_USAGE_FLUSH_CHUNKS: z.coerce.number().int().positive().default(64),
 
   /** Issuer used for discovery and JWKS retrieval; inside compose the container-internal URL. */
   OIDC_ISSUER_URL: z.string().url(),
@@ -66,6 +80,9 @@ export function resolveRecordingLimits(config: ServerConfig): RecordingLimits {
     maxChunksPerSecond: config.RECORDING_MAX_CHUNKS_PER_SECOND,
     maxBytesPerSecond: config.RECORDING_MAX_BYTES_PER_SECOND,
     burstSeconds: config.RECORDING_RATE_BURST_SECONDS,
+    maxStorageBytes: config.QUOTA_STORAGE_BYTES,
+    maxMonthlyRecordedSeconds: config.QUOTA_MONTHLY_RECORDED_SECONDS,
+    usageFlushChunks: config.QUOTA_USAGE_FLUSH_CHUNKS,
   };
 }
 
