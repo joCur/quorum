@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MeetingApiError } from "@/features/meetings/api";
 import { useTemplates } from "@/features/templates/use-templates";
+import { notify } from "@/lib/toast";
 
 type Mode = { kind: "list" } | { kind: "create" } | { kind: "edit"; templateId: string };
 
@@ -48,8 +49,16 @@ export function TemplatesRoute() {
       ? templates.update(editing.template.id, draft)
       : templates.create(draft);
     void written
-      .then(() => setMode({ kind: "list" }))
+      .then(() => {
+        setMode({ kind: "list" });
+        // The editor closing back to the list is the only other signal that the save landed, and
+        // an unchanged-looking list is a weak one — especially when editing, where the card the
+        // user returns to may look exactly as it did before.
+        notify.success(t("templates.saved"));
+      })
       .catch((error: unknown) => {
+        // The message stays on the editor, next to the fields the user would fix. A failed save
+        // is not a transient notice: the work is still unsaved and has to remain in view.
         setSaveError(error instanceof MeetingApiError ? error.message : t("templates.saveFailed"));
       });
   };

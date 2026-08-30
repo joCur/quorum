@@ -6,6 +6,9 @@ import { useAuth } from "@/features/auth/auth-provider";
 /**
  * Redirect target of the Authorization Code flow. It exchanges the code, then
  * replaces the history entry so the code never stays in the address bar.
+ *
+ * Where it goes next is the location the user was heading for when the flow
+ * started, which the sign-in screen put into the OIDC state.
  */
 export function AuthCallbackRoute() {
   const { completeSignIn } = useAuth();
@@ -19,7 +22,7 @@ export function AuthCallbackRoute() {
     started.current = true;
 
     completeSignIn()
-      .then(() => navigate("/meetings", { replace: true }))
+      .then((returnTo) => navigate(returnTo ?? "/meetings", { replace: true }))
       .catch(() => navigate("/login", { replace: true }));
   }, [completeSignIn, navigate]);
 

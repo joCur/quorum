@@ -1,16 +1,24 @@
 import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/auth-provider";
+import { safeReturnTo } from "@/features/auth/session-expiry";
 
-/** Sign-in screen: wordmark, one line of value, one button into the OIDC flow. */
+/**
+ * Sign-in screen: wordmark, one line of value, one button into the OIDC flow.
+ *
+ * It is also where an expired session lands. The auth gate sends the location along, so signing in
+ * again continues where the session ended instead of dropping the user at the meeting list.
+ */
 export function LoginRoute() {
   const { t } = useTranslation();
-  const { status, error, signIn } = useAuth();
+  const { status, error, sessionExpired, signIn } = useAuth();
+  const location = useLocation();
+  const returnTo = safeReturnTo((location.state as { from?: unknown } | null)?.from);
 
   if (status === "authenticated") {
-    return <Navigate to="/meetings" replace />;
+    return <Navigate to={returnTo ?? "/meetings"} replace />;
   }
 
   return (
@@ -19,6 +27,12 @@ export function LoginRoute() {
         <span className="text-3xl font-bold tracking-tight">{t("app.name")}</span>
         <span className="text-base text-muted-foreground">{t("app.tagline")}</span>
       </div>
+
+      {sessionExpired && !error ? (
+        <p role="status" className="max-w-sm text-sm text-muted-foreground">
+          {t("auth.sessionExpired")}
+        </p>
+      ) : null}
 
       {error ? (
         <p
@@ -32,7 +46,7 @@ export function LoginRoute() {
         </p>
       ) : null}
 
-      <Button size="lg" onClick={() => void signIn()} disabled={status === "loading"}>
+      <Button size="lg" onClick={() => void signIn(returnTo)} disabled={status === "loading"}>
         {t("auth.signIn")}
       </Button>
     </main>

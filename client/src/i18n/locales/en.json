@@ -13,7 +13,8 @@
   "auth": {
     "signIn": "Sign in",
     "completing": "Signing you in…",
-    "error": "Sign-in did not complete."
+    "error": "Sign-in did not complete.",
+    "sessionExpired": "Your session ended. Sign in again to continue where you left off."
   },
   "consent": {
     "title": "Before you record",
@@ -87,6 +88,8 @@
     },
     "untitled": "Untitled meeting",
     "loadError": "Your meetings could not be loaded.",
+    "deleted": "“{{meeting}}” was deleted.",
+    "deleteFailed": "“{{meeting}}” could not be deleted.",
     "search": {
       "label": "Search meetings",
       "placeholder": "Search meetings",
@@ -145,6 +148,7 @@
     "sectionCount_other": "{{count}} sections",
     "loadError": "Your templates could not be loaded.",
     "saveFailed": "This template could not be saved.",
+    "saved": "Template saved.",
     "empty": {
       "title": "Summaries, your way",
       "body": "Start from the system template and shape the sections you actually need."
