@@ -36,6 +36,11 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      # Compares the two realm JSON files against their documented differences. Reads two files
+      # and prints — no containers, no network, so it stays in the fast job.
+      - name: Realm drift guard
+        run: pnpm run check:realm-drift
+
   docker:
     name: Docker image (${{ matrix.image }})
     runs-on: ubuntu-latest

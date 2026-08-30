@@ -48,7 +48,9 @@ export default defineConfig({
           name: "logic",
           globals: true,
           environment: "node",
-          include: ["**/test/**/*.test.ts"],
+          // Repo toolchain scripts under `scripts/` are plain ESM with no build step, so their
+          // tests sit next to them instead of in a `test/` directory.
+          include: ["**/test/**/*.test.ts", "scripts/**/*.test.mjs"],
           exclude: ["**/node_modules/**", "**/dist/**", "e2e/**"],
           env,
         },
