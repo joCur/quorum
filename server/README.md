@@ -221,6 +221,17 @@ endpoint therefore bounds what one connection and one user can push into the pip
 | Chunk rate        | 20/s sustained | Frames per second on one connection.                      |
 | Byte rate         | 4 MiB/s        | Bytes per second on one connection.                       |
 | Burst             | 10 s           | Seconds' worth of both rates spendable at once.           |
+| Storage quota     | 50 GiB         | Stored audio over all of a user's meetings.               |
+| Monthly recording | 100 h          | Seconds recorded in the current calendar month (UTC).     |
+| REST requests     | 300/min        | Requests per user across the API.                         |
+| Regenerate        | 10/min         | Requests per user to the one route that costs model calls. |
+
+**Every limit is looked up per user**, through `RecordingLimitsResolver`; no enforcement site
+reads a constant of its own. In V1 the answer is always the environment configuration
+(`StaticRecordingLimitsResolver`), so everybody gets the same numbers — but plan tiers are then a
+different implementation of that one interface rather than a change at every place a limit is
+checked. The limits are resolved once when a session starts and stay fixed for its life, so a
+recording in flight cannot have the rules changed under it.
 
 A live recording sends 0.5–1 chunk and about 4 KiB per second (chunks are 1–2 s of audio), so the
 rate defaults sit 20x and 1000x above live speed. The burst allowance is what makes a reconnect
@@ -235,6 +246,39 @@ arrives rather than on a timer: a session that sends nothing costs nothing, and 
 would add cost is checked before it is accepted. A reconnect to a session that ran past the limit
 while it was disconnected is stopped the same way instead of being revived.
 
+**The session clock is wall clock from `session.start`, and it keeps running through a pause.**
+A four-hour limit means four hours between starting and being stopped, not four hours of audio.
+That is deliberate: an open session holds a slot, a socket and a growing set of objects whether or
+not audio is flowing, and a pause that stopped the clock would let one session live forever. The
+recorded-seconds side of the quota is the opposite and counts audio time, so a paused meeting does
+not spend a user's monthly hours while nothing is being recorded.
+
+### Quotas
+
+Two durable per-user quotas are checked when a session starts, and a session over either of them is
+refused before a single byte is written: total stored audio, and seconds recorded in the current
+calendar month (UTC).
+
+They are summed from the meetings themselves — `meetings.audio_bytes` and
+`meetings.recorded_seconds`, written during and at the end of every recording — rather than from a
+counter table. A counter would have to be decremented on delete and would drift the first time a
+decrement was lost; a sum over per-meeting facts cannot drift, is deleted for free by the ADR-001
+cascade, and is recomputable from object storage if a number is ever wrong. The transcript-derived
+duration the meeting list shows is a different number with a different job: it exists only after
+transcription, and a quota cannot wait for the pipeline it is meant to protect.
+
+Usage is written every `QUOTA_USAGE_FLUSH_CHUNKS` chunks while recording, so a crash mid-session
+cannot cost storage that counts for nothing, and the store keeps the larger of the old and new
+value — a reconnecting connection counts from zero and must not make a session look smaller. At
+finalize the byte count is replaced by a listing of what object storage actually holds, which also
+repairs any session that was partly written by a connection that is gone.
+
+Checked at the start rather than continuously: a running session is bounded by the maximum session
+duration anyway, so the worst overshoot is one full-length session per open connection — bounded in
+turn by the parallel-session cap — in exchange for keeping a database query off the chunk path. If
+the usage cannot be read at all, the session is allowed: losing a recording is worse than letting
+one past a quota, and every other limit still applies.
+
 Violations are reported through the close frame, and the reason is a **machine-readable code**
 defined in `@quorum/shared` (`limits.ts`), never a sentence — the client renders the message through
 i18n:
@@ -245,10 +289,60 @@ i18n:
 | 1008 policy violation | `limit.parallel_sessions_exceeded` | Too many open sessions for this user.         |
 | 1008 policy violation | `limit.chunk_rate_exceeded`        | Too many frames per second.                   |
 | 1008 policy violation | `limit.byte_rate_exceeded`         | Too many bytes per second.                    |
+| 1008 policy violation | `limit.storage_quota_exceeded`     | The user's stored audio fills their quota.     |
+| 1008 policy violation | `limit.monthly_hours_quota_exceeded` | The month's recording allowance is spent.   |
 
 The rate buckets are per connection and in memory; the parallel-session registry is per server
 process. Both are cheap ceilings against one client misbehaving, not cluster-wide accounting: with
 several API replicas the effective session cap is the configured number times the replica count.
+
+### REST rate limits
+
+The recording socket is metered per connection because that is where the audio arrives. The REST
+API is metered **per user** — a request there is cheap on its own and only becomes a problem in
+volume, and a per-connection budget would be free to reset by reconnecting. `@fastify/rate-limit`
+does the counting; the policy is ours:
+
+- The key is the tenant and user of the validated token, so one user cannot spend another's
+  allowance and a shared address — an office, a mobile carrier — is not one bucket. Only a request
+  without a context falls back to the IP.
+- The numbers come from the same per-user limits resolver everything else uses.
+- `GET /healthz` is exempt (`config: { rateLimit: false }`): an orchestrator polls it on a schedule
+  and must never be throttled.
+- `POST /api/meetings/:id/summaries` carries `config: { rateLimit: app.expensiveRateLimit }` and is
+  metered against the much smaller summary allowance, because every accepted request there buys a
+  model call while the rest of the API reads rows the pipeline already produced.
+
+**Each allowance is its own counter.** `@fastify/rate-limit` keeps one counter per key across every
+route without a `config.rateLimit` of its own, so giving the expensive route a smaller `max` on that
+shared counter would not have given it a smaller allowance — it would have refused it as soon as the
+user's ordinary browsing had spent ten requests of any kind. Reading a meeting list must never use
+up the right to ask for a summary, so the expensive route gets a counter of its own instead of a
+lower ceiling on everyone else's.
+- Exceeding it answers `429` with `{"error": "limit.request_rate_exceeded"}` — the same
+  machine-readable code style as every other limit here.
+
+Rate limiting runs after authentication, so an unverifiable token is refused with `401` before it
+ever reaches a user bucket, and is metered by address instead.
+
+### Queue fairness
+
+The transcription queue is served by a small number of GPU workers and a job can take minutes.
+Without an ordering rule, a user who finalizes twenty recordings at once puts twenty jobs at the
+head of the queue and everybody else waits behind all of them.
+
+**The mechanism:** a job is enqueued with a pg-boss priority equal to the negative count of jobs
+that user already has waiting on that queue. pg-boss serves higher priority first, so a user's first
+job outranks their second, and a newcomer's first job outranks a backlog. With users A (five jobs
+queued) and B (none), B's next job has priority 0 and A's has -5, so B goes first.
+
+It costs one count query per enqueue — once per finished recording, not per chunk — and keeps no
+state of its own, so there is nothing to reconcile after a restart: the queue is the state. A
+deliberate non-choice is a per-user concurrency cap, which would need a scheduler holding jobs back
+and deciding when to release them — a second source of truth about what is running, where priority
+is just a column on a row that is already there. If the count cannot be taken, the job is enqueued
+at the neutral priority: losing the transcription of a finished recording would be far worse than
+losing fairness for one job.
 
 ### Where the recording scope comes from
 
@@ -326,6 +420,12 @@ list with defaults.
 | `RECORDING_MAX_CHUNKS_PER_SECOND` | Sustained frames per second per connection. Default `20`.              |
 | `RECORDING_MAX_BYTES_PER_SECOND` | Sustained bytes per second per connection. Default `4194304` (4 MiB).    |
 | `RECORDING_RATE_BURST_SECONDS` | Seconds' worth of both rates spendable at once. Default `10`.             |
+| `QUOTA_STORAGE_BYTES`    | Stored audio per user. Default `53687091200` (50 GiB).                          |
+| `QUOTA_MONTHLY_RECORDED_SECONDS` | Recording seconds per calendar month. Default `360000` (100 h).         |
+| `QUOTA_USAGE_FLUSH_CHUNKS` | Chunks between two usage writes during a recording. Default `64`.             |
+| `API_RATE_LIMIT_MAX`     | REST requests per user per window. Default `300`.                               |
+| `API_RATE_LIMIT_WINDOW_SECONDS` | Length of that window. Default `60`.                                     |
+| `API_RATE_LIMIT_SUMMARY_MAX` | Regenerate requests per user per window. Default `10`.                      |
 | `DATABASE_URL`, `S3_*`   | Queue and object storage, see `.env.example`.                                   |
 | `HOST`, `PORT`, `LOG_LEVEL` | Listener and logging.                                                        |
 

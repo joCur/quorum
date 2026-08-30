@@ -12,7 +12,8 @@ import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js
 import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./recording/types.js";
 import type { ServerMetrics } from "./observability/metrics.js";
 import { LOGGER_BASE, LOGGER_FORMATTERS, LOGGER_TIMESTAMP } from "./observability/logging.js";
-import type { RecordingLimits } from "./recording/limits.js";
+import type { UserLimitsResolver } from "./limits.js";
+import { apiRateLimitPlugin } from "./api-rate-limit.js";
 
 export interface BuildServerOptions {
   storage: RecordingStorage;
@@ -56,10 +57,11 @@ export interface BuildServerOptions {
    */
   allowUnauthenticatedRecording?: boolean;
   /**
-   * Abuse and cost limits for the recording endpoint. Defaults to `DEFAULT_RECORDING_LIMITS`,
-   * which sits far above any real recording — an instance built without them is still protected.
+   * Where the recording endpoint looks up a user's abuse and cost limits. Defaults to the static
+   * resolver over `DEFAULT_USER_LIMITS`, which sits far above any real recording — an
+   * instance built without one is still protected.
    */
-  limits?: RecordingLimits;
+  limits?: UserLimitsResolver;
   logger?: boolean | { level: string };
 }
 
@@ -82,11 +84,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
   const authenticated = options.auth !== undefined;
   if (options.auth !== undefined) {
     await app.register(authPlugin, { verifyAccessToken: options.auth.verifyAccessToken });
+    // After the auth plugin on purpose: both hook `onRequest` and run in registration order, so
+    // the limiter already knows which user it is metering. An unverifiable token never reaches a
+    // user bucket and is metered by IP instead.
+    await app.register(apiRateLimitPlugin, {
+      ...(options.limits ? { limits: options.limits } : {}),
+    });
   }
 
   // Liveness/readiness probe for compose and the reverse proxy. Public on purpose: an
   // orchestrator has no token, and the response carries no tenant data.
-  app.get("/healthz", { config: { public: true } }, async () => ({
+  // `rateLimit: false`: an orchestrator polls this on a schedule and must never be throttled.
+  app.get("/healthz", { config: { public: true, rateLimit: false } }, async () => ({
     status: "ok",
     service: "quorum-server",
   }));

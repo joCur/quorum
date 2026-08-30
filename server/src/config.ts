@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { RecordingLimits } from "./recording/limits.js";
+import type { UserLimits } from "./limits.js";
 
 /** Environment configuration — names match `docker-compose.yml` / `.env.example`. */
 export const ServerConfigSchema = z.object({
@@ -41,6 +41,26 @@ export const ServerConfigSchema = z.object({
     .default(4 * 1024 * 1024),
   /** Seconds' worth of both rates a connection may spend at once — the reconnect replay. */
   RECORDING_RATE_BURST_SECONDS: z.coerce.number().positive().default(10),
+  /** Stored audio one user may hold, in bytes. Default 50 GiB, roughly 3,000 hours of Opus. */
+  QUOTA_STORAGE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(50 * 1024 * 1024 * 1024),
+  /** Seconds a user may record per calendar month (UTC). Default 100 h. */
+  QUOTA_MONTHLY_RECORDED_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(100 * 60 * 60),
+  /** Chunks between two usage writes — what makes the quotas survive a crash. */
+  QUOTA_USAGE_FLUSH_CHUNKS: z.coerce.number().int().positive().default(64),
+  /** REST requests one user may make per window. Default 300. */
+  API_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
+  /** Length of that window, in seconds. Default 60. */
+  API_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+  /** Regenerate requests per window — the one route that costs a model call. Default 10. */
+  API_RATE_LIMIT_SUMMARY_MAX: z.coerce.number().int().positive().default(10),
 
   /** Issuer used for discovery and JWKS retrieval; inside compose the container-internal URL. */
   OIDC_ISSUER_URL: z.string().url(),
@@ -58,14 +78,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return ServerConfigSchema.parse(env);
 }
 
-/** Recording limits as the endpoint wants them, derived from the flat environment configuration. */
-export function resolveRecordingLimits(config: ServerConfig): RecordingLimits {
+/** The limits as the enforcement sites want them, derived from the flat environment config. */
+export function resolveUserLimits(config: ServerConfig): UserLimits {
   return {
     maxSessionSeconds: config.RECORDING_MAX_SESSION_SECONDS,
     maxParallelSessions: config.RECORDING_MAX_PARALLEL_SESSIONS,
     maxChunksPerSecond: config.RECORDING_MAX_CHUNKS_PER_SECOND,
     maxBytesPerSecond: config.RECORDING_MAX_BYTES_PER_SECOND,
     burstSeconds: config.RECORDING_RATE_BURST_SECONDS,
+    maxStorageBytes: config.QUOTA_STORAGE_BYTES,
+    maxMonthlyRecordedSeconds: config.QUOTA_MONTHLY_RECORDED_SECONDS,
+    usageFlushChunks: config.QUOTA_USAGE_FLUSH_CHUNKS,
+    apiRequestsPerWindow: config.API_RATE_LIMIT_MAX,
+    apiWindowSeconds: config.API_RATE_LIMIT_WINDOW_SECONDS,
+    apiSummaryRequestsPerWindow: config.API_RATE_LIMIT_SUMMARY_MAX,
   };
 }
 

@@ -115,6 +115,42 @@ export interface MeetingRegistry {
     sessionId: string,
     finalizedAt: string,
   ): Promise<void>;
+  /**
+   * Records how much a session has consumed so far, so the quotas have something durable to read.
+   *
+   * Optional on this port: an instance without a meeting index records but enforces no quota,
+   * which is the same trade its listability already makes here.
+   *
+   * Implementations must be **monotonic** — a stored value may only ever grow. A reconnect
+   * restarts the connection's own counters at zero, and a session must not appear to shrink
+   * because of it.
+   */
+  recordUsage?(
+    scope: { tenantId: string; userId: string },
+    sessionId: string,
+    usage: RecordingUsage,
+  ): Promise<void>;
+  /** What this user has already consumed. `monthStart` bounds the recording-time half. */
+  readUsage?(
+    scope: { tenantId: string; userId: string },
+    monthStart: string,
+  ): Promise<AccountUsage>;
+}
+
+/** What one recording session has consumed. */
+export interface RecordingUsage {
+  /** Bytes of audio persisted for this session. */
+  audioBytes: number;
+  /** Seconds of audio recorded — audio time, so pauses do not count. */
+  recordedSeconds: number;
+}
+
+/** What a user has consumed across their meetings. */
+export interface AccountUsage {
+  /** Bytes of stored audio over all of the user's meetings. */
+  storageBytes: number;
+  /** Seconds recorded in meetings created since the start of the current month. */
+  monthRecordedSeconds: number;
 }
 
 /** Thin queue port — the transcription worker that consumes these jobs lives elsewhere. */

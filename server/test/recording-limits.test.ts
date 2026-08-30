@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  ConnectionRateMeter,
-  DEFAULT_RECORDING_LIMITS,
-  SessionRegistry,
-  TokenBucket,
-  type RecordingLimits,
-} from "../src/recording/limits.js";
+import { DEFAULT_USER_LIMITS, StaticUserLimitsResolver, type UserLimits } from "../src/limits.js";
+import { ConnectionRateMeter, SessionRegistry, TokenBucket } from "../src/recording/limits.js";
 import {
   CLOSE_NORMAL,
   CLOSE_POLICY_VIOLATION,
@@ -19,12 +14,16 @@ import { FakeConnection, WEBM_OPUS, chunk, idSequence } from "./helpers.js";
 const SESSION_START = Date.parse("2026-08-29T10:00:00.000Z");
 
 /** Limits small enough to reach in a test, with the same shape production uses. */
-const TEST_LIMITS: RecordingLimits = {
+const TEST_LIMITS: UserLimits = {
+  ...DEFAULT_USER_LIMITS,
   maxSessionSeconds: 60,
   maxParallelSessions: 2,
   maxChunksPerSecond: 2,
   maxBytesPerSecond: 1_000,
   burstSeconds: 1,
+  maxStorageBytes: 10_000,
+  maxMonthlyRecordedSeconds: 600,
+  usageFlushChunks: 64,
 };
 
 /** A clock the test moves by hand, so no limit test depends on wall-clock timing. */
@@ -47,7 +46,7 @@ interface Fixture {
 
 function createFixture(
   options: {
-    limits?: RecordingLimits;
+    limits?: UserLimits;
     registry?: SessionRegistry;
     now?: () => Date;
     userId?: string;
@@ -63,7 +62,7 @@ function createFixture(
     storage,
     queue,
     context: { tenantId: "tenant-a", userId: options.userId ?? "user-1" },
-    limits: options.limits ?? TEST_LIMITS,
+    limits: new StaticUserLimitsResolver(options.limits ?? TEST_LIMITS),
     registry: options.registry,
     newId: idSequence(options.idPrefix ?? "0"),
     now: options.now ?? (() => new Date(SESSION_START)),
@@ -254,7 +253,7 @@ describe("maximum session duration", () => {
 
 describe("parallel session cap", () => {
   it("admits sessions up to the cap and refuses the one past it", async () => {
-    const registry = new SessionRegistry(TEST_LIMITS.maxParallelSessions);
+    const registry = new SessionRegistry();
     const scope = { tenantId: "tenant-a", userId: "user-1" };
 
     const first = createFixture({ registry, idPrefix: "1" });
@@ -282,9 +281,10 @@ describe("parallel session cap", () => {
   });
 
   it("counts the cap per user, not per tenant", async () => {
-    const registry = new SessionRegistry(1);
-    const mine = createFixture({ registry, userId: "user-1", idPrefix: "1" });
-    const yours = createFixture({ registry, userId: "user-2", idPrefix: "2" });
+    const registry = new SessionRegistry();
+    const soloLimits = { ...TEST_LIMITS, maxParallelSessions: 1 };
+    const mine = createFixture({ registry, limits: soloLimits, userId: "user-1", idPrefix: "1" });
+    const yours = createFixture({ registry, limits: soloLimits, userId: "user-2", idPrefix: "2" });
 
     await start(mine);
     await start(yours);
@@ -293,23 +293,25 @@ describe("parallel session cap", () => {
   });
 
   it("frees the slot when the connection goes away", async () => {
-    const registry = new SessionRegistry(1);
+    const registry = new SessionRegistry();
+    const soloLimits = { ...TEST_LIMITS, maxParallelSessions: 1 };
     const scope = { tenantId: "tenant-a", userId: "user-1" };
-    const first = createFixture({ registry, idPrefix: "1" });
+    const first = createFixture({ registry, limits: soloLimits, idPrefix: "1" });
     await start(first);
     first.handler.dispose();
     expect(registry.countFor(scope)).toBe(0);
 
-    const second = createFixture({ registry, idPrefix: "2" });
+    const second = createFixture({ registry, limits: soloLimits, idPrefix: "2" });
     await start(second);
     expect(second.connection.closed).toBeNull();
   });
 
   it("does not count a reconnect to the same session twice", async () => {
-    const registry = new SessionRegistry(1);
+    const registry = new SessionRegistry();
+    const soloLimits = { ...TEST_LIMITS, maxParallelSessions: 1 };
     const scope = { tenantId: "tenant-a", userId: "user-1" };
     const time = clock();
-    const first = createFixture({ registry, now: time.now, idPrefix: "1" });
+    const first = createFixture({ registry, limits: soloLimits, now: time.now, idPrefix: "1" });
     const sessionId = await start(first);
     await first.handler.handleBinary(chunk(sessionId, 0));
 
@@ -317,6 +319,7 @@ describe("parallel session cap", () => {
     time.advanceSeconds(5);
     const resumed = createFixture({
       registry,
+      limits: soloLimits,
       now: time.now,
       storage: first.storage,
       queue: first.queue,
@@ -340,9 +343,9 @@ describe("default limits", () => {
   it("stays far above what a real recording does", () => {
     // A live recording sends 0.5–1 chunk/s and roughly 4 KiB/s of Opus (ADR-002, COST-MODEL.md).
     // The e2e suite records for seconds, so the defaults must never be in its way.
-    expect(DEFAULT_RECORDING_LIMITS.maxChunksPerSecond).toBeGreaterThanOrEqual(10);
-    expect(DEFAULT_RECORDING_LIMITS.maxBytesPerSecond).toBeGreaterThanOrEqual(1024 * 1024);
-    expect(DEFAULT_RECORDING_LIMITS.maxSessionSeconds).toBeGreaterThanOrEqual(60 * 60);
-    expect(DEFAULT_RECORDING_LIMITS.maxParallelSessions).toBeGreaterThanOrEqual(2);
+    expect(DEFAULT_USER_LIMITS.maxChunksPerSecond).toBeGreaterThanOrEqual(10);
+    expect(DEFAULT_USER_LIMITS.maxBytesPerSecond).toBeGreaterThanOrEqual(1024 * 1024);
+    expect(DEFAULT_USER_LIMITS.maxSessionSeconds).toBeGreaterThanOrEqual(60 * 60);
+    expect(DEFAULT_USER_LIMITS.maxParallelSessions).toBeGreaterThanOrEqual(2);
   });
 });

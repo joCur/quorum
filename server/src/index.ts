@@ -1,12 +1,13 @@
 import { buildServer } from "./app.js";
-import { loadConfig, resolveOidcConfig, resolveRecordingLimits } from "./config.js";
+import { loadConfig, resolveOidcConfig, resolveUserLimits } from "./config.js";
 import { createKeycloakJwks, createTokenVerifier } from "./auth/token-verifier.js";
 import { HeaderRecordingContextProvider } from "./recording/context-provider.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
-import { PgBossJobQueue } from "./recording/queue/pg-boss.js";
+import { PgBossJobQueue, createPendingJobCounter } from "./recording/queue/pg-boss.js";
 import { S3RecordingStorage } from "./recording/storage/s3.js";
 import { PostgresMeetingStore } from "./meetings/repository.js";
 import { PostgresSummaryTemplateStore } from "./templates/repository.js";
+import { StaticUserLimitsResolver } from "./limits.js";
 import { createServerMetrics } from "./observability/metrics.js";
 import { PostgresQueueSnapshot } from "./observability/queue-snapshot.js";
 
@@ -15,7 +16,7 @@ export type { BuildServerOptions } from "./app.js";
 export {
   loadConfig,
   resolveOidcConfig,
-  resolveRecordingLimits,
+  resolveUserLimits,
   ServerConfigSchema,
   type OidcConfig,
   type ServerConfig,
@@ -38,6 +39,7 @@ export * from "./recording/keys.js";
 export * from "./recording/frame.js";
 export * from "./recording/audio-format.js";
 export * from "./recording/session.js";
+export * from "./limits.js";
 export * from "./recording/limits.js";
 export { default as recordingPlugin } from "./recording/plugin.js";
 export { S3RecordingStorage } from "./recording/storage/s3.js";
@@ -68,7 +70,15 @@ export {
 export type { SummaryTemplateStore, TemplateScope } from "./templates/repository.js";
 export { InMemorySummaryTemplateStore } from "./templates/memory.js";
 export { InMemoryRecordingStorage } from "./recording/storage/memory.js";
-export { PgBossJobQueue, TRANSCRIBE_QUEUE, SUMMARIZE_QUEUE } from "./recording/queue/pg-boss.js";
+export {
+  PgBossJobQueue,
+  createPendingJobCounter,
+  TRANSCRIBE_QUEUE,
+  SUMMARIZE_QUEUE,
+  type PendingJobCounter,
+} from "./recording/queue/pg-boss.js";
+export * from "./recording/queue/fairness.js";
+export { apiRateLimitPlugin } from "./api-rate-limit.js";
 export { InMemoryJobQueue } from "./recording/queue/memory.js";
 export { HeaderRecordingContextProvider, UnauthorizedError } from "./recording/context-provider.js";
 export { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
@@ -79,7 +89,8 @@ export { PostgresQueueSnapshot } from "./observability/queue-snapshot.js";
 async function main(): Promise<void> {
   const config = loadConfig();
   const oidc = resolveOidcConfig(config);
-  const limits = resolveRecordingLimits(config);
+  // V1 has no plan tiers, so every user resolves to the same environment-configured limits.
+  const limits = new StaticUserLimitsResolver(resolveUserLimits(config));
 
   const storage = new S3RecordingStorage({
     endpoint: config.S3_ENDPOINT,
@@ -90,7 +101,12 @@ async function main(): Promise<void> {
     serverSideEncryption: config.S3_SSE,
   });
 
-  const queue = new PgBossJobQueue(config.DATABASE_URL);
+  // The counter is what makes the queue fair: a user's next job ranks behind the ones they are
+  // already waiting on, so nobody can monopolize the GPU workers.
+  const queue = new PgBossJobQueue(
+    config.DATABASE_URL,
+    createPendingJobCounter(config.DATABASE_URL),
+  );
   await queue.start();
 
   const meetings = new PostgresMeetingStore(config.DATABASE_URL);
