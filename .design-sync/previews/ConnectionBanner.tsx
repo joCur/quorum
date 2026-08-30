@@ -55,20 +55,3 @@ export function StorageLow() {
     </div>
   );
 }
-
-export function Connecting() {
-  return (
-    <div style={stage}>
-      <ConnectionBanner
-        status={{
-          ...base,
-          connection: "connecting",
-          sessionId: null,
-          lastSeq: -1,
-          persistedSeq: -1,
-        }}
-        storageLow={false}
-      />
-    </div>
-  );
-}
