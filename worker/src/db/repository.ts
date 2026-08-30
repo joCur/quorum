@@ -51,6 +51,16 @@ export interface TranscriptRepository {
    * leaves a meeting without a summary.
    */
   findDefaultTemplateId(tenantId: string, userId: string): Promise<string | null>;
+  /**
+   * Echoes the id back when a template with it is visible to this user, and
+   * `null` otherwise — the check a choice made before recording gets before it
+   * is used, since the template may have been deleted since.
+   */
+  findVisibleTemplateId(
+    templateId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<string | null>;
   close(): Promise<void>;
 }
 
@@ -236,6 +246,37 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
       return rows[0]?.default_template_id ?? null;
     } catch (error) {
       throw new JobError("SUMMARY_PERSIST_FAILED", "failed to read the default summary template", {
+        retryable: true,
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Confirms a template id against what the user can actually see.
+   *
+   * The visibility predicate is the same one `findDefaultTemplateId` joins
+   * against (ADR-001): the system template belongs to everybody, a user template
+   * only to its owner inside their tenant. Running it over a choice that arrived
+   * from a client is what keeps a stale or foreign id from reaching the
+   * summarize job, where it would fail the summary instead of quietly falling
+   * back to the next link in the chain.
+   */
+  async findVisibleTemplateId(
+    templateId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<string | null> {
+    try {
+      const rows = await this.sql<{ id: string }[]>`
+        SELECT id FROM summary_templates
+         WHERE id = ${templateId}
+           AND (scope = 'system' OR (tenant_id = ${tenantId} AND user_id = ${userId}))
+         LIMIT 1
+      `;
+      return rows[0]?.id ?? null;
+    } catch (error) {
+      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to check the chosen summary template", {
         retryable: true,
         cause: error,
       });

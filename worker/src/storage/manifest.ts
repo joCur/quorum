@@ -31,6 +31,13 @@ export const SessionRecordSchema = z.object({
   tenantId: z.string(),
   userId: z.string(),
   meetingTitle: z.string().nullable().default(null),
+  /**
+   * Template chosen for this meeting before recording started, or `null` for no
+   * choice. Defaulted rather than required: sessions written before this field
+   * existed are still waiting to be transcribed, and their absence of a choice
+   * is a meaning, not a parse failure.
+   */
+  summaryTemplateId: z.string().nullable().default(null),
   audioFormat: AudioFormatSchema,
   createdAt: z.string(),
   marks: z.array(z.object({ type: z.enum(["pause", "resume"]), at: z.string() })).default([]),

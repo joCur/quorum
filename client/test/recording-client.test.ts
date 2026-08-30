@@ -58,7 +58,10 @@ async function harness(): Promise<Harness> {
 
 /** Opens the socket and completes the handshake. */
 async function startSession(context: Harness): Promise<void> {
-  const started = context.client.start("Weekly sync", AUDIO_FORMAT);
+  const started = context.client.start(
+    { meetingTitle: "Weekly sync", summaryTemplateId: null },
+    AUDIO_FORMAT,
+  );
   context.factory.latest().open();
   context.factory.latest().deliver({ type: "session.ready", sessionId: SESSION_ID });
   await started;

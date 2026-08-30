@@ -168,6 +168,95 @@ describe("the template the automatic summary is made with", () => {
   });
 });
 
+/**
+ * The resolution chain, most specific first: the template chosen for this meeting before
+ * recording, then the user's default, then the system template. Each link is skipped when it
+ * names a template the user cannot see, so the chain always ends somewhere usable.
+ */
+describe("the order the summary template is resolved in", () => {
+  const CHOSEN = "1c9d8e7f-6a5b-4c3d-8e2f-1a0b9c8d7e6f";
+  const PREFERRED = "9a3f2c1d-4b5e-4a77-8c91-2d6e5f4a3b21";
+
+  /**
+   * A run where the recorder chose `chosen` before starting and the user's default is
+   * `preferred`. `visible` lists the templates that still exist when the summary is enqueued.
+   */
+  function scenario(options: {
+    chosen?: string | null;
+    preferred?: string | null;
+    visible?: readonly string[];
+  }) {
+    const audio = new FakeAudioSource();
+    audio.sessionTemplateId = options.chosen ?? null;
+
+    const repository = new InMemoryRepository();
+    if (options.preferred) repository.defaultTemplates.set("tenant-a user-1", options.preferred);
+    for (const id of options.visible ?? []) repository.visibleTemplates.add(id);
+
+    return deps({ audio, repository });
+  }
+
+  async function templateOf(
+    dependencies: ReturnType<typeof scenario>,
+  ): Promise<string | undefined> {
+    await runTranscribeJob(transcribePayload(), 0, dependencies);
+    return (dependencies.summaries as RecordingEnqueuer).enqueued[0]?.templateId;
+  }
+
+  it("prefers the meeting's own choice over the user's default", async () => {
+    const dependencies = scenario({
+      chosen: CHOSEN,
+      preferred: PREFERRED,
+      visible: [CHOSEN, PREFERRED],
+    });
+    expect(await templateOf(dependencies)).toBe(CHOSEN);
+  });
+
+  it("uses the user's default when this meeting carries no choice", async () => {
+    const dependencies = scenario({ preferred: PREFERRED, visible: [PREFERRED] });
+    expect(await templateOf(dependencies)).toBe(PREFERRED);
+  });
+
+  it("uses the system template when there is neither", async () => {
+    const dependencies = scenario({});
+    expect(await templateOf(dependencies)).toBe(SYSTEM_SUMMARY_TEMPLATE.id);
+  });
+
+  /**
+   * A recording can outlive the template it was started with — the user may delete it while the
+   * transcription is still running. That is a fall to the next link, not a failed summary.
+   */
+  it("falls through to the default when the chosen template is gone by then", async () => {
+    const dependencies = scenario({ chosen: CHOSEN, preferred: PREFERRED, visible: [PREFERRED] });
+    expect(await templateOf(dependencies)).toBe(PREFERRED);
+  });
+
+  it("falls all the way to the system template when the choice is stale and there is no default", async () => {
+    const dependencies = scenario({ chosen: CHOSEN, visible: [] });
+    expect(await templateOf(dependencies)).toBe(SYSTEM_SUMMARY_TEMPLATE.id);
+  });
+
+  /** ADR-001: an id that arrives from a client is a claim, and a claim on somebody else's data fails. */
+  it("ignores a chosen template belonging to somebody else", async () => {
+    const dependencies = scenario({ chosen: CHOSEN, preferred: PREFERRED, visible: [PREFERRED] });
+    expect(await templateOf(dependencies)).toBe(PREFERRED);
+  });
+
+  it("still enqueues a summary when the templates cannot be read at all", async () => {
+    const dependencies = scenario({ chosen: CHOSEN, visible: [CHOSEN] });
+    (dependencies.repository as InMemoryRepository).defaultTemplateLookupError = new Error(
+      "templates unavailable",
+    );
+
+    const outcome = await runTranscribeJob(transcribePayload(), 0, dependencies);
+
+    expect(outcome.summaryEnqueued).toBe(true);
+    expect((dependencies.summaries as RecordingEnqueuer).enqueued[0]?.templateId).toBe(
+      SYSTEM_SUMMARY_TEMPLATE.id,
+    );
+  });
+});
+
 describe("the payload put on the summary queue", () => {
   const input = {
     transcriptId: transcriptIdForJob(JOB_ID),

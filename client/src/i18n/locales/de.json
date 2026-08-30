@@ -39,6 +39,10 @@
       "label": "Titel des Meetings",
       "placeholder": "Optional — geht auch später"
     },
+
+    "templateField": {
+      "label": "Vorlage für die Zusammenfassung"
+    },
     "confirmStop": {
       "question": "Aufnahme stoppen?",
       "confirm": "Stoppen"
