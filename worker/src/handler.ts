@@ -3,7 +3,9 @@ import type { AudioSource } from "./storage/audio-source.js";
 import type { TranscriptionClient } from "./whisper/client.js";
 import type { TranscriptRepository } from "./db/repository.js";
 import type { WorkerLogger } from "./logger.js";
-import { JobError, toJobError } from "./errors.js";
+import { JobError, MeetingGoneError, toJobError } from "./errors.js";
+import { transcriptIdForJob } from "./ids.js";
+import { logMeetingGone } from "./logger.js";
 import { audioFileDescriptor } from "./storage/manifest.js";
 import { mapResponseToTranscript } from "./transcript/map.js";
 import type { TranscribeJobPayload } from "./payload.js";
@@ -34,6 +36,12 @@ export interface TranscribeOutcome {
   wordCount: number;
   /** `true` when the follow-up summary job was placed on the queue. */
   summaryEnqueued: boolean;
+  /**
+   * Set when the meeting was deleted while the job was running. Nothing was
+   * written — not the transcript, not a job row, not a follow-up summary job —
+   * and `transcriptId` is only the id the run would have used.
+   */
+  abandoned?: "meeting-deleted";
 }
 
 /**
@@ -156,6 +164,17 @@ export async function runTranscribeJob(
       summaryEnqueued,
     };
   } catch (error) {
+    if (error instanceof MeetingGoneError) {
+      logMeetingGone(log, "transcript");
+      return {
+        transcriptId: transcriptIdForJob(payload.job.id),
+        created: false,
+        segmentCount: 0,
+        wordCount: 0,
+        summaryEnqueued: false,
+        abandoned: "meeting-deleted",
+      };
+    }
     const jobError = toJobError(error);
     const failed: Job = {
       ...payload.job,

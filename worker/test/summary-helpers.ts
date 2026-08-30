@@ -15,6 +15,7 @@ import type { EnqueueSummaryInput, SummaryEnqueuer } from "../src/summary/enqueu
 import type { SummarizeJobPayload } from "../src/payload.js";
 import { SYSTEM_SUMMARY_TEMPLATE } from "../src/summary/template.js";
 import { segmentId } from "../src/ids.js";
+import { MeetingGoneError } from "../src/errors.js";
 import { MEETING_ID, SCOPE } from "./helpers.js";
 
 export const TRANSCRIPT_ID = "55555555-5555-4555-8555-555555555555";
@@ -134,7 +135,13 @@ export class InMemorySummaryRepository implements SummaryRepository {
   readonly byJob = new Map<string, string>();
   readonly jobStates: Job[] = [];
   readonly templates = new Map<string, SummaryTemplate>();
+  readonly meetings = new Set<string>([MEETING_ID]);
   transcripts = new Map<string, Transcript>();
+  /**
+   * Runs at the top of `saveSummary`, standing in for a delete that commits in
+   * the last instant before the write.
+   */
+  onBeforeSaveSummary: (() => void) | null = null;
 
   constructor(
     transcripts: Transcript[] = [transcriptFixture()],
@@ -156,7 +163,15 @@ export class InMemorySummaryRepository implements SummaryRepository {
     return this.transcripts.get(transcriptId) ?? null;
   }
 
+  async meetingExists(meetingId: string): Promise<boolean> {
+    return this.meetings.has(meetingId);
+  }
+
   async saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult> {
+    this.onBeforeSaveSummary?.();
+    // The real repository checks and inserts in one transaction; here the
+    // single-threaded fake gives the same guarantee for free.
+    if (!this.meetings.has(summary.meetingId)) throw new MeetingGoneError(summary.meetingId);
     const existing = this.byJob.get(jobId);
     if (existing) return { summaryId: existing, created: false };
     for (const entry of this.summaries.values()) {
@@ -173,6 +188,9 @@ export class InMemorySummaryRepository implements SummaryRepository {
   }
 
   async saveJob(job: Job): Promise<void> {
+    // Mirrors the real repository: no job row is recorded for a meeting that is
+    // no longer there.
+    if (!this.meetings.has(job.meetingId)) return;
     this.jobStates.push(job);
   }
 

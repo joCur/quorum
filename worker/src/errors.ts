@@ -53,6 +53,30 @@ export const JOB_ERROR_CODES = [
 
 export type JobErrorCode = (typeof JOB_ERROR_CODES)[number];
 
+/**
+ * Not a failure: the meeting was deleted while this job was running.
+ *
+ * The deletion cascade (ADR-001) drops the work still queued for a meeting, but
+ * a job that is already active survives that sweep and would otherwise persist
+ * a transcript or a summary for a meeting that no longer exists — data coming
+ * back from the dead, which the deletion promise rules out. Both handlers
+ * therefore verify the meeting immediately before the write and raise this
+ * instead.
+ *
+ * It is deliberately not a `JobError`: there is no code worth reporting, no
+ * retry that could change the outcome and nothing to dead-letter. The job is
+ * abandoned — quietly and terminally.
+ */
+export class MeetingGoneError extends Error {
+  readonly meetingId: string;
+
+  constructor(meetingId: string) {
+    super(`meeting ${meetingId} no longer exists; the job result was discarded`);
+    this.name = "MeetingGoneError";
+    this.meetingId = meetingId;
+  }
+}
+
 export class JobError extends Error {
   readonly code: JobErrorCode;
   readonly retryable: boolean;
