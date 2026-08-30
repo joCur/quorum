@@ -129,6 +129,11 @@
     "system": "System",
     "edit": "{{template}} bearbeiten",
     "delete": "{{template}} löschen",
+    "deleteDialog": {
+      "title": "Diese Vorlage löschen?",
+      "body": "„{{template}}“ wird endgültig gelöscht. Bereits erstellte Zusammenfassungen bleiben davon unberührt: Jede behält ihre eigene Kopie der Vorlage, mit der sie erstellt wurde. Das lässt sich nicht rückgängig machen.",
+      "confirm": "Vorlage löschen"
+    },
     "sectionCount_one": "{{count}} Abschnitt",
     "sectionCount_other": "{{count}} Abschnitte",
     "loadError": "Deine Vorlagen konnten nicht geladen werden.",
@@ -253,7 +258,8 @@
       "regenerate": "Neu erstellen",
       "regenerating": "Wird geschrieben…",
       "previousVersion": "Vorherige Fassung — sie wird ersetzt, sobald die neue fertig ist.",
-      "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben."
+      "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben.",
+      "madeWith": "Erstellt mit {{template}}"
     }
   }
 }

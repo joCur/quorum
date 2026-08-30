@@ -338,7 +338,14 @@ function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: (
           {regeneration.pending ? (
             <p className="text-sm text-muted-foreground">{t("meeting.summary.previousVersion")}</p>
           ) : null}
-          <SummaryView summary={summary} />
+          <SummaryView
+            summary={summary}
+            templateName={
+              templates.templates.find(
+                (view) => view.template.id === summary.templateSnapshot.templateId,
+              )?.template.name ?? null
+            }
+          />
         </div>
       ) : (
         <WaitingPanel message={t("meeting.summary.working")} />

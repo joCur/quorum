@@ -104,4 +104,24 @@ test("shapes a template and summarizes an existing recording again with it", asy
 
   // And the screen shows the new sections rather than the ones the template dropped.
   await expect(page.getByRole("heading", { name: "Risks" })).toBeVisible({ timeout: 30_000 });
+
+  // --- Deleting the template -----------------------------------------------------------------
+  // Destructive controls ask first, and the answer is not assumed: cancelling has to leave the
+  // template exactly where it was.
+  await page.goto("/templates");
+  const doomed = page.getByTestId("template-card").filter({ hasText: TEMPLATE_NAME });
+  await doomed.getByRole("button", { name: `Delete ${TEMPLATE_NAME}` }).click();
+
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toContainText("Delete this template?");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(doomed).toBeVisible();
+
+  await doomed.getByRole("button", { name: `Delete ${TEMPLATE_NAME}` }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete template" }).click();
+  await expect(doomed).toHaveCount(0);
+
+  // The summary made with it survives its template — that is what the snapshot is for.
+  const survivors = await findSummaries(sessionId);
+  expect(survivors.some((summary) => summary.id === second.id)).toBe(true);
 });

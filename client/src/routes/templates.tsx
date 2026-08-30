@@ -3,6 +3,7 @@ import { ListChecks, Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { SummaryTemplateDraft, SummaryTemplateView } from "@quorum/shared";
 import { EmptyState } from "@/components/layout/empty-state";
+import { DeleteTemplateDialog } from "@/components/templates/delete-template-dialog";
 import { TemplateEditor } from "@/components/templates/template-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,9 @@ export function TemplatesRoute() {
   const templates = useTemplates();
   const [mode, setMode] = React.useState<Mode>({ kind: "list" });
   const [saveError, setSaveError] = React.useState<string | null>(null);
+  // The template awaiting confirmation. Held by id rather than by object so a refreshed list
+  // cannot leave the dialog pointing at a stale copy.
+  const [confirming, setConfirming] = React.useState<string | null>(null);
 
   const system = templates.templates.find((view) => view.template.scope === "system") ?? null;
   const editing =
@@ -100,6 +104,7 @@ export function TemplatesRoute() {
   }
 
   const own = templates.templates.filter((view) => view.editable);
+  const doomed = templates.templates.find((view) => view.template.id === confirming) ?? null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -128,10 +133,23 @@ export function TemplatesRoute() {
             key={view.template.id}
             view={view}
             onEdit={() => setMode({ kind: "edit", templateId: view.template.id })}
-            onDelete={() => void templates.remove(view.template.id)}
+            onDelete={() => setConfirming(view.template.id)}
           />
         ))}
       </div>
+
+      <DeleteTemplateDialog
+        open={doomed !== null}
+        onOpenChange={(next) => {
+          if (!next) setConfirming(null);
+        }}
+        templateName={doomed?.template.name ?? ""}
+        onConfirm={() => {
+          const templateId = confirming;
+          setConfirming(null);
+          if (templateId) void templates.remove(templateId);
+        }}
+      />
     </div>
   );
 }

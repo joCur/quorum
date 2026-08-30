@@ -10,12 +10,37 @@ import { sectionToMarkdown, summaryToMarkdown } from "@/features/meetings/summar
  * The generated summary, rendered in the order of the template snapshot stored with it
  * (ADR-004 §2) — never the current template, so an old summary keeps explaining itself.
  */
-export function SummaryView({ summary }: { summary: Summary }) {
+export function SummaryView({
+  summary,
+  templateName,
+}: {
+  summary: Summary;
+  /**
+   * Name of the template behind the snapshot, resolved by the caller from the template list.
+   *
+   * It is not part of the snapshot itself — the snapshot stores what the summary was *produced
+   * with*, and a name is a label people change freely. Null when the template has since been
+   * deleted or renamed out of the list, in which case the header simply says nothing rather than
+   * naming something that no longer exists. The version and model in the footer are the parts
+   * that always hold.
+   */
+  templateName?: string | null;
+}) {
   const { t, i18n } = useTranslation();
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-2">
+        {templateName ? (
+          <p className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            <span aria-hidden="true" className="h-4 w-1 shrink-0 rounded-full bg-plum" />
+            <span className="truncate">
+              {t("meeting.summary.madeWith", { template: templateName })}
+            </span>
+          </p>
+        ) : (
+          <span />
+        )}
         <CopyButton text={() => summaryToMarkdown(summary)} label={t("meeting.summary.copyAll")} />
       </div>
 
