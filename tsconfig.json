@@ -24,6 +24,9 @@
     },
     {
       "path": "./client/tsconfig.test.json"
+    },
+    {
+      "path": "./e2e"
     }
   ]
 }

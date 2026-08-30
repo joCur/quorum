@@ -1,0 +1,30 @@
+# Compose override for the end-to-end suite.
+#
+# It changes three things about the base stack and nothing else:
+#
+# 1. Postgres, the MinIO S3 API and Whisper are published on the host, because the test process,
+#    the storage assertions and the transcription worker all run on the host.
+# 2. Whisper is pinned to the CPU image, so the suite runs on any machine and in CI.
+# 3. Every published port has its own default (see e2e/e2e.env), so an e2e run can happen next to
+#    a development stack without fighting it for ports.
+#
+# Never use this override in a deployment.
+services:
+  postgres:
+    ports:
+      - "${POSTGRES_PORT:-55433}:5432"
+
+  minio:
+    ports:
+      - "${MINIO_PORT:-9010}:9000"
+
+  whisper:
+    # CPU image plus the smallest usable model — the real-Whisper variant has to stay feasible on
+    # a laptop and on a CI runner without a GPU.
+    image: ghcr.io/speaches-ai/speaches:${WHISPER_IMAGE_TAG:-latest-cpu}
+    environment:
+      WHISPER__MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-tiny}
+      WHISPER__COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      WHISPER__DEVICE: ${WHISPER_DEVICE:-cpu}
+    ports:
+      - "${WHISPER_PORT:-8100}:8000"

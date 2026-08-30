@@ -12,6 +12,9 @@ import { VitePWA } from "vite-plugin-pwa";
  */
 import pkg from "./package.json" with { type: "json" };
 
+/** Origin `vite preview` forwards `/api` and `/ws` to; unset in normal development. */
+const apiTarget = process.env["QUORUM_PREVIEW_API_TARGET"];
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -60,5 +63,18 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+  },
+  preview: {
+    // A deployment serves the PWA and the API from one origin behind a reverse proxy, so the app
+    // makes same-origin requests and needs no CORS. `vite preview` is a bare static server, so
+    // point it at an API with this variable to reproduce that shape — the end-to-end suite does.
+    ...(apiTarget
+      ? {
+          proxy: {
+            "/api": { target: apiTarget, changeOrigin: true },
+            "/ws": { target: apiTarget, changeOrigin: true, ws: true },
+          },
+        }
+      : {}),
   },
 });

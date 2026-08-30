@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+# The end-to-end stack's local environment and generated credentials. The template committed
+# next to them is e2e/e2e.env.example; nothing env-shaped is ever tracked.
+e2e/e2e.env
+e2e/.stack.env
 
 # --- Dependencies ---
 node_modules/

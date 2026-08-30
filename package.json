@@ -16,7 +16,7 @@
     "build": "pnpm --recursive --if-present run build",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "e2e": "node scripts/e2e-placeholder.mjs"
+    "e2e": "node e2e/scripts/run.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
