@@ -80,7 +80,7 @@
       "webOrigins": ["$(env:QUORUM_PUBLIC_URL)"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "http://localhost:5173/*##http://127.0.0.1:5173/*##http://localhost:4173/*",
+        "post.logout.redirect.uris": "$(env:QUORUM_PUBLIC_URL)/*",
         "oauth2.device.authorization.grant.enabled": "false",
         "backchannel.logout.session.required": "true"
       },

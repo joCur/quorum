@@ -24,12 +24,24 @@ export const ServerConfigSchema = z.object({
     .transform((value) => value === "true"),
 
   // --- Abuse and cost protection for the recording endpoint (see `recording/limits.ts`) ---
-  /** Wall-clock seconds after which the server finalizes a recording itself. Default 4 h. */
-  RECORDING_MAX_SESSION_SECONDS: z.coerce
+  /** Seconds of recorded audio after which the server finalizes a recording itself. Default 4 h. */
+  RECORDING_MAX_RECORDED_SECONDS: z.coerce
     .number()
     .int()
     .positive()
     .default(4 * 60 * 60),
+  /** Wall-clock seconds a session may stay open, pauses included. Default 12 h. */
+  RECORDING_MAX_SESSION_LIFETIME_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(12 * 60 * 60),
+  /** Wall-clock seconds a single pause may last before the session is finalized. Default 2 h. */
+  RECORDING_MAX_PAUSE_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(2 * 60 * 60),
   /** Recording sessions one user may have open at the same time. */
   RECORDING_MAX_PARALLEL_SESSIONS: z.coerce.number().int().positive().default(3),
   /** Sustained chunk frames per second per connection. A live recording sends 0.5–1. */
@@ -81,7 +93,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
 /** The limits as the enforcement sites want them, derived from the flat environment config. */
 export function resolveUserLimits(config: ServerConfig): UserLimits {
   return {
-    maxSessionSeconds: config.RECORDING_MAX_SESSION_SECONDS,
+    maxRecordedSeconds: config.RECORDING_MAX_RECORDED_SECONDS,
+    maxSessionLifetimeSeconds: config.RECORDING_MAX_SESSION_LIFETIME_SECONDS,
+    maxPauseSeconds: config.RECORDING_MAX_PAUSE_SECONDS,
     maxParallelSessions: config.RECORDING_MAX_PARALLEL_SESSIONS,
     maxChunksPerSecond: config.RECORDING_MAX_CHUNKS_PER_SECOND,
     maxBytesPerSecond: config.RECORDING_MAX_BYTES_PER_SECOND,

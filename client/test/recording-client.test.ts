@@ -5,6 +5,7 @@ import {
   MAX_BACKOFF_MS,
   RecordingClient,
   backoffDelay,
+  type RecordingClientError,
   type RecordingClientStatus,
 } from "../src/features/recording/protocol-client";
 import type { ChunkBuffer } from "../src/features/recording/chunk-buffer";
@@ -20,7 +21,9 @@ interface Harness {
   runTimers: () => void;
 }
 
-async function harness(): Promise<Harness> {
+async function harness(
+  options: { onError?: (error: RecordingClientError) => void } = {},
+): Promise<Harness> {
   const buffer = await freshBuffer();
   const factory = socketFactory();
   const statuses: RecordingClientStatus[] = [];
@@ -41,6 +44,7 @@ async function harness(): Promise<Harness> {
     },
     cancel: () => undefined,
     onStatusChange: (status) => statuses.push(status),
+    ...(options.onError ? { onError: options.onError } : {}),
   });
 
   return {
@@ -301,5 +305,112 @@ describe("recording client — resuming a buffered session", () => {
 
     await resumed.pushChunk(payload(3), 3, 1);
     expect(factory.latest().sentSeqs()).toEqual([1, 2, 3]);
+  });
+});
+
+describe("recording client — pause and resume", () => {
+  it("marks the pause and the resume with wall-clock timestamps", async () => {
+    const context = await harness();
+    await startSession(context);
+    await context.client.pushChunk(payload(0), 0, 1);
+
+    context.client.pause();
+    context.client.resumeMark();
+
+    const marks = context.factory
+      .latest()
+      .controlMessages()
+      .filter((message) => message["type"] !== "session.start");
+    expect(marks).toEqual([
+      { type: "session.pause", sessionId: SESSION_ID, at: "2026-08-29T10:00:00.000Z" },
+      { type: "session.resume", sessionId: SESSION_ID, at: "2026-08-29T10:00:00.000Z" },
+    ]);
+  });
+
+  it("continues the chunk sequence across a pause instead of restarting it", async () => {
+    const context = await harness();
+    await startSession(context);
+    await context.client.pushChunk(payload(0), 0, 1);
+    await context.client.pushChunk(payload(1), 1, 1);
+
+    // Nothing is captured while paused, so no chunk is pushed between the two marks — the
+    // sequence simply carries on where the break interrupted it.
+    context.client.pause();
+    context.client.resumeMark();
+
+    await context.client.pushChunk(payload(2), 2, 1);
+    await context.client.pushChunk(payload(3), 3, 1);
+
+    expect(context.factory.latest().sentSeqs()).toEqual([0, 1, 2, 3]);
+    // One session in the buffer, not two: a pause never splits a recording.
+    expect(await context.buffer.listUnfinishedSessions()).toHaveLength(1);
+  });
+
+  it("ignores a mark when no session is open, rather than inventing one", async () => {
+    const context = await harness();
+
+    context.client.pause();
+    context.client.resumeMark();
+
+    expect(context.factory.sockets).toHaveLength(0);
+  });
+});
+
+describe("recording client — limits", () => {
+  it("reports the limit the server refused the session with and stops reconnecting", async () => {
+    const errors: RecordingClientError[] = [];
+    const context = await harness({ onError: (error) => errors.push(error) });
+    await startSession(context);
+
+    // 1008 with the code as the reason — how every limit refusal reaches the client.
+    context.factory.latest().close(1008, "limit.parallel_sessions_exceeded");
+    await settle();
+
+    expect(errors).toEqual([
+      {
+        code: "limit",
+        message: "limit.parallel_sessions_exceeded",
+        limit: "limit.parallel_sessions_exceeded",
+      },
+    ]);
+    // A refusal is the server's final answer: asking again, faster, is exactly what the limit is
+    // there to prevent.
+    context.runTimers();
+    expect(context.factory.sockets).toHaveLength(1);
+    expect(context.client.status.connection).toBe("closed");
+  });
+
+  it("reports the duration hard stop, which arrives after the session was finalized", async () => {
+    const errors: RecordingClientError[] = [];
+    const context = await harness({ onError: (error) => errors.push(error) });
+    await startSession(context);
+    const socket = context.factory.latest();
+
+    socket.deliver({
+      type: "session.finalized",
+      sessionId: SESSION_ID,
+      meetingId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      jobId: "99999999-8888-4777-8666-555555555555",
+    });
+    await settle();
+    // The server finalizes first and then closes naming the limit, so the recording is complete
+    // and the client still learns why it ended.
+    socket.close(1000, "limit.session_duration_exceeded");
+    await settle();
+
+    expect(context.client.status.finalized).toBe(true);
+    expect(errors.at(0)?.limit).toBe("limit.session_duration_exceeded");
+  });
+
+  it("treats an ordinary close as a reconnect, not as a limit", async () => {
+    const errors: RecordingClientError[] = [];
+    const context = await harness({ onError: (error) => errors.push(error) });
+    await startSession(context);
+
+    context.factory.latest().close(1006, "connection lost");
+    await settle();
+
+    expect(errors).toEqual([]);
+    expect(context.client.status.connection).toBe("reconnecting");
   });
 });

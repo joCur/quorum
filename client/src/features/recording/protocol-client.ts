@@ -3,8 +3,10 @@ import {
   bearerSubprotocolOffer,
   type AudioFormat,
   type ClientMessage,
+  type LimitErrorCode,
   type ServerMessage,
 } from "@quorum/shared";
+import { asLimitCode } from "@/features/limits/messages";
 import { encodeChunkFrame } from "@/features/recording/frame";
 import type { BufferedSession, ChunkBuffer } from "@/features/recording/chunk-buffer";
 
@@ -31,7 +33,8 @@ export interface SocketLike {
   send(data: string | ArrayBufferLike | ArrayBufferView): void;
   close(code?: number, reason?: string): void;
   onopen: ((event: unknown) => void) | null;
-  onclose: ((event: unknown) => void) | null;
+  /** The close event; its `code` and `reason` are what a limit refusal travels in. */
+  onclose: ((event: { code?: number; reason?: string }) => void) | null;
   onerror: ((event: unknown) => void) | null;
   onmessage: ((event: { data: unknown }) => void) | null;
 }
@@ -76,8 +79,10 @@ export interface RecordingClientStatus {
 }
 
 export interface RecordingClientError {
-  code: "connect-failed" | "buffer-write-failed" | "protocol";
+  code: "connect-failed" | "buffer-write-failed" | "protocol" | "limit";
   message: string;
+  /** Set when the server closed the session because a configured limit was reached. */
+  limit?: LimitErrorCode;
 }
 
 export const INITIAL_BACKOFF_MS = 500;
@@ -270,7 +275,7 @@ export class RecordingClient {
     socket.binaryType = "arraybuffer";
     socket.onopen = () => this.onOpen();
     socket.onmessage = (event) => this.onMessage(event.data);
-    socket.onclose = () => this.onClose();
+    socket.onclose = (event) => this.onClose(event);
     socket.onerror = () => {
       // A socket error is always followed by a close event, which owns the
       // reconnect decision; reporting it twice would be noise.
@@ -301,8 +306,21 @@ export class RecordingClient {
     }
   }
 
-  private onClose(): void {
+  private onClose(event?: { reason?: string }): void {
     this.socket = null;
+
+    // A limit refusal is the server's final answer, not a hiccup: the reason names the limit and
+    // reconnecting would only ask the same question again, faster. It is read before the
+    // finalized check, because the hard stop at the maximum session length arrives exactly that
+    // way — a `session.finalized` message, then a close frame naming the limit behind it.
+    const limit = asLimitCode(event?.reason);
+    if (limit !== null) {
+      this.stopped = true;
+      this.setConnection("closed");
+      this.options.onError?.({ code: "limit", message: limit, limit });
+      return;
+    }
+
     if (this.stopped || this.finalized) {
       this.setConnection("closed");
       return;

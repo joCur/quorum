@@ -64,12 +64,25 @@
       "connection": "Die Verbindung ist fehlgeschlagen. Dein Audio liegt sicher auf diesem Gerät.",
       "unknown": "Die Aufnahme konnte nicht gestartet werden."
     },
+    "limit": {
+      "toMeetings": "Zu den Meetings"
+    },
     "recovery": {
       "title": "Eine Aufnahme wurde unterbrochen",
       "body": "Audio vom {{date}} liegt noch auf diesem Gerät und wurde noch nicht gesichert.",
       "upload": "Hochladen und abschließen",
       "discard": "Verwerfen"
     }
+  },
+  "limits": {
+    "sessionDuration": "Diese Aufnahme hat die maximale Länge erreicht und wurde beendet. Alles bis dahin ist gesichert und abgeschlossen — Transkript und Zusammenfassung folgen wie gewohnt.",
+    "sessionLifetime": "Diese Aufnahme war sehr lange geöffnet und wurde für dich beendet. Alles Aufgenommene ist gesichert und abgeschlossen — Transkript und Zusammenfassung folgen wie gewohnt.",
+    "pauseDuration": "Die Aufnahme war lange pausiert, deshalb wurde sie für dich abgeschlossen. Alles bis zur Pause ist gesichert — starte eine neue Aufnahme, um weiterzumachen.",
+    "parallelSessions": "Es laufen bereits so viele Aufnahmen, wie dein Konto erlaubt. Beende eine davon und starte diese dann erneut.",
+    "sendRate": "Die Verbindung wurde geschlossen, weil Audio schneller ankam als erlaubt. Was noch auf diesem Gerät liegt, lässt sich über die Meetings-Ansicht hochladen.",
+    "storageQuota": "Dein Speicher ist voll, deshalb konnte diese Aufnahme nicht gestartet werden. Lösche ein Meeting, das du nicht mehr brauchst.",
+    "monthlyQuota": "Deine Aufnahmezeit für diesen Monat ist aufgebraucht, deshalb konnte diese Aufnahme nicht gestartet werden. Zu Beginn des nächsten Monats steht sie wieder zur Verfügung.",
+    "requestRate": "Zu viele Anfragen in kurzer Zeit. Warte einen Moment und versuche es erneut."
   },
   "nav": {
     "label": "Hauptnavigation",
@@ -202,6 +215,12 @@
   },
   "settings": {
     "title": "Einstellungen",
+    "account": {
+      "title": "Konto",
+      "signedInAs": "Angemeldet als",
+      "signOut": "Abmelden",
+      "signingOut": "Abmeldung läuft…"
+    },
     "appearance": {
       "title": "Darstellung",
       "theme": "Design",

@@ -11,8 +11,18 @@ import { z } from "zod";
  * budget of RFC 6455.
  */
 export const LIMIT_ERROR_CODES = [
-  /** The recording ran past the maximum session duration and was finalized by the server. */
+  /**
+   * The recording holds the maximum amount of recorded audio and was finalized by the server.
+   * Counts audio time only: time spent paused does not bring a session closer to this limit.
+   */
   "limit.session_duration_exceeded",
+  /**
+   * The session was open longer than a session may live in wall-clock time, pauses included, and
+   * was finalized by the server.
+   */
+  "limit.session_lifetime_exceeded",
+  /** The session stayed paused longer than a pause may last and was finalized by the server. */
+  "limit.pause_duration_exceeded",
   /** The user already has the maximum number of recording sessions open. */
   "limit.parallel_sessions_exceeded",
   /** Chunk frames arrived faster than the per-session chunk rate allows. */

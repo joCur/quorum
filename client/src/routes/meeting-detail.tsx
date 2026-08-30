@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { MeetingDetail } from "@quorum/shared";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import { StatusBadge } from "@/components/meetings/status-badge";
 import { SummaryView } from "@/components/meetings/summary-view";
 import { TranscriptView } from "@/components/meetings/transcript-view";
 import { formatMeetingDate, formatMeetingDuration, meetingLabel } from "@/features/meetings/format";
+import { asLimitCode, limitMessageKey } from "@/features/limits/messages";
 import { isPipelineComplete } from "@/features/meetings/pipeline";
 import { useMeeting } from "@/features/meetings/use-meeting";
 import { useMeetingAudio } from "@/features/meetings/use-meeting-audio";
@@ -321,9 +323,7 @@ function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: (
 
       {regeneration.errorMessage ? (
         <p role="alert" className="text-sm text-destructive">
-          {regeneration.errorCode === "summary_in_progress"
-            ? t("meeting.summary.alreadyRunning")
-            : regeneration.errorMessage}
+          {regenerationMessage(t, regeneration.errorCode) ?? regeneration.errorMessage}
         </p>
       ) : null}
 
@@ -422,4 +422,18 @@ function LoadError({ code, onRetry }: { code: string | null; onRetry: () => void
       </Button>
     </Card>
   );
+}
+
+/**
+ * The refusals a regenerate can come back with, in the user's language.
+ *
+ * A limit is one of them: asking for a summary again is the one request that costs a model call,
+ * so it has a much smaller allowance than the rest of the API and is the request most likely to
+ * meet it. Anything this does not recognize keeps the server's own message, which is still more
+ * useful than a generic sentence.
+ */
+function regenerationMessage(t: TFunction, code: string | null): string | null {
+  if (code === "summary_in_progress") return t("meeting.summary.alreadyRunning");
+  const limit = asLimitCode(code);
+  return limit === null ? null : t(limitMessageKey(limit));
 }

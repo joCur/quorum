@@ -28,7 +28,7 @@ export class FakeSocket implements SocketLike {
   closed: { code?: number | undefined; reason?: string | undefined } | null = null;
 
   onopen: ((event: unknown) => void) | null = null;
-  onclose: ((event: unknown) => void) | null = null;
+  onclose: ((event: { code?: number; reason?: string }) => void) | null = null;
   onerror: ((event: unknown) => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
 
@@ -40,7 +40,11 @@ export class FakeSocket implements SocketLike {
 
   close(code?: number, reason?: string): void {
     this.closed = { code, reason };
-    this.onclose?.({});
+    // The close event carries the code and the reason, which is how the server names a limit.
+    this.onclose?.({
+      ...(code === undefined ? {} : { code }),
+      ...(reason === undefined ? {} : { reason }),
+    });
   }
 
   open(): void {

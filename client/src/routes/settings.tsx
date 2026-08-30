@@ -1,6 +1,10 @@
+import * as React from "react";
+import { LogOut } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/features/auth/auth-provider";
 import { THEME_PREFERENCES, useTheme, type ThemePreference } from "@/features/theme/theme-provider";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/i18n";
 import { APP_VERSION } from "@/env";
@@ -17,15 +21,46 @@ const LANGUAGE_LABELS = {
   de: "Deutsch",
 } as const satisfies Record<SupportedLanguage, string>;
 
-/** Settings screen. Account and sign-out arrive with the auth flow. */
+/** Settings screen: the account, appearance, language, and what this build is. */
 export function SettingsRoute() {
   const { t, i18n } = useTranslation();
   const { preference, setPreference } = useTheme();
+  const { user, signOut } = useAuth();
+  const [signingOut, setSigningOut] = React.useState(false);
   const activeLanguage = i18n.resolvedLanguage ?? "en";
+
+  // Whatever the token actually carries, most recognizable first. A session with no readable name
+  // is still a session that can be signed out of, so the card never depends on finding one.
+  const profile = user?.profile;
+  const identity = profile?.name ?? profile?.preferred_username ?? profile?.email ?? null;
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-xl font-bold md:text-2xl">{t("settings.title")}</h1>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("settings.account.title")}</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col items-start gap-3">
+          {identity ? (
+            <span className="text-sm text-muted-foreground">
+              {t("settings.account.signedInAs")} <span className="font-medium">{identity}</span>
+            </span>
+          ) : null}
+          <Button
+            variant="outline"
+            disabled={signingOut}
+            onClick={() => {
+              setSigningOut(true);
+              void signOut().finally(() => setSigningOut(false));
+            }}
+          >
+            <LogOut aria-hidden="true" />
+            {signingOut ? t("settings.account.signingOut") : t("settings.account.signOut")}
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

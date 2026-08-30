@@ -64,12 +64,25 @@
       "connection": "The connection failed. Your audio is safe on this device.",
       "unknown": "Recording could not be started."
     },
+    "limit": {
+      "toMeetings": "Back to meetings"
+    },
     "recovery": {
       "title": "A recording was interrupted",
       "body": "Audio from {{date}} is still on this device and has not been saved yet.",
       "upload": "Upload and finish",
       "discard": "Discard"
     }
+  },
+  "limits": {
+    "sessionDuration": "This recording reached the maximum length and was stopped. Everything up to that point is finalized and safe — transcript and summary follow as usual.",
+    "sessionLifetime": "This recording was open for a very long time and was closed for you. Everything recorded is finalized and safe — transcript and summary follow as usual.",
+    "pauseDuration": "The recording stayed paused for a long time, so it was finished for you. Everything up to the pause is finalized and safe — start a new recording to carry on.",
+    "parallelSessions": "You already have as many recordings running as your account allows. Stop one of them, then start this one again.",
+    "sendRate": "The connection was closed because audio arrived faster than allowed. What is still on this device can be uploaded from the meetings screen.",
+    "storageQuota": "Your storage is full, so this recording could not be started. Delete a meeting you no longer need to free space.",
+    "monthlyQuota": "You have used your recording time for this month, so this recording could not be started. The allowance resets at the start of next month.",
+    "requestRate": "Too many requests in a short time. Wait a moment, then try again."
   },
   "nav": {
     "label": "Main navigation",
@@ -202,6 +215,12 @@
   },
   "settings": {
     "title": "Settings",
+    "account": {
+      "title": "Account",
+      "signedInAs": "Signed in as",
+      "signOut": "Sign out",
+      "signingOut": "Signing out…"
+    },
     "appearance": {
       "title": "Appearance",
       "theme": "Theme",

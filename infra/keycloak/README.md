@@ -86,8 +86,10 @@ three users with committed passwords.
 
 Production uses `realm-production.json` in this directory. It is the same realm with four
 differences and no others — `sslRequired: external`, no `quorum-dev-cli` client, no `dev.*`
-users, and the PWA client's redirect URIs and web origins taken from `$(env:QUORUM_PUBLIC_URL)`
-instead of `localhost`. Session lifetimes, refresh-token rotation, the audience and tenant
+users, and the PWA client's redirect URIs, **post-logout redirect URIs** and web origins taken
+from `$(env:QUORUM_PUBLIC_URL)` instead of `localhost`. All three URI lists matter: sign-out sends
+the browser back to the app's origin, and Keycloak refuses a post-logout redirect the client has
+not declared. Session lifetimes, refresh-token rotation, the audience and tenant
 mappers and the realm roles are identical, because those are decisions rather than development
 conveniences.
 

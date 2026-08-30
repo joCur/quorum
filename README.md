@@ -49,7 +49,7 @@ Root scripts (the same ones CI runs):
 | Script               | What it does                                                  |
 | -------------------- | ------------------------------------------------------------- |
 | `pnpm run typecheck` | `tsc --build` over all packages (strict) plus the test sources |
-| `pnpm test`          | Vitest unit and schema round-trip tests                        |
+| `pnpm test`          | Vitest logic tests plus jsdom component behavior tests          |
 | `pnpm run build`     | Builds every workspace that has a `build` script               |
 | `pnpm run lint`      | ESLint plus a Prettier formatting check                        |
 | `pnpm run format`    | Rewrites files with Prettier                                   |

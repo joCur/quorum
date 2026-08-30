@@ -47,6 +47,27 @@ export const CLOSE_NORMAL = 1000;
  */
 export const MAX_SEQ_GAP = 1024;
 
+/**
+ * Whether a session is paused, and since when, read back from its persisted marks.
+ *
+ * The marks are the only record of a pause that survives the connection that heard about it, so
+ * this is what makes the pause limit hold across a reconnect: a client that pauses, disappears and
+ * comes back three hours later is judged by when it paused.
+ */
+function pausedSinceFromMarks(marks: SessionRecord["marks"]): number | null {
+  const last = marks.at(-1);
+  if (!last || last.type !== "pause") return null;
+  const at = Date.parse(last.at);
+  return Number.isNaN(at) ? null : at;
+}
+
+/** Timer that never keeps the process alive on its own, used when no scheduler is injected. */
+function defaultSchedule(callback: () => void, delayMs: number): () => void {
+  const handle = setTimeout(callback, delayMs);
+  handle.unref?.();
+  return () => clearTimeout(handle);
+}
+
 export interface Connection {
   send(message: ServerMessage): void;
   close(code: number, reason: string): void;
@@ -77,6 +98,14 @@ export interface SessionDeps {
    */
   registry?: SessionRegistry | undefined;
   now?: () => Date;
+  /**
+   * Runs `callback` after `delayMs`, returning a function that cancels it.
+   *
+   * A paused session sends nothing, so the pause limit is the one limit that cannot be checked
+   * when a frame arrives — it needs a timer. Injected so tests drive it by hand instead of
+   * waiting, and `unref`ed by default so a pending pause deadline never keeps the process alive.
+   */
+  schedule?: (callback: () => void, delayMs: number) => () => void;
   newId?: () => string;
   logger?: SessionLogger | undefined;
 }
@@ -108,6 +137,13 @@ interface ActiveSession {
   audioBytes: number;
   /** Highest audio-time offset seen, i.e. recorded seconds excluding pauses. */
   recordedSeconds: number;
+  /**
+   * Wall-clock milliseconds at which the current pause began, or `null` while capture is running.
+   *
+   * Taken from the `at` of the pause mark, so a reconnecting client is judged by when it actually
+   * paused rather than by when this connection heard about it.
+   */
+  pausedSince: number | null;
   /** Chunks persisted since usage was last written to the meeting index. */
   chunksSinceUsageFlush: number;
 }
@@ -134,6 +170,8 @@ export class RecordingSessionHandler {
   private rateMeter: ConnectionRateMeter | null = null;
   /** Scope and session this connection holds a slot for, so it can be released exactly once. */
   private registered: { scope: RecordingContext; sessionId: string } | null = null;
+  /** Cancels the armed pause deadline, or `null` when the session is not paused. */
+  private cancelPauseDeadline: (() => void) | null = null;
 
   constructor(connection: Connection, deps: SessionDeps) {
     this.connection = connection;
@@ -265,6 +303,7 @@ export class RecordingSessionHandler {
       finalized: false,
       audioBytes: 0,
       recordedSeconds: 0,
+      pausedSince: null,
       chunksSinceUsageFlush: 0,
     };
     this.log?.info(
@@ -346,6 +385,10 @@ export class RecordingSessionHandler {
    * for a session this connection does not know about is also the reconnect
    * path: session state is rebuilt from object storage — which is what lets a
    * client continue seamlessly after the server was killed mid-recording.
+   *
+   * The marks are also the pause bookkeeping: a pause arms the pause deadline and a resume
+   * disarms it. Nothing about a pause is lost when the connection is replaced, because the marks
+   * are persisted with the session record and read back on reattach.
    */
   private async onMark(type: "pause" | "resume", sessionId: string, at: string): Promise<void> {
     if (!this.session || this.session.record.sessionId !== sessionId) {
@@ -357,7 +400,15 @@ export class RecordingSessionHandler {
       if (!attached) return;
     }
     const session = this.session as ActiveSession;
+    // A resume that arrives after the pause allowance ran out does not revive the session: it is
+    // finalized here, exactly as the timer would have finalized it.
+    if (await this.stopIfPastDeadline(session)) return;
     session.record.marks.push({ type, at });
+    if (type === "pause") {
+      this.beginPause(session, at);
+    } else {
+      this.endPause(session);
+    }
     try {
       await this.deps.storage.putSession(session.record);
     } catch (error) {
@@ -365,6 +416,41 @@ export class RecordingSessionHandler {
       return;
     }
     this.ack();
+  }
+
+  /**
+   * Marks the session paused and arms the deadline that finalizes it if the pause never ends.
+   *
+   * The mark's own timestamp decides when the pause started, so the remaining allowance shrinks
+   * rather than restarting when a client re-sends a pause it had already sent.
+   */
+  private beginPause(session: ActiveSession, at: string): void {
+    const pausedAt = Date.parse(at);
+    session.pausedSince = Number.isNaN(pausedAt) ? this.nowMs() : pausedAt;
+    this.armPauseDeadline(session);
+  }
+
+  private endPause(session: ActiveSession): void {
+    session.pausedSince = null;
+    this.disarmPauseDeadline();
+  }
+
+  private armPauseDeadline(session: ActiveSession): void {
+    this.disarmPauseDeadline();
+    if (session.pausedSince === null) return;
+    const remainingMs = Math.max(
+      0,
+      session.pausedSince + this.limits.maxPauseSeconds * 1000 - this.nowMs(),
+    );
+    const schedule = this.deps.schedule ?? defaultSchedule;
+    this.cancelPauseDeadline = schedule(() => {
+      void this.stopIfPastDeadline(session).catch(() => undefined);
+    }, remainingMs);
+  }
+
+  private disarmPauseDeadline(): void {
+    this.cancelPauseDeadline?.();
+    this.cancelPauseDeadline = null;
   }
 
   /** Rebuilds session state from object storage after a reconnect. */
@@ -408,7 +494,12 @@ export class RecordingSessionHandler {
       // A reconnected connection counts its own bytes from zero; the store keeps the larger of
       // the two values, and the finalize replaces both with what storage actually holds.
       audioBytes: 0,
+      // Audio time is not re-derivable from what storage holds — chunk lengths are the client's,
+      // not the server's. It is rebuilt from the offsets of the chunks that arrive next, which are
+      // absolute audio time, so the recorded-duration limit is back in force from the first chunk
+      // after the reconnect. Until then the lifetime ceiling is what bounds the session.
       recordedSeconds: 0,
+      pausedSince: pausedSinceFromMarks(record.marks),
       chunksSinceUsageFlush: 0,
     };
     this.session = session;
@@ -448,39 +539,84 @@ export class RecordingSessionHandler {
    * whatever the reason — a slot that leaked would lock a user out of recording.
    */
   dispose(): void {
+    // Before the early return: a session that is paused when its socket dies has a deadline armed
+    // whether or not it ever claimed a slot, and a timer that outlives its connection would
+    // finalize into a connection nobody is listening on.
+    this.disarmPauseDeadline();
     if (!this.registered) return;
     this.deps.registry?.release(this.registered.scope, this.registered.sessionId);
     this.registered = null;
   }
 
-  /** Seconds of wall clock since the session started. */
-  private elapsedSeconds(session: ActiveSession): number {
+  private nowMs(): number {
+    return (this.deps.now?.() ?? new Date()).getTime();
+  }
+
+  /** Seconds of wall clock since the session started, pauses included. */
+  private lifetimeSeconds(session: ActiveSession): number {
     const started = Date.parse(session.record.createdAt);
     if (Number.isNaN(started)) return 0;
-    return Math.max(0, ((this.deps.now?.() ?? new Date()).getTime() - started) / 1000);
+    return Math.max(0, (this.nowMs() - started) / 1000);
+  }
+
+  /** Seconds the session has been paused for, or 0 while capture is running. */
+  private pausedSeconds(session: ActiveSession): number {
+    if (session.pausedSince === null) return 0;
+    return Math.max(0, (this.nowMs() - session.pausedSince) / 1000);
   }
 
   /**
-   * Server-side hard stop on session length.
+   * The three server-side hard stops on a recording, and what each of them protects.
    *
-   * Enforced when a frame arrives rather than on a timer: a session that sends nothing costs
-   * nothing, and every frame that would add cost is checked before it is accepted. What already
-   * exists is finalized normally — the recording survives as a valid, playable meeting and its
-   * transcription job is enqueued — so a user who forgot to press stop loses nothing but the
-   * audio past the limit.
+   * - Recorded audio (`maxRecordedSeconds`) is the cost limit, so it counts audio time and a
+   *   pause spends none of it. Audio time is what the client puts in each chunk's offset; the
+   *   wall-clock limits below are what bounds a client that lies about it.
+   * - Session lifetime (`maxSessionLifetimeSeconds`) protects the open session itself — socket,
+   *   state, session slot — and therefore counts wall clock, pauses included.
+   * - Pause duration (`maxPauseSeconds`) closes a meeting whose break turned into an ending.
+   *
+   * All three finalize: the manifest is written and the transcription job enqueued, so the
+   * recording survives as a valid, playable meeting and the user loses only what came after the
+   * limit. None of them discards audio.
+   *
+   * Checked when a frame or a mark arrives rather than on a timer, because a session that sends
+   * nothing costs nothing and every frame that would add cost is checked before it is accepted.
+   * The one exception is the pause limit, which by definition applies while nothing is arriving:
+   * a pause arms a deadline that runs this same check.
    */
   private async stopIfPastDeadline(session: ActiveSession): Promise<boolean> {
-    if (this.elapsedSeconds(session) <= this.limits.maxSessionSeconds) return false;
+    const reason = this.exceededDeadline(session);
+    if (!reason) return false;
+    this.disarmPauseDeadline();
     if (!session.finalized) {
       const finalized = await this.finalize(session);
       if (!finalized) return true;
     }
     this.log?.info(
-      { event: "limit.session_duration_exceeded", elapsedSeconds: this.elapsedSeconds(session) },
-      "recording reached the session duration limit and was finalized",
+      {
+        event: reason,
+        recordedSeconds: session.recordedSeconds,
+        lifetimeSeconds: this.lifetimeSeconds(session),
+        pausedSeconds: this.pausedSeconds(session),
+      },
+      "recording reached a duration limit and was finalized",
     );
-    this.connection.close(CLOSE_NORMAL, "limit.session_duration_exceeded");
+    this.connection.close(CLOSE_NORMAL, reason);
     return true;
+  }
+
+  /** Which duration limit the session is past, or `null` while it is within all of them. */
+  private exceededDeadline(session: ActiveSession): LimitErrorCode | null {
+    if (session.recordedSeconds > this.limits.maxRecordedSeconds) {
+      return "limit.session_duration_exceeded";
+    }
+    if (this.pausedSeconds(session) > this.limits.maxPauseSeconds) {
+      return "limit.pause_duration_exceeded";
+    }
+    if (this.lifetimeSeconds(session) > this.limits.maxSessionLifetimeSeconds) {
+      return "limit.session_lifetime_exceeded";
+    }
+    return null;
   }
 
   /**
@@ -551,6 +687,12 @@ export class RecordingSessionHandler {
         "sequence number too far ahead of the last persisted chunk",
       );
       return;
+    }
+    // The offset is audio time, so the recorded-duration limit is decided on the chunk that would
+    // cross it rather than one chunk later. Everything already persisted still becomes a meeting.
+    if (meta.timestampOffset > this.limits.maxRecordedSeconds) {
+      session.recordedSeconds = Math.max(session.recordedSeconds, meta.timestampOffset);
+      if (await this.stopIfPastDeadline(session)) return;
     }
     // Duplicates are idempotent: a reconnecting client may re-send chunks it has
     // already had acknowledged.
