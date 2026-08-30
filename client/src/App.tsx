@@ -3,6 +3,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { RequireAuth } from "@/features/auth/require-auth";
 import { AuthCallbackRoute } from "@/routes/auth-callback";
 import { LoginRoute } from "@/routes/login";
+import { MeetingDetailRoute } from "@/routes/meeting-detail";
 import { MeetingsRoute } from "@/routes/meetings";
 import { NotFoundRoute } from "@/routes/not-found";
 import { RecordRoute } from "@/routes/record";
@@ -12,8 +13,7 @@ import { AUTH_CALLBACK_PATH } from "@/features/auth/user-manager";
 
 /**
  * Route table (UI structure §5). Everything except the sign-in flow sits behind
- * the auth gate; meeting detail and the template editor arrive with their own
- * tickets.
+ * the auth gate; the template editor arrives with its own ticket.
  */
 export function App() {
   return (
@@ -42,6 +42,7 @@ export function App() {
       >
         <Route index element={<Navigate to="/meetings" replace />} />
         <Route path="/meetings" element={<MeetingsRoute />} />
+        <Route path="/meetings/:meetingId" element={<MeetingDetailRoute />} />
         <Route path="/templates" element={<TemplatesRoute />} />
         <Route path="/settings" element={<SettingsRoute />} />
         <Route path="*" element={<NotFoundRoute />} />

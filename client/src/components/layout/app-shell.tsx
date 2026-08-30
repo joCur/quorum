@@ -1,7 +1,7 @@
 import { LayoutList, ListChecks, Mic, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useMatch, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -83,9 +83,15 @@ function RecordAction({ variant }: { variant: "fab" | "sidebar" }) {
  */
 export function AppShell() {
   const { t } = useTranslation();
+  // The meeting detail is a leaf view: it owns the bottom of the small screen with its playback
+  // bar, and its own back link is the way out. Below `md` it is shown without the tab bar.
+  const onMeetingDetail = useMatch("/meetings/:meetingId") !== null;
 
   return (
-    <div className="min-h-dvh md:flex">
+    // Always a flex container, a column below `md` and a row above it, so `main` is a flex item
+    // in both directions and can be told to fill the remaining height. A page that wants to put
+    // something at the bottom of the viewport needs a column with a definite height to do it in.
+    <div className="flex min-h-dvh flex-col md:flex-row">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-sm focus:bg-card focus:px-3 focus:py-2"
@@ -103,24 +109,33 @@ export function AppShell() {
         </nav>
       </aside>
 
-      <main id="main" className="mx-auto w-full max-w-3xl flex-1 px-4 pb-28 pt-6 md:px-6 md:pb-10">
+      <main
+        id="main"
+        className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pb-28 pt-6 md:px-6 md:pb-10"
+      >
         <Outlet />
       </main>
 
-      <nav
-        aria-label={t("nav.label")}
-        className={cn(
-          "fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 items-center border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden",
-          TAB_BAR_HEIGHT,
-        )}
-      >
-        <NavItem destination={MEETINGS} variant="bar" />
-        <div className="relative flex h-full items-center justify-center">
-          <RecordAction variant="fab" />
-        </div>
-        <NavItem destination={TEMPLATES} variant="bar" />
-        <NavItem destination={SETTINGS} variant="bar" />
-      </nav>
+      {/* A leaf view takes the whole small screen: the tab bar and its record button step aside
+          on the meeting detail, which carries its own way back and puts its playback bar where
+          the tab bar would be. The sidebar above `md` is unaffected — it never competes for the
+          bottom edge. */}
+      {onMeetingDetail ? null : (
+        <nav
+          aria-label={t("nav.label")}
+          className={cn(
+            "fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 items-center border-t border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden",
+            TAB_BAR_HEIGHT,
+          )}
+        >
+          <NavItem destination={MEETINGS} variant="bar" />
+          <div className="relative flex h-full items-center justify-center">
+            <RecordAction variant="fab" />
+          </div>
+          <NavItem destination={TEMPLATES} variant="bar" />
+          <NavItem destination={SETTINGS} variant="bar" />
+        </nav>
+      )}
     </div>
   );
 }

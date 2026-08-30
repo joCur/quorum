@@ -153,5 +153,48 @@
     "title": "Hier ist nichts",
     "body": "Diese Seite gibt es nicht.",
     "action": "Zurück zu den Meetings"
+  },
+  "meeting": {
+    "back": "Zurück zu den Meetings",
+    "loadError": "Dieses Meeting konnte nicht geladen werden.",
+    "deleted": "Dieses Meeting wurde gelöscht.",
+    "tabs": {
+      "label": "Meeting-Inhalt",
+      "transcript": "Transkript",
+      "summary": "Zusammenfassung"
+    },
+    "pipeline": {
+      "label": "Verarbeitungsfortschritt",
+      "stages": {
+        "uploading": "Wird hochgeladen",
+        "queued": "In der Warteschlange",
+        "transcribing": "Wird transkribiert",
+        "summarizing": "Wird zusammengefasst"
+      }
+    },
+    "player": {
+      "label": "Wiedergabe",
+      "play": "Abspielen",
+      "pause": "Pausieren",
+      "seek": "Position wählen",
+      "back": "{{seconds}} Sekunden zurück",
+      "forward": "{{seconds}} Sekunden vor",
+      "rate": "Wiedergabegeschwindigkeit",
+      "unavailable": "Diese Aufnahme konnte nicht geladen werden."
+    },
+    "transcript": {
+      "working": "Dein Meeting wird transkribiert — meist dauert das ein paar Minuten. Du kannst ruhig weggehen, wir machen weiter.",
+      "failed": "Transkription fehlgeschlagen",
+      "jumpTo": "Zu {{time}} springen",
+      "uncertain": "Geringe Erkennungssicherheit",
+      "uncertainShort": "unsicher"
+    },
+    "summary": {
+      "working": "Deine Zusammenfassung folgt — sie startet, sobald das Transkript fertig ist.",
+      "failed": "Zusammenfassung fehlgeschlagen",
+      "copyAll": "Ganze Zusammenfassung kopieren",
+      "copySection": "{{section}} kopieren",
+      "meta": "Vorlagenversion {{version}} · {{model}} · {{date}}"
+    }
   }
 }
