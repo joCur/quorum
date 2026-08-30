@@ -36,6 +36,9 @@
       "recording": "REC",
       "paused": "PAUSE"
     },
+    "bar": {
+      "return": "Zurück zur Aufnahme"
+    },
     "titleField": {
       "label": "Titel des Meetings",
       "placeholder": "Optional — geht auch später"

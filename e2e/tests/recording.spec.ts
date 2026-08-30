@@ -3,9 +3,11 @@ import {
   expect,
   fakeAudioInputs,
   pauseRecording,
+  recordingBar,
   recordingTimer,
   resumeRecording,
   startRecording,
+  stopButton,
   stopRecording,
   test,
   useFakeInputDevices,
@@ -196,4 +198,82 @@ test("records with the microphone the user picked", async ({ page, signIn }) => 
   await expect(page.getByLabel("Microphone", { exact: true })).toHaveValue(
     fakeAudioInputs[0]!.deviceId,
   );
+});
+
+/**
+ * Critical path: leaving the recording screen must not leave half a meeting behind.
+ *
+ * This is the failure the whole app-level session ownership exists to prevent — a back gesture,
+ * a tab, a link, and the meeting was cut in two. The assertions are the same continuity ones the
+ * pause test makes, because the property is the same: one session, one meeting, no gap. What is
+ * added is that the user can still see the recording from wherever they went, and get back to it.
+ */
+test("keeps recording while the user browses the rest of the app", async ({ page, signIn }) => {
+  const alice = await fetchToken(devUsers.alice);
+  const protocol = watchRecordingProtocol(page);
+
+  await signIn(devUsers.alice);
+  await page.goto("/record");
+  await startRecording(page);
+
+  const sessionId = await protocol.waitForSessionId();
+  await protocol.waitForAck(2);
+  const ackedOnScreen = protocol.persistedSeq;
+
+  // Away from the recording screen, the ordinary way: the screen's own way out.
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page).toHaveURL(/\/meetings$/);
+
+  // The recording is still there, and says so.
+  await expect(recordingBar(page)).toBeVisible();
+  await expect(recordingBar(page)).toContainText("REC");
+
+  // And keeps going while the user browses. The chunk sequence is what proves capture never
+  // stopped — the strip could be lying, object storage cannot.
+  await page.getByRole("link", { name: "Templates" }).click();
+  await expect(page).toHaveURL(/\/templates$/);
+  await expect(recordingBar(page)).toBeVisible();
+  await protocol.waitForAck(ackedOnScreen + 3);
+
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(recordingBar(page)).toBeVisible();
+  const ackedAway = protocol.persistedSeq;
+
+  // Back to the recording, through the strip. The screen re-attaches to the session that has been
+  // running all along rather than offering to start a new one: the timer is well past zero, the
+  // record control is in its stop form, and no second `session.ready` was ever issued.
+  await recordingBar(page).click();
+  await expect(page).toHaveURL(/\/record$/);
+  await expect(stopButton(page)).toBeVisible();
+  await expect(recordingTimer(page)).not.toHaveText("00:00");
+  expect(protocol.sessionId).toBe(sessionId);
+
+  await protocol.waitForAck(ackedAway + 2);
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+  await expect(page).toHaveURL(/\/meetings$/);
+
+  const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
+
+  // One gap-free sequence across the whole excursion — one meeting, not two halves.
+  const seqs = await chunkSeqs(scope);
+  expect(seqs).toEqual(seqs.map((_value, index) => index));
+  expect(seqs.length).toBeGreaterThan(ackedAway + 1);
+
+  const manifest = await readManifest(scope);
+  expect(manifest?.chunkCount).toBe(seqs.length);
+  expect(manifest?.persistedSeq).toBe(seqs.length - 1);
+
+  // Exactly one transcribe job: the excursion produced no second session to transcribe.
+  const job = await waitForValue(
+    () => findTranscribeJob(sessionId),
+    30_000,
+    "the transcribe job on the queue",
+  );
+  expect(job.sessionId).toBe(sessionId);
+
+  // And nothing is left over on the device asking to be finished — the recovery card is the
+  // symptom of the bug this test exists for.
+  await expect(page.getByText("A recording was interrupted")).toBeHidden();
 });
