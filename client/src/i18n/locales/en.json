@@ -13,7 +13,8 @@
   "auth": {
     "signIn": "Sign in",
     "completing": "Signing you in…",
-    "error": "Sign-in did not complete."
+    "error": "Sign-in did not complete.",
+    "sessionExpired": "Your session ended. Sign in again to continue where you left off."
   },
   "consent": {
     "title": "Before you record",
