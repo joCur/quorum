@@ -97,6 +97,45 @@ test.describe("auth", () => {
     await expect(page.getByRole("heading", { name: "Templates" })).toBeVisible();
   });
 
+  test("signs out at the provider and lands on the signed-out view", async ({ page, signIn }) => {
+    await signIn(devUsers.alice);
+    await page.goto("/settings");
+
+    // Signing out drops the local session first, which routes this tab to the signed-out view a
+    // moment before the browser leaves for the provider's end-session endpoint. Waiting for that
+    // request is what separates the two: everything below then runs on the page the round trip
+    // came back to, not on one that is about to be navigated away.
+    const endSession = page.waitForRequest((request) =>
+      request.url().includes("/protocol/openid-connect/logout"),
+    );
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await endSession;
+
+    // Back at the signed-out landing view, with nothing of the session left in the browser.
+    await page.waitForURL(/\/login$/);
+    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+    await expect
+      .poll(async () =>
+        page
+          .evaluate(() => {
+            let count = 0;
+            for (let index = 0; index < window.sessionStorage.length; index += 1) {
+              if (window.sessionStorage.key(index)?.startsWith("oidc.user:")) count += 1;
+            }
+            return count;
+          })
+          // A read that lands mid-navigation says nothing about the session; asking again is
+          // honest, where trusting one arbitrary instant is not.
+          .catch(() => -1),
+      )
+      .toBe(0);
+
+    // And the provider's own session is gone too: signing in again asks for the credentials
+    // instead of waving the browser through on a surviving Keycloak cookie.
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.locator("#username")).toBeVisible();
+  });
+
   test("keeps tenants apart", async ({ page, signIn }) => {
     // Carol belongs to a second tenant. The meeting list is still the first-run state today, so
     // the UI half of this assertion is deliberately modest: she sees her own empty workspace,

@@ -202,6 +202,12 @@
   },
   "settings": {
     "title": "Einstellungen",
+    "account": {
+      "title": "Konto",
+      "signedInAs": "Angemeldet als",
+      "signOut": "Abmelden",
+      "signingOut": "Abmeldung läuft…"
+    },
     "appearance": {
       "title": "Darstellung",
       "theme": "Design",

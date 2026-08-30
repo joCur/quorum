@@ -81,7 +81,9 @@ denial testable in the end-to-end auth suite.
 ## Before using this realm outside development
 
 1. Delete the `quorum-dev-cli` client and the three `dev.*` users.
-2. Replace the `localhost` redirect URIs and web origins of `quorum-pwa` with the real origins.
+2. Replace the `localhost` redirect URIs, post-logout redirect URIs and web origins of
+   `quorum-pwa` with the real origins. All three lists matter: sign-out sends the browser back to
+   the app's origin, and Keycloak refuses a post-logout redirect the client has not declared.
 3. Set `"sslRequired": "external"` — see "Transport security" above. The `none` in this file is a
    development convenience and unsafe anywhere else.
 4. Start Keycloak with `start` instead of `start-dev` (see the comments on the `keycloak` service
