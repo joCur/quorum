@@ -15,6 +15,17 @@ import pkg from "./package.json" with { type: "json" };
 /** Origin `vite preview` forwards `/api` and `/ws` to; unset in normal development. */
 const apiTarget = process.env["QUORUM_PREVIEW_API_TARGET"];
 
+/**
+ * Origin the dev server forwards API, WebSocket and health traffic to.
+ *
+ * A deployment serves the PWA and the API from one origin, so `VITE_API_BASE_URL` is empty and
+ * every request the app makes is same-origin. The dev server listens on its own port, so without
+ * a proxy the only way to reach the API would be an absolute base URL — which means CORS on the
+ * API and a development setup that no longer matches the shape it ships in. Proxying instead
+ * keeps the variable empty in development too.
+ */
+const devApiTarget = process.env["QUORUM_DEV_API_TARGET"] ?? "http://localhost:8080";
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -63,6 +74,16 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    proxy: {
+      "/api": { target: devApiTarget, changeOrigin: true },
+      // The recording WebSocket needs a protocol upgrade. Without `ws: true` the handshake fails
+      // while REST keeps working, so the app looks connected but reports itself permanently
+      // offline.
+      "/ws": { target: devApiTarget, changeOrigin: true, ws: true },
+      // Proxied so a readiness check in development reports the API's state, not the dev
+      // server's.
+      "/healthz": { target: devApiTarget, changeOrigin: true },
+    },
   },
   preview: {
     // A deployment serves the PWA and the API from one origin behind a reverse proxy, so the app
