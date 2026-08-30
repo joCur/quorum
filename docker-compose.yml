@@ -26,6 +26,13 @@ services:
       # carries default SSE via the minio-init service (ADR-001).
       S3_SSE: ${S3_SSE:-AES256}
       RECORDING_ALLOW_HEADER_AUTH: ${RECORDING_ALLOW_HEADER_AUTH:-false}
+      # Abuse and cost protection for the recording endpoint. Each value has a default far above
+      # what a real meeting does; `server/README.md` says what each one bounds and why.
+      RECORDING_MAX_SESSION_SECONDS: ${RECORDING_MAX_SESSION_SECONDS:-14400}
+      RECORDING_MAX_PARALLEL_SESSIONS: ${RECORDING_MAX_PARALLEL_SESSIONS:-3}
+      RECORDING_MAX_CHUNKS_PER_SECOND: ${RECORDING_MAX_CHUNKS_PER_SECOND:-20}
+      RECORDING_MAX_BYTES_PER_SECOND: ${RECORDING_MAX_BYTES_PER_SECOND:-4194304}
+      RECORDING_RATE_BURST_SECONDS: ${RECORDING_RATE_BURST_SECONDS:-10}
       # Internal issuer — used for discovery and JWKS fetching from inside the compose network.
       OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/realms/quorum}
       # Public issuer — the value that ends up in the `iss` claim of browser-obtained tokens,

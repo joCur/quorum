@@ -247,6 +247,9 @@ describe("reconnect", () => {
       queue: first.queue,
       context: { tenantId: "tenant-a", userId: "user-1" },
       newId: idSequence(),
+      // Five minutes after the session started: the reconnect happens well inside the maximum
+      // session duration, so the resume continues the recording instead of stopping it.
+      now: () => new Date("2026-08-29T10:05:00.000Z"),
     });
 
     await handler.handleText(
@@ -269,6 +272,7 @@ describe("reconnect", () => {
       storage: harness.storage,
       queue: harness.queue,
       context: { tenantId: "tenant-a", userId: "user-1" },
+      now: () => new Date("2026-08-29T10:05:00.000Z"),
     });
     await handler.handleText(
       JSON.stringify({ type: "session.resume", sessionId, at: "2026-08-29T10:05:00.000Z" }),
