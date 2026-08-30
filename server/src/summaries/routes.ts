@@ -45,11 +45,18 @@ const summaryRoutesImpl: FastifyPluginAsync<SummaryRoutesOptions> = async (app, 
   const prefix = options.prefix ?? "/api/meetings";
   const now = options.now ?? (() => new Date());
 
-  // `expensive`: every accepted request here buys a model call, so it is metered against the
-  // much smaller summary allowance rather than the general per-user one.
+  // Every accepted request here buys a model call, so the route carries its own rate-limit
+  // counter against the much smaller summary allowance. Its own, not a lower ceiling on the
+  // general one: reading a meeting list must never use up the right to ask for a summary.
+  // The decorator is absent on an instance built without the rate-limit plugin, and an empty
+  // config simply leaves the route on the general allowance.
+  const rateLimit = app.hasDecorator("expensiveRateLimit")
+    ? { rateLimit: app.expensiveRateLimit }
+    : {};
+
   app.post(
     `${prefix}/:meetingId/summaries`,
-    { config: { expensive: true } },
+    { config: { ...rateLimit } },
     async (request, reply) => {
       const context = request.requireContext();
       const params = MeetingParamsSchema.safeParse(request.params);

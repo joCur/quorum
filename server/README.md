@@ -309,9 +309,16 @@ does the counting; the policy is ours:
 - The numbers come from the same per-user limits resolver everything else uses.
 - `GET /healthz` is exempt (`config: { rateLimit: false }`): an orchestrator polls it on a schedule
   and must never be throttled.
-- `POST /api/meetings/:id/summaries` declares `config: { expensive: true }` and is metered against
-  the much smaller summary allowance, because every accepted request there buys a model call while
-  the rest of the API reads rows the pipeline already produced.
+- `POST /api/meetings/:id/summaries` carries `config: { rateLimit: app.expensiveRateLimit }` and is
+  metered against the much smaller summary allowance, because every accepted request there buys a
+  model call while the rest of the API reads rows the pipeline already produced.
+
+**Each allowance is its own counter.** `@fastify/rate-limit` keeps one counter per key across every
+route without a `config.rateLimit` of its own, so giving the expensive route a smaller `max` on that
+shared counter would not have given it a smaller allowance — it would have refused it as soon as the
+user's ordinary browsing had spent ten requests of any kind. Reading a meeting list must never use
+up the right to ask for a summary, so the expensive route gets a counter of its own instead of a
+lower ceiling on everyone else's.
 - Exceeding it answers `429` with `{"error": "limit.request_rate_exceeded"}` — the same
   machine-readable code style as every other limit here.
 
