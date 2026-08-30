@@ -26,6 +26,16 @@
     font-feature-settings: "tnum" 0;
   }
 
+  /* Headings carry the display face; body text stays on Figtree. Screens opt
+     in to `font-display` for non-heading display text (the brand mark, section
+     titles) as their area tickets land. */
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+    letter-spacing: -0.025em;
+  }
+
   /* Durations and timestamps must never jitter as digits change. */
   .tabular-figures {
     font-variant-numeric: tabular-nums;

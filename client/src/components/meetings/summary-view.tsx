@@ -33,6 +33,9 @@ export function SummaryView({
       <div className="flex items-center justify-between gap-2">
         {templateName ? (
           <p className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            // Transitional: `plum` no longer exists in v2 and resolves to honey through the //
+            Tailwind color mapping. The section marker becomes a honey underline when the //
+            meeting-detail area ticket restyles this screen.
             <span aria-hidden="true" className="h-4 w-1 shrink-0 rounded-full bg-plum" />
             <span className="truncate">
               {t("meeting.summary.madeWith", { template: templateName })}

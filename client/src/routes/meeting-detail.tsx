@@ -239,6 +239,9 @@ function Tabs({
               aria-hidden="true"
               className={cn(
                 "size-1.5 animate-pop-in rounded-full",
+                // Transitional: `plum` no longer exists in v2 and resolves to honey through the
+                // Tailwind color mapping. The section marker becomes a honey underline when the
+                // meeting-detail area ticket restyles this screen.
                 tab.key === "summary" ? "bg-plum" : "bg-success",
               )}
             />

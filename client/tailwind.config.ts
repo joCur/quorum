@@ -48,14 +48,27 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        // Expressive accents — personality, never status.
+        // Honey — the single expressive accent. It carries personality and
+        // selection, never status.
         honey: {
           DEFAULT: "hsl(var(--honey))",
+          strong: "hsl(var(--honey-strong))",
           subtle: "hsl(var(--honey-subtle))",
         },
+        // The v2 palette has no second expressive accent. `plum` stays as a
+        // name only so the screens that still reference it keep rendering; it
+        // now resolves to honey. The summary and template area tickets replace
+        // these usages with honey (underline instead of bar) and drop the name.
         plum: {
-          DEFAULT: "hsl(var(--plum))",
-          subtle: "hsl(var(--plum-subtle))",
+          DEFAULT: "hsl(var(--honey-strong))",
+          subtle: "hsl(var(--honey-subtle))",
+        },
+        // Brand mark dot — honey on the espresso mark, inverted in dark mode.
+        "brand-dot": "hsl(var(--brand-dot))",
+        // The recording screen is a fixed dark room in both themes.
+        "on-air": {
+          DEFAULT: "hsl(var(--on-air))",
+          foreground: "hsl(var(--on-air-foreground))",
         },
         // Status colors — state, and only state.
         recording: {
@@ -80,9 +93,18 @@ export default {
         },
       },
       borderRadius: {
-        lg: "calc(var(--radius) + 6px)",
+        // shadcn scale, now anchored on the card radius rather than a
+        // computed offset, so the three steps land on real token values.
+        lg: "var(--radius-card-lg)",
         md: "var(--radius)",
-        sm: "calc(var(--radius) - 4px)",
+        sm: "var(--radius-field-sm)",
+        // Named steps for the v2 shapes: pills for controls, 16-22px cards.
+        pill: "var(--radius-pill)",
+        card: "var(--radius-card)",
+        "card-sm": "var(--radius-card-sm)",
+        "card-lg": "var(--radius-card-lg)",
+        field: "var(--radius-field)",
+        "field-sm": "var(--radius-field-sm)",
       },
       boxShadow: {
         sm: "var(--shadow-sm)",
@@ -90,15 +112,17 @@ export default {
         lg: "var(--shadow-lg)",
       },
       fontFamily: {
-        sans: [
-          "Plus Jakarta Sans Variable",
-          "Plus Jakarta Sans",
+        // Display face for headings and the brand mark (weights 500-900).
+        display: [
+          "Schibsted Grotesk",
+          "Figtree",
           "system-ui",
           "-apple-system",
           "Segoe UI",
           "Roboto",
           "sans-serif",
         ],
+        sans: ["Figtree", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
         mono: ["JetBrains Mono", "ui-monospace", "SF Mono", "Menlo", "Consolas", "monospace"],
       },
       fontSize: {
@@ -109,6 +133,8 @@ export default {
         DEFAULT: "220ms",
         large: "320ms",
         celebrate: "600ms",
+        // Hold-to-stop is interaction motion: the ring tracks the finger.
+        "hold-to-stop": "1200ms",
       },
       transitionTimingFunction: {
         enter: "cubic-bezier(0.2, 0, 0, 1)",
@@ -118,7 +144,7 @@ export default {
       keyframes: {
         "recording-pulse": {
           "0%, 100%": { opacity: "1", transform: "scale(1)" },
-          "50%": { opacity: "0.55", transform: "scale(0.9)" },
+          "50%": { opacity: "0.5", transform: "scale(0.85)" },
         },
         "rise-in": {
           from: { opacity: "0", transform: "translateY(8px)" },
