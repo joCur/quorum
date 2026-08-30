@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  ConnectionRateMeter,
-  DEFAULT_RECORDING_LIMITS,
-  SessionRegistry,
-  StaticRecordingLimitsResolver,
-  TokenBucket,
-  type RecordingLimits,
-} from "../src/recording/limits.js";
+import { DEFAULT_USER_LIMITS, StaticUserLimitsResolver, type UserLimits } from "../src/limits.js";
+import { ConnectionRateMeter, SessionRegistry, TokenBucket } from "../src/recording/limits.js";
 import {
   CLOSE_NORMAL,
   CLOSE_POLICY_VIOLATION,
@@ -20,7 +14,8 @@ import { FakeConnection, WEBM_OPUS, chunk, idSequence } from "./helpers.js";
 const SESSION_START = Date.parse("2026-08-29T10:00:00.000Z");
 
 /** Limits small enough to reach in a test, with the same shape production uses. */
-const TEST_LIMITS: RecordingLimits = {
+const TEST_LIMITS: UserLimits = {
+  ...DEFAULT_USER_LIMITS,
   maxSessionSeconds: 60,
   maxParallelSessions: 2,
   maxChunksPerSecond: 2,
@@ -51,7 +46,7 @@ interface Fixture {
 
 function createFixture(
   options: {
-    limits?: RecordingLimits;
+    limits?: UserLimits;
     registry?: SessionRegistry;
     now?: () => Date;
     userId?: string;
@@ -67,7 +62,7 @@ function createFixture(
     storage,
     queue,
     context: { tenantId: "tenant-a", userId: options.userId ?? "user-1" },
-    limits: new StaticRecordingLimitsResolver(options.limits ?? TEST_LIMITS),
+    limits: new StaticUserLimitsResolver(options.limits ?? TEST_LIMITS),
     registry: options.registry,
     newId: idSequence(options.idPrefix ?? "0"),
     now: options.now ?? (() => new Date(SESSION_START)),
@@ -348,9 +343,9 @@ describe("default limits", () => {
   it("stays far above what a real recording does", () => {
     // A live recording sends 0.5–1 chunk/s and roughly 4 KiB/s of Opus (ADR-002, COST-MODEL.md).
     // The e2e suite records for seconds, so the defaults must never be in its way.
-    expect(DEFAULT_RECORDING_LIMITS.maxChunksPerSecond).toBeGreaterThanOrEqual(10);
-    expect(DEFAULT_RECORDING_LIMITS.maxBytesPerSecond).toBeGreaterThanOrEqual(1024 * 1024);
-    expect(DEFAULT_RECORDING_LIMITS.maxSessionSeconds).toBeGreaterThanOrEqual(60 * 60);
-    expect(DEFAULT_RECORDING_LIMITS.maxParallelSessions).toBeGreaterThanOrEqual(2);
+    expect(DEFAULT_USER_LIMITS.maxChunksPerSecond).toBeGreaterThanOrEqual(10);
+    expect(DEFAULT_USER_LIMITS.maxBytesPerSecond).toBeGreaterThanOrEqual(1024 * 1024);
+    expect(DEFAULT_USER_LIMITS.maxSessionSeconds).toBeGreaterThanOrEqual(60 * 60);
+    expect(DEFAULT_USER_LIMITS.maxParallelSessions).toBeGreaterThanOrEqual(2);
   });
 });

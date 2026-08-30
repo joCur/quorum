@@ -45,99 +45,105 @@ const summaryRoutesImpl: FastifyPluginAsync<SummaryRoutesOptions> = async (app, 
   const prefix = options.prefix ?? "/api/meetings";
   const now = options.now ?? (() => new Date());
 
-  app.post(`${prefix}/:meetingId/summaries`, async (request, reply) => {
-    const context = request.requireContext();
-    const params = MeetingParamsSchema.safeParse(request.params);
-    if (!params.success) return reply.code(404).send(meetingNotFound());
+  // `expensive`: every accepted request here buys a model call, so it is metered against the
+  // much smaller summary allowance rather than the general per-user one.
+  app.post(
+    `${prefix}/:meetingId/summaries`,
+    { config: { expensive: true } },
+    async (request, reply) => {
+      const context = request.requireContext();
+      const params = MeetingParamsSchema.safeParse(request.params);
+      if (!params.success) return reply.code(404).send(meetingNotFound());
 
-    const body = RegenerateSummaryRequestSchema.safeParse(request.body ?? {});
-    if (!body.success) {
-      return reply.code(400).send({
-        error: "invalid_request",
-        message: "This summary request could not be read.",
+      const body = RegenerateSummaryRequestSchema.safeParse(request.body ?? {});
+      if (!body.success) {
+        return reply.code(400).send({
+          error: "invalid_request",
+          message: "This summary request could not be read.",
+        });
+      }
+
+      const scope = { tenantId: context.tenantId, userId: context.userId };
+      const found = await options.meetings.findMeeting(scope, params.data.meetingId);
+      if (!found) return reply.code(404).send(meetingNotFound());
+
+      // Only the active transcript is offered. Older ones are still stored and still referenced by
+      // the summaries made from them (ADR-003 §3), but asking for a summary of a superseded
+      // transcript is not something the product currently means to let anyone do.
+      const transcript = found.transcript;
+      if (!transcript) {
+        return reply.code(409).send({
+          error: "transcript_not_available",
+          message: "This meeting has no transcript to summarize yet.",
+        });
+      }
+      if (body.data.transcriptId !== undefined && body.data.transcriptId !== transcript.id) {
+        return reply.code(409).send({
+          error: "transcript_not_available",
+          message: "This meeting has no transcript to summarize yet.",
+        });
+      }
+
+      const templateId = body.data.templateId ?? SYSTEM_TEMPLATE_ID;
+      const template = await options.templates.findTemplate(scope, templateId);
+      if (!template) {
+        return reply
+          .code(404)
+          .send({ error: "template_not_found", message: "No template with this id exists." });
+      }
+
+      // One summary run at a time per meeting. Without this, a double click is two model calls on
+      // the same transcript, and the second one supersedes the first for no reason. It is a
+      // best-effort guard — two requests that arrive in the same instant can both pass — but the
+      // database still keeps only one active summary per template, so the cost is a wasted call,
+      // never inconsistent data.
+      const running = found.jobs.some(
+        (job) => job.type === "summarize" && (job.status === "queued" || job.status === "running"),
+      );
+      if (running) {
+        return reply.code(409).send({
+          error: "summary_in_progress",
+          message: "A summary of this meeting is already being written.",
+        });
+      }
+
+      const job: Job = JobSchema.parse({
+        id: randomUUID(),
+        meetingId: found.meeting.id,
+        type: "summarize",
+        status: "queued",
+        progress: null,
+        error: null,
+        resultId: null,
+        createdAt: now().toISOString(),
+        startedAt: null,
+        finishedAt: null,
       });
-    }
 
-    const scope = { tenantId: context.tenantId, userId: context.userId };
-    const found = await options.meetings.findMeeting(scope, params.data.meetingId);
-    if (!found) return reply.code(404).send(meetingNotFound());
-
-    // Only the active transcript is offered. Older ones are still stored and still referenced by
-    // the summaries made from them (ADR-003 §3), but asking for a summary of a superseded
-    // transcript is not something the product currently means to let anyone do.
-    const transcript = found.transcript;
-    if (!transcript) {
-      return reply.code(409).send({
-        error: "transcript_not_available",
-        message: "This meeting has no transcript to summarize yet.",
+      await options.queue.enqueueSummarize({
+        jobId: job.id,
+        meetingId: found.meeting.id,
+        tenantId: context.tenantId,
+        userId: context.userId,
+        sessionId: found.meeting.sessionId,
+        transcriptId: transcript.id,
+        templateId: template.id,
+        createdAt: job.createdAt,
       });
-    }
-    if (body.data.transcriptId !== undefined && body.data.transcriptId !== transcript.id) {
-      return reply.code(409).send({
-        error: "transcript_not_available",
-        message: "This meeting has no transcript to summarize yet.",
-      });
-    }
 
-    const templateId = body.data.templateId ?? SYSTEM_TEMPLATE_ID;
-    const template = await options.templates.findTemplate(scope, templateId);
-    if (!template) {
-      return reply
-        .code(404)
-        .send({ error: "template_not_found", message: "No template with this id exists." });
-    }
+      request.log.info(
+        { meetingId: found.meeting.id, jobId: job.id, templateId: template.id },
+        "queued a summary of an existing transcript",
+      );
 
-    // One summary run at a time per meeting. Without this, a double click is two model calls on
-    // the same transcript, and the second one supersedes the first for no reason. It is a
-    // best-effort guard — two requests that arrive in the same instant can both pass — but the
-    // database still keeps only one active summary per template, so the cost is a wasted call,
-    // never inconsistent data.
-    const running = found.jobs.some(
-      (job) => job.type === "summarize" && (job.status === "queued" || job.status === "running"),
-    );
-    if (running) {
-      return reply.code(409).send({
-        error: "summary_in_progress",
-        message: "A summary of this meeting is already being written.",
-      });
-    }
-
-    const job: Job = JobSchema.parse({
-      id: randomUUID(),
-      meetingId: found.meeting.id,
-      type: "summarize",
-      status: "queued",
-      progress: null,
-      error: null,
-      resultId: null,
-      createdAt: now().toISOString(),
-      startedAt: null,
-      finishedAt: null,
-    });
-
-    await options.queue.enqueueSummarize({
-      jobId: job.id,
-      meetingId: found.meeting.id,
-      tenantId: context.tenantId,
-      userId: context.userId,
-      sessionId: found.meeting.sessionId,
-      transcriptId: transcript.id,
-      templateId: template.id,
-      createdAt: job.createdAt,
-    });
-
-    request.log.info(
-      { meetingId: found.meeting.id, jobId: job.id, templateId: template.id },
-      "queued a summary of an existing transcript",
-    );
-
-    const accepted: SummaryJobAccepted = {
-      job,
-      templateId: template.id,
-      transcriptId: transcript.id,
-    };
-    return reply.code(202).send(accepted);
-  });
+      const accepted: SummaryJobAccepted = {
+        job,
+        templateId: template.id,
+        transcriptId: transcript.id,
+      };
+      return reply.code(202).send(accepted);
+    },
+  );
 };
 
 function meetingNotFound(): { error: string; message: string } {

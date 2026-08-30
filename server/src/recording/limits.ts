@@ -1,100 +1,10 @@
 /**
- * Abuse and cost protection for the recording endpoint.
+ * The counting mechanics behind the recording endpoint's limits.
  *
- * The GPU worker is the expensive part of this system, and every second of audio that reaches
- * object storage eventually buys GPU time and model tokens (see `COST-MODEL.md`). The limits
- * here bound what a single connection, and a single user, can push into that pipeline before
- * anything downstream has a chance to say no.
- *
- * All of them are configured from the environment with defaults that sit far above any real
- * meeting, so an honest recording never meets them.
+ * The numbers themselves live in `../limits.ts` and are resolved per user; what is here is only
+ * how they are counted on one connection and across one user's connections.
  */
-
-/** Per-session and per-user limits enforced by the recording endpoint. */
-export interface RecordingLimits {
-  /**
-   * Wall-clock length after which the server finalizes the recording itself. The session is not
-   * discarded: what has been persisted becomes a normal, playable meeting.
-   */
-  readonly maxSessionSeconds: number;
-  /** How many recording sessions one user may have open at the same time. */
-  readonly maxParallelSessions: number;
-  /** Sustained chunk frames per second a single connection may send. */
-  readonly maxChunksPerSecond: number;
-  /** Sustained bytes per second a single connection may send. */
-  readonly maxBytesPerSecond: number;
-  /**
-   * How many seconds' worth of the two rates above a connection may spend at once.
-   *
-   * This is what makes a reconnect work: a client that buffered audio while offline replays it as
-   * fast as the socket allows, and that burst must not look like an attack.
-   */
-  readonly burstSeconds: number;
-  /** Total bytes of stored audio one user may hold. */
-  readonly maxStorageBytes: number;
-  /** Seconds a user may record within one calendar month (UTC). */
-  readonly maxMonthlyRecordedSeconds: number;
-  /**
-   * How many chunks may be persisted between two usage flushes to the meeting index.
-   *
-   * The flush is what makes the quotas survive a restart: without it a session that never reaches
-   * `session.end` would have cost real storage and counted for nothing.
-   */
-  readonly usageFlushChunks: number;
-}
-
-/**
- * Defaults chosen against what a real recording does, not against what feels round.
- *
- * - Four hours is longer than any meeting this product is for, and it caps a single runaway
- *   session at roughly 0.40 € of marginal cost.
- * - Three parallel sessions covers a laptop plus a phone plus one stale connection that has not
- *   timed out yet.
- * - Chunks are 1–2 s of audio (ADR-002), so a live recording sends 0.5–1 chunk/s and about
- *   4 KiB/s of Opus. Twenty chunks and 4 MiB per second are therefore 20x and 1000x above live
- *   speed — head room for a replay, still a hard ceiling on sustained throughput.
- * - Ten seconds of burst lets a client dump 200 buffered chunks in one go.
- * - 50 GiB of stored audio is roughly 3,000 hours of Opus, and 100 recorded hours a month is
- *   around 10 € of marginal cost — generous for one user, bounded for the operator.
- * - Flushing usage every 64 chunks is roughly every one to two minutes of audio: often enough
- *   that a crash loses almost nothing, rare enough to stay invisible next to the chunk writes.
- */
-export const DEFAULT_RECORDING_LIMITS: RecordingLimits = {
-  maxSessionSeconds: 4 * 60 * 60,
-  maxParallelSessions: 3,
-  maxChunksPerSecond: 20,
-  maxBytesPerSecond: 4 * 1024 * 1024,
-  burstSeconds: 10,
-  maxStorageBytes: 50 * 1024 * 1024 * 1024,
-  maxMonthlyRecordedSeconds: 100 * 60 * 60,
-  usageFlushChunks: 64,
-};
-
-/**
- * Where an enforcement site gets its numbers.
- *
- * Every limit is looked up per tenant and user through this port, and no enforcement site reads a
- * constant of its own. In V1 the answer is always the environment configuration, but plan tiers
- * are coming: a paid plan that records longer or stores more is then a different implementation of
- * this one interface, not a change at every place a limit is checked.
- */
-export interface RecordingLimitsResolver {
-  resolve(scope: { tenantId: string; userId: string }): Promise<RecordingLimits>;
-}
-
-/** The V1 resolver: one set of limits, from the environment, for everybody. */
-export class StaticRecordingLimitsResolver implements RecordingLimitsResolver {
-  constructor(private readonly limits: RecordingLimits = DEFAULT_RECORDING_LIMITS) {}
-
-  async resolve(): Promise<RecordingLimits> {
-    return this.limits;
-  }
-}
-
-/** Start of the calendar month `at` falls in, in UTC — the window the monthly quota counts over. */
-export function monthStart(at: Date): string {
-  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1)).toISOString();
-}
+import type { UserLimits } from "../limits.js";
 
 /**
  * Token bucket over a monotonic clock.
@@ -138,7 +48,7 @@ export class ConnectionRateMeter {
   private readonly chunks: TokenBucket;
   private readonly bytes: TokenBucket;
 
-  constructor(limits: RecordingLimits, now: () => number = () => Date.now()) {
+  constructor(limits: UserLimits, now: () => number = () => Date.now()) {
     this.chunks = new TokenBucket(
       limits.maxChunksPerSecond,
       limits.maxChunksPerSecond * limits.burstSeconds,

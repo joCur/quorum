@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_RECORDING_LIMITS,
-  StaticRecordingLimitsResolver,
+  DEFAULT_USER_LIMITS,
+  StaticUserLimitsResolver,
   monthStart,
-  type RecordingLimits,
-  type RecordingLimitsResolver,
-} from "../src/recording/limits.js";
+  type UserLimits,
+  type UserLimitsResolver,
+} from "../src/limits.js";
 import { CLOSE_POLICY_VIOLATION, RecordingSessionHandler } from "../src/recording/session.js";
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
@@ -16,8 +16,8 @@ import { FakeConnection, WEBM_OPUS, chunk, idSequence } from "./helpers.js";
 const NOW = new Date("2026-08-29T10:00:00.000Z");
 const SCOPE = { tenantId: "tenant-a", userId: "user-1" };
 
-const TEST_LIMITS: RecordingLimits = {
-  ...DEFAULT_RECORDING_LIMITS,
+const TEST_LIMITS: UserLimits = {
+  ...DEFAULT_USER_LIMITS,
   maxStorageBytes: 1_000,
   maxMonthlyRecordedSeconds: 600,
   usageFlushChunks: 64,
@@ -32,7 +32,7 @@ interface Fixture {
 
 function createFixture(
   options: {
-    limits?: RecordingLimits | RecordingLimitsResolver;
+    limits?: UserLimits | UserLimitsResolver;
     meetings?: InMemoryMeetingStore;
     userId?: string;
     idPrefix?: string;
@@ -48,9 +48,7 @@ function createFixture(
     meetings,
     context: { tenantId: SCOPE.tenantId, userId: options.userId ?? SCOPE.userId },
     limits:
-      "resolve" in limits
-        ? (limits as RecordingLimitsResolver)
-        : new StaticRecordingLimitsResolver(limits),
+      "resolve" in limits ? (limits as UserLimitsResolver) : new StaticUserLimitsResolver(limits),
     newId: idSequence(options.idPrefix ?? "0"),
     now: () => NOW,
   });
@@ -299,7 +297,7 @@ describe("per-user limits resolver", () => {
       userId: "user-2",
     });
     // Stands in for the plan tiers to come: the same usage, two different answers.
-    const resolver: RecordingLimitsResolver = {
+    const resolver: UserLimitsResolver = {
       async resolve(scope) {
         return scope.userId === "user-1"
           ? { ...TEST_LIMITS, maxStorageBytes: 1_000 }

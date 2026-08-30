@@ -14,14 +14,13 @@ import {
 import { parseChunkFrame } from "./frame.js";
 import { chunkKey } from "./keys.js";
 import {
-  ConnectionRateMeter,
-  DEFAULT_RECORDING_LIMITS,
-  StaticRecordingLimitsResolver,
+  DEFAULT_USER_LIMITS,
+  StaticUserLimitsResolver,
   monthStart,
-  type RecordingLimits,
-  type RecordingLimitsResolver,
-  type SessionRegistry,
-} from "./limits.js";
+  type UserLimits,
+  type UserLimitsResolver,
+} from "../limits.js";
+import { ConnectionRateMeter, type SessionRegistry } from "./limits.js";
 import type {
   JobQueue,
   MeetingRegistry,
@@ -68,10 +67,10 @@ export interface SessionDeps {
   meetings?: MeetingRegistry | undefined;
   /**
    * Where the abuse and cost limits of the acting user come from. Defaults to the static resolver
-   * over `DEFAULT_RECORDING_LIMITS`, so an instance that passes nothing is protected rather than
+   * over `DEFAULT_USER_LIMITS`, so an instance that passes nothing is protected rather than
    * unprotected.
    */
-  limits?: RecordingLimitsResolver | undefined;
+  limits?: UserLimitsResolver | undefined;
   /**
    * Shared across every connection of one server process; this is what makes the parallel-session
    * cap mean anything. Without it the cap is not enforced.
@@ -108,12 +107,12 @@ export class RecordingSessionHandler {
   private readonly connection: Connection;
   private session: ActiveSession | null = null;
   private context: RecordingContext | null;
-  private readonly limitsResolver: RecordingLimitsResolver;
+  private readonly limitsResolver: UserLimitsResolver;
   /**
    * Limits of the acting user, resolved once the session is known and then fixed for its whole
    * life — a limit must not change under a running recording.
    */
-  private limits: RecordingLimits = DEFAULT_RECORDING_LIMITS;
+  private limits: UserLimits = DEFAULT_USER_LIMITS;
   /** Exists only once the limits are resolved, which is before the first chunk can arrive. */
   private rateMeter: ConnectionRateMeter | null = null;
   /** Scope and session this connection holds a slot for, so it can be released exactly once. */
@@ -123,7 +122,7 @@ export class RecordingSessionHandler {
     this.connection = connection;
     this.deps = deps;
     this.context = deps.context ?? null;
-    this.limitsResolver = deps.limits ?? new StaticRecordingLimitsResolver();
+    this.limitsResolver = deps.limits ?? new StaticUserLimitsResolver();
   }
 
   /**

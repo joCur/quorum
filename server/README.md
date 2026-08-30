@@ -223,6 +223,8 @@ endpoint therefore bounds what one connection and one user can push into the pip
 | Burst             | 10 s           | Seconds' worth of both rates spendable at once.           |
 | Storage quota     | 50 GiB         | Stored audio over all of a user's meetings.               |
 | Monthly recording | 100 h          | Seconds recorded in the current calendar month (UTC).     |
+| REST requests     | 300/min        | Requests per user across the API.                         |
+| Regenerate        | 10/min         | Requests per user to the one route that costs model calls. |
 
 **Every limit is looked up per user**, through `RecordingLimitsResolver`; no enforcement site
 reads a constant of its own. In V1 the answer is always the environment configuration
@@ -293,6 +295,47 @@ i18n:
 The rate buckets are per connection and in memory; the parallel-session registry is per server
 process. Both are cheap ceilings against one client misbehaving, not cluster-wide accounting: with
 several API replicas the effective session cap is the configured number times the replica count.
+
+### REST rate limits
+
+The recording socket is metered per connection because that is where the audio arrives. The REST
+API is metered **per user** — a request there is cheap on its own and only becomes a problem in
+volume, and a per-connection budget would be free to reset by reconnecting. `@fastify/rate-limit`
+does the counting; the policy is ours:
+
+- The key is the tenant and user of the validated token, so one user cannot spend another's
+  allowance and a shared address — an office, a mobile carrier — is not one bucket. Only a request
+  without a context falls back to the IP.
+- The numbers come from the same per-user limits resolver everything else uses.
+- `GET /healthz` is exempt (`config: { rateLimit: false }`): an orchestrator polls it on a schedule
+  and must never be throttled.
+- `POST /api/meetings/:id/summaries` declares `config: { expensive: true }` and is metered against
+  the much smaller summary allowance, because every accepted request there buys a model call while
+  the rest of the API reads rows the pipeline already produced.
+- Exceeding it answers `429` with `{"error": "limit.request_rate_exceeded"}` — the same
+  machine-readable code style as every other limit here.
+
+Rate limiting runs after authentication, so an unverifiable token is refused with `401` before it
+ever reaches a user bucket, and is metered by address instead.
+
+### Queue fairness
+
+The transcription queue is served by a small number of GPU workers and a job can take minutes.
+Without an ordering rule, a user who finalizes twenty recordings at once puts twenty jobs at the
+head of the queue and everybody else waits behind all of them.
+
+**The mechanism:** a job is enqueued with a pg-boss priority equal to the negative count of jobs
+that user already has waiting on that queue. pg-boss serves higher priority first, so a user's first
+job outranks their second, and a newcomer's first job outranks a backlog. With users A (five jobs
+queued) and B (none), B's next job has priority 0 and A's has -5, so B goes first.
+
+It costs one count query per enqueue — once per finished recording, not per chunk — and keeps no
+state of its own, so there is nothing to reconcile after a restart: the queue is the state. A
+deliberate non-choice is a per-user concurrency cap, which would need a scheduler holding jobs back
+and deciding when to release them — a second source of truth about what is running, where priority
+is just a column on a row that is already there. If the count cannot be taken, the job is enqueued
+at the neutral priority: losing the transcription of a finished recording would be far worse than
+losing fairness for one job.
 
 ### Where the recording scope comes from
 
@@ -373,6 +416,9 @@ list with defaults.
 | `QUOTA_STORAGE_BYTES`    | Stored audio per user. Default `53687091200` (50 GiB).                          |
 | `QUOTA_MONTHLY_RECORDED_SECONDS` | Recording seconds per calendar month. Default `360000` (100 h).         |
 | `QUOTA_USAGE_FLUSH_CHUNKS` | Chunks between two usage writes during a recording. Default `64`.             |
+| `API_RATE_LIMIT_MAX`     | REST requests per user per window. Default `300`.                               |
+| `API_RATE_LIMIT_WINDOW_SECONDS` | Length of that window. Default `60`.                                     |
+| `API_RATE_LIMIT_SUMMARY_MAX` | Regenerate requests per user per window. Default `10`.                      |
 | `DATABASE_URL`, `S3_*`   | Queue and object storage, see `.env.example`.                                   |
 | `HOST`, `PORT`, `LOG_LEVEL` | Listener and logging.                                                        |
 

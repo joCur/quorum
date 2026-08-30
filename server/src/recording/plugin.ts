@@ -10,11 +10,8 @@ import {
   RecordingSessionHandler,
 } from "./session.js";
 import { MAX_CHUNK_PAYLOAD_BYTES } from "./audio-format.js";
-import {
-  SessionRegistry,
-  StaticRecordingLimitsResolver,
-  type RecordingLimitsResolver,
-} from "./limits.js";
+import { StaticUserLimitsResolver, type UserLimitsResolver } from "../limits.js";
+import { SessionRegistry } from "./limits.js";
 import { CHUNK_HEADER_BYTES } from "@quorum/shared";
 import type {
   JobQueue,
@@ -38,9 +35,9 @@ export interface RecordingPluginOptions {
   publicUpgrade?: boolean;
   /**
    * Where the abuse and cost limits of a user come from; defaults to the static resolver over
-   * `DEFAULT_RECORDING_LIMITS`.
+   * `DEFAULT_USER_LIMITS`.
    */
-  limits?: RecordingLimitsResolver;
+  limits?: UserLimitsResolver;
 }
 
 /**
@@ -51,7 +48,7 @@ export interface RecordingPluginOptions {
  * context provider, never from the plugin itself.
  */
 const recordingPlugin: FastifyPluginAsync<RecordingPluginOptions> = async (app, options) => {
-  const limits = options.limits ?? new StaticRecordingLimitsResolver();
+  const limits = options.limits ?? new StaticUserLimitsResolver();
   // One registry for the whole plugin instance: the parallel-session cap is about a user across
   // their connections, so it cannot live on a single connection. The cap itself comes from the
   // resolver, per user, at the moment a session is claimed.
