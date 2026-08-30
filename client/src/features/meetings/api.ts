@@ -1,6 +1,7 @@
 import { MeetingDetailSchema, MeetingListSchema } from "@quorum/shared";
 import type { Meeting, MeetingDetail } from "@quorum/shared";
 import { apiUrl } from "@/env";
+import { reportUnauthorized } from "@/features/auth/session-expiry";
 
 /**
  * Client for the meeting API.
@@ -25,6 +26,16 @@ export class MeetingApiError extends Error {
   get isNotFound(): boolean {
     return this.status === 404;
   }
+
+  /**
+   * True when the server refused the request for lack of a valid token.
+   *
+   * Screens read it to stay quiet: the shared session-expiry path is already renewing the token or
+   * routing into the login flow, and a load-error message would name the wrong problem.
+   */
+  get isUnauthorized(): boolean {
+    return this.status === 401;
+  }
 }
 
 interface RequestOptions {
@@ -41,11 +52,19 @@ async function call(
     headers: { authorization: `Bearer ${options.accessToken}` },
     ...(options.signal ? { signal: options.signal } : {}),
   });
-  if (!response.ok) throw await toError(response);
+  if (!response.ok) throw await toApiError(response);
   return response;
 }
 
-async function toError(response: Response): Promise<MeetingApiError> {
+/**
+ * Turns a failing response into the error the UI works with.
+ *
+ * Every API client in this app funnels its failures through here, which is what makes the 401
+ * handling a single path: an expired session is reported once, from one place, no matter which
+ * screen happened to be loading.
+ */
+export async function toApiError(response: Response): Promise<MeetingApiError> {
+  if (response.status === 401) reportUnauthorized();
   // A failing response is not guaranteed to carry our error shape — a proxy may answer with
   // HTML — so the body is best-effort and the status is what the UI can always rely on.
   let code = "request_failed";

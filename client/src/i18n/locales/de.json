@@ -13,7 +13,8 @@
   "auth": {
     "signIn": "Anmelden",
     "completing": "Anmeldung läuft…",
-    "error": "Die Anmeldung wurde nicht abgeschlossen."
+    "error": "Die Anmeldung wurde nicht abgeschlossen.",
+    "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dort weiterzumachen, wo du warst."
   },
   "consent": {
     "title": "Bevor du aufnimmst",

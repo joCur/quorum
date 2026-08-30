@@ -7,7 +7,7 @@ import {
   type SummaryTemplateView,
 } from "@quorum/shared";
 import { apiUrl } from "@/env";
-import { MeetingApiError } from "@/features/meetings/api";
+import { toApiError } from "@/features/meetings/api";
 
 /**
  * Client for the summary template API and for asking for a summary again.
@@ -35,21 +35,8 @@ async function call(
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
     ...(options.signal ? { signal: options.signal } : {}),
   });
-  if (!response.ok) throw await toError(response);
+  if (!response.ok) throw await toApiError(response);
   return response;
-}
-
-async function toError(response: Response): Promise<MeetingApiError> {
-  let code = "request_failed";
-  let message = response.statusText;
-  try {
-    const body = (await response.json()) as { error?: unknown; message?: unknown };
-    if (typeof body.error === "string") code = body.error;
-    if (typeof body.message === "string") message = body.message;
-  } catch {
-    // Keep the status-derived defaults; a proxy may answer with something that is not our shape.
-  }
-  return new MeetingApiError(response.status, code, message);
 }
 
 export async function listTemplates(options: RequestOptions): Promise<SummaryTemplateView[]> {

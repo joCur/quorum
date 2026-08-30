@@ -58,6 +58,10 @@ export function useTemplates(): TemplatesState {
         setErrorCode(null);
       } catch (error) {
         if (!active || controller.signal.aborted) return;
+        // A 401 is not this screen's problem: the shared session-expiry path is already renewing
+        // the token or routing into the login flow, so the screen keeps its last honest state
+        // instead of blaming the data.
+        if (error instanceof MeetingApiError && error.isUnauthorized) return;
         setStatus("error");
         setErrorCode(error instanceof MeetingApiError ? error.code : "network");
       }
