@@ -7,7 +7,6 @@ import { meetingRoutes } from "./meetings/routes.js";
 import type { MeetingStore } from "./meetings/repository.js";
 import { templateRoutes } from "./templates/routes.js";
 import { summaryRoutes } from "./summaries/routes.js";
-import { InMemorySummaryTemplateStore } from "./templates/memory.js";
 import type { SummaryTemplateStore } from "./templates/repository.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./recording/types.js";
@@ -29,9 +28,12 @@ export interface BuildServerOptions {
    * development path, which then has to supply an explicit `contextProvider`.
    */
   /**
-   * Summary template store behind the template API and the regenerate action (ADR-004). Defaults
-   * to an in-memory store, which is what the recording-only tests and the development instance
-   * want; production passes the PostgreSQL one.
+   * Summary template store behind the template API and the regenerate action (ADR-004).
+   *
+   * Omitting it leaves those two endpoints off the instance entirely — the same rule `meetings`
+   * follows. There is deliberately no in-memory default: a fallback store would answer requests
+   * with an empty template list and no system template, which is a shape production never has,
+   * and a test written against it would be testing a fiction.
    */
   templates?: SummaryTemplateStore;
   auth?: { verifyAccessToken: TokenVerifier };
@@ -79,22 +81,24 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     });
   }
 
-  if (authenticated && options.meetings) {
+  const meetingStore = options.meetings;
+  if (authenticated && meetingStore) {
     // Read API for the meeting list and meeting detail. Every handler resolves its tenant and
     // user from the validated token, which is why the routes exist only on an authenticated
     // instance: without one there is no scope to query under, and an unscoped meeting query is
     // exactly what ADR-001 rules out.
-    await app.register(meetingRoutes, { store: options.meetings, storage: options.storage });
+    await app.register(meetingRoutes, { store: meetingStore, storage: options.storage });
 
-    // Summary templates and the regenerate action share the same scoping rule and the same
-    // reason for existing only on an authenticated instance: a template belongs to a user.
-    const templates = options.templates ?? new InMemorySummaryTemplateStore();
-    await app.register(templateRoutes, { store: templates });
-    await app.register(summaryRoutes, {
-      meetings: options.meetings,
-      templates,
-      queue: options.queue,
-    });
+    // Summary templates and the regenerate action share the same scoping rule and the same reason
+    // for existing only on an authenticated instance: a template belongs to a user.
+    if (options.templates) {
+      await app.register(templateRoutes, { store: options.templates });
+      await app.register(summaryRoutes, {
+        meetings: meetingStore,
+        templates: options.templates,
+        queue: options.queue,
+      });
+    }
   }
 
   await app.register(recordingPlugin, {

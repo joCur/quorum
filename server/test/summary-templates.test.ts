@@ -107,6 +107,57 @@ afterAll(async () => {
   await app.close();
 });
 
+describe("an instance built without a template store", () => {
+  /**
+   * There is no in-memory fallback on purpose. A default store would answer with an empty list
+   * and no system template — a shape production never has — so a test written against it would
+   * be testing a fiction. Without a store the endpoints simply do not exist.
+   */
+  it("serves neither the template API nor the regenerate action", async () => {
+    const bare = await buildServer({
+      storage: new InMemoryRecordingStorage(),
+      queue: new InMemoryJobQueue(),
+      meetings: new InMemoryMeetingStore(),
+      auth: {
+        verifyAccessToken: createTokenVerifier({
+          issuers: [INTERNAL_ISSUER, ISSUER],
+          audience: AUDIENCE,
+          tenantClaim: "tenant_id",
+          keySource: keys.jwks,
+        }),
+      },
+    });
+    await bare.ready();
+    try {
+      const authorization = `Bearer ${await token(ACME)}`;
+      const list = await bare.inject({
+        method: "GET",
+        url: "/api/summary-templates",
+        headers: { authorization },
+      });
+      expect(list.statusCode).toBe(404);
+
+      const regenerate = await bare.inject({
+        method: "POST",
+        url: `/api/meetings/${SYSTEM_TEMPLATE_ID}/summaries`,
+        headers: { authorization },
+        payload: {},
+      });
+      expect(regenerate.statusCode).toBe(404);
+
+      // The meeting API is unaffected — it has its own store and its own reason to exist.
+      const meetings = await bare.inject({
+        method: "GET",
+        url: "/api/meetings",
+        headers: { authorization },
+      });
+      expect(meetings.statusCode).toBe(200);
+    } finally {
+      await bare.close();
+    }
+  });
+});
+
 describe("template list", () => {
   it("requires an access token", async () => {
     const response = await app.inject({ method: "GET", url: "/api/summary-templates" });
