@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  encodeSubprotocolToken,
   BEARER_SUBPROTOCOL,
   bearerSubprotocolOffer,
   offersBearerSubprotocol,
@@ -9,11 +10,19 @@ import {
 } from "../src/websocket-auth.js";
 
 describe("bearerSubprotocolOffer", () => {
-  it("puts the token directly after the marker", () => {
-    expect(bearerSubprotocolOffer("header.payload.signature")).toEqual([
-      BEARER_SUBPROTOCOL,
-      "header.payload.signature",
-    ]);
+  it("puts the encoded token directly after the marker", () => {
+    // SPIKE: the token is base64url-encoded on the wire. A better-auth session token ends in `=`,
+    // which RFC 6455 does not allow in a subprotocol name — browsers and `ws` both refuse the
+    // handshake outright, so the encoding is what keeps this channel usable at all.
+    const offer = bearerSubprotocolOffer("session-id.c2lnbmF0dXJl=");
+    expect(offer[0]).toBe(BEARER_SUBPROTOCOL);
+    expect(offer[1]).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(offer[1]).not.toContain("=");
+  });
+
+  it("round-trips a credential containing characters the wire format forbids", () => {
+    const token = "abc+def/ghi=";
+    expect(readBearerSubprotocolToken(bearerSubprotocolOffer(token))).toBe(token);
   });
 
   it("produces an offer the reader accepts — the contract both sides rely on", () => {
@@ -33,7 +42,8 @@ describe("parseOfferedProtocols", () => {
 
 describe("readBearerSubprotocolToken", () => {
   it("reads the token behind the marker, wherever the marker sits", () => {
-    expect(readBearerSubprotocolToken(`other.protocol, ${BEARER_SUBPROTOCOL}, a.b.c`)).toBe(
+    const encoded = encodeSubprotocolToken("a.b.c");
+    expect(readBearerSubprotocolToken(`other.protocol, ${BEARER_SUBPROTOCOL}, ${encoded}`)).toBe(
       "a.b.c",
     );
   });
@@ -44,6 +54,13 @@ describe("readBearerSubprotocolToken", () => {
     // A repeated marker is not a token — otherwise an empty offer would authenticate.
     expect(
       readBearerSubprotocolToken(`${BEARER_SUBPROTOCOL}, ${BEARER_SUBPROTOCOL}`),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for an entry that is not valid base64url", () => {
+    // The wire is attacker-controlled; anything that is not decodable is simply not a credential.
+    expect(
+      readBearerSubprotocolToken(`${BEARER_SUBPROTOCOL}, not*valid*base64url`),
     ).toBeUndefined();
   });
 });

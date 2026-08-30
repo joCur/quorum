@@ -11,7 +11,7 @@ import {
   watchRecordingProtocol,
 } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
-import { fetchToken } from "../support/keycloak.js";
+import { fetchToken } from "../support/auth.js";
 import { findSummary, findTranscribeJob, findTranscript } from "../support/database.js";
 import { chunkSeqs, readManifest } from "../support/storage.js";
 

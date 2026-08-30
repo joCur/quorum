@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig, resolveOidcConfig } from "../src/config.js";
+import { loadConfig, resolveAuthConfig } from "../src/config.js";
 
 const minimal = {
   DATABASE_URL: "postgres://quorum:secret@postgres:5432/quorum",
@@ -7,7 +7,8 @@ const minimal = {
   S3_BUCKET: "recordings",
   S3_ACCESS_KEY: "quorum-admin",
   S3_SECRET_KEY: "secret",
-  OIDC_ISSUER_URL: "http://keycloak:8080/realms/quorum",
+  AUTH_SECRET: "a-secret-that-is-at-least-32-characters-long",
+  AUTH_BASE_URL: "http://localhost:8080",
 };
 
 describe("loadConfig", () => {
@@ -18,15 +19,21 @@ describe("loadConfig", () => {
     expect(config.LOG_LEVEL).toBe("info");
     expect(config.S3_SSE).toBe("AES256");
     expect(config.RECORDING_ALLOW_HEADER_AUTH).toBe(false);
-    expect(config.OIDC_AUDIENCE).toBe("quorum-api");
-    expect(config.OIDC_TENANT_CLAIM).toBe("tenant_id");
+    expect(config.AUTH_SESSION_TTL_SECONDS).toBe(8 * 60 * 60);
+    expect(config.AUTH_TRUSTED_ORIGINS).toBe("");
   });
 
-  it("fails loudly when the issuer is missing or not a URL", () => {
-    expect(() => loadConfig({ ...minimal, OIDC_ISSUER_URL: undefined })).toThrow(/OIDC_ISSUER_URL/);
-    expect(() => loadConfig({ ...minimal, OIDC_ISSUER_URL: "not-a-url" })).toThrow(
-      /OIDC_ISSUER_URL/,
-    );
+  it("fails loudly when the auth base URL is missing or not a URL", () => {
+    expect(() => loadConfig({ ...minimal, AUTH_BASE_URL: undefined })).toThrow(/AUTH_BASE_URL/);
+    expect(() => loadConfig({ ...minimal, AUTH_BASE_URL: "not-a-url" })).toThrow(/AUTH_BASE_URL/);
+  });
+
+  it("refuses a signing secret short enough to be guessable", () => {
+    // SPIKE: with Keycloak the API held no signing key at all — it only ever verified against a
+    // published JWKS. This one value now protects every session in the deployment, so a weak one
+    // has to fail at startup rather than in production.
+    expect(() => loadConfig({ ...minimal, AUTH_SECRET: "too-short" })).toThrow(/AUTH_SECRET/);
+    expect(() => loadConfig({ ...minimal, AUTH_SECRET: undefined })).toThrow(/AUTH_SECRET/);
   });
 
   it("rejects an out-of-range port", () => {
@@ -41,28 +48,27 @@ describe("loadConfig", () => {
   });
 });
 
-describe("resolveOidcConfig", () => {
-  it("accepts only the internal issuer when no public one is configured", () => {
-    expect(resolveOidcConfig(loadConfig(minimal)).acceptedIssuers).toEqual([
-      "http://keycloak:8080/realms/quorum",
+describe("resolveAuthConfig", () => {
+  it("always trusts the app's own base URL", () => {
+    expect(resolveAuthConfig(loadConfig(minimal)).trustedOrigins).toEqual([
+      "http://localhost:8080",
     ]);
   });
 
-  it("accepts the public issuer in addition to the internal one", () => {
-    const oidc = resolveOidcConfig(
-      loadConfig({ ...minimal, OIDC_PUBLIC_ISSUER_URL: "http://localhost:8081/realms/quorum" }),
+  it("adds the configured origins and deduplicates them", () => {
+    const auth = resolveAuthConfig(
+      loadConfig({
+        ...minimal,
+        AUTH_TRUSTED_ORIGINS: "http://localhost:5173, http://localhost:8080",
+      }),
     );
-    expect(oidc.acceptedIssuers).toEqual([
-      "http://keycloak:8080/realms/quorum",
-      "http://localhost:8081/realms/quorum",
-    ]);
-    expect(oidc.issuer).toBe("http://keycloak:8080/realms/quorum");
+    expect(auth.trustedOrigins).toEqual(["http://localhost:8080", "http://localhost:5173"]);
   });
 
-  it("deduplicates identical issuers", () => {
-    const oidc = resolveOidcConfig(
-      loadConfig({ ...minimal, OIDC_PUBLIC_ISSUER_URL: minimal.OIDC_ISSUER_URL }),
-    );
-    expect(oidc.acceptedIssuers).toHaveLength(1);
+  it("carries the session lifetime through", () => {
+    expect(
+      resolveAuthConfig(loadConfig({ ...minimal, AUTH_SESSION_TTL_SECONDS: "900" }))
+        .sessionTtlSeconds,
+    ).toBe(900);
   });
 });

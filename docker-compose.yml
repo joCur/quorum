@@ -41,13 +41,17 @@ services:
       API_RATE_LIMIT_MAX: ${API_RATE_LIMIT_MAX:-300}
       API_RATE_LIMIT_WINDOW_SECONDS: ${API_RATE_LIMIT_WINDOW_SECONDS:-60}
       API_RATE_LIMIT_SUMMARY_MAX: ${API_RATE_LIMIT_SUMMARY_MAX:-10}
-      # Internal issuer — used for discovery and JWKS fetching from inside the compose network.
-      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:-http://keycloak:8080/realms/quorum}
-      # Public issuer — the value that ends up in the `iss` claim of browser-obtained tokens,
-      # because the container hostname is not resolvable from the client (ADR-006 §7).
-      OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-http://localhost:8081/realms/quorum}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-quorum-pwa}
-      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-quorum-api}
+      # SPIKE: authentication runs inside this service. There is no issuer to discover and no
+      # JWKS to fetch, so the internal/public issuer pair disappears — and with it the class of
+      # deployment bug where the browser gets tokens from one hostname that the API validates
+      # against another.
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET must be set}
+      AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:8080}
+      AUTH_TRUSTED_ORIGINS: ${AUTH_TRUSTED_ORIGINS:-}
+      AUTH_SESSION_TTL_SECONDS: ${AUTH_SESSION_TTL_SECONDS:-28800}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-120}
+      AUTH_RATE_LIMIT_WINDOW_SECONDS: ${AUTH_RATE_LIMIT_WINDOW_SECONDS:-60}
+      AUTH_SIGN_IN_RATE_LIMIT_MAX: ${AUTH_SIGN_IN_RATE_LIMIT_MAX:-10}
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:
@@ -57,8 +61,6 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
-      keycloak:
-        condition: service_healthy
     healthcheck:
       test:
         - CMD
@@ -69,50 +71,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
-
-  keycloak:
-    # Auth provider inside the stack, configured as code (ADR-006 §7).
-    # DEV:  `start-dev --import-realm` — plain HTTP, relaxed hostname checks, realm imported on
-    #       first start so a fresh checkout plus `docker compose up` yields a working login.
-    # PROD: build an optimized image and run `start --optimized --import-realm` instead, with
-    #       KC_HOSTNAME set to the public HTTPS origin, KC_HTTP_ENABLED=false (or TLS terminated
-    #       in the reverse proxy plus KC_PROXY_HEADERS=xforwarded), a real admin password, and the
-    #       dev clients/users removed from the realm JSON — see infra/keycloak/README.md.
-    image: quay.io/keycloak/keycloak:${KEYCLOAK_VERSION:-26.5}
-    restart: unless-stopped
-    command: ["start-dev", "--import-realm"]
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?KEYCLOAK_ADMIN_PASSWORD must be set}
-      # Own logical database on the shared Postgres — no second database container (ADR-006 §7).
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_DB_NAME:-keycloak}
-      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
-      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?KEYCLOAK_DB_PASSWORD must be set}
-      KC_HTTP_ENABLED: "true"
-      KC_HEALTH_ENABLED: "true"
-      KC_HOSTNAME_STRICT: "false"
-      # Issuer origin as browsers see it; the API validates that issuer as well.
-      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8081}
-      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
-    volumes:
-      - ./infra/keycloak/realm-quorum.json:/opt/keycloak/data/import/realm-quorum.json:ro
-    ports:
-      # Local development only — put the admin console behind the reverse proxy in production.
-      - "${KEYCLOAK_PORT:-8081}:8080"
-    healthcheck:
-      # The image ships neither curl nor wget, but /bin/sh is bash, so /dev/tcp works.
-      # Since Keycloak 25 the health endpoints live on the management port 9000.
-      test:
-        - CMD-SHELL
-        - "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 20s
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   worker:
     # @quorum/worker — the queue consumer: transcribe -> Whisper, then summarize -> an
@@ -187,10 +145,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-      # Consumed by the init script that provisions Keycloak's own database and role.
-      KEYCLOAK_DB_NAME: ${KEYCLOAK_DB_NAME:-keycloak}
-      KEYCLOAK_DB_USER: ${KEYCLOAK_DB_USER:-keycloak}
-      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?KEYCLOAK_DB_PASSWORD must be set}
     volumes:
       - pg-data:/var/lib/postgresql/data
       # Runs once, on an empty data directory only (see the script for the retrofit note).

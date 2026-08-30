@@ -18,9 +18,9 @@ import { renderWithProviders, useLanguage } from "./render";
 const auth = vi.hoisted(() => ({ current: null as AuthContextValue | null }));
 const signInSpy = vi.hoisted(() => vi.fn());
 
-// Replaced wholesale rather than partially: the real module pulls in the OIDC user manager, which
-// reaches for build-time configuration and a redirect this test has no use for. `useAuth` is the
-// only thing the screens under test take from it.
+// Replaced wholesale rather than partially: the real module pulls in the better-auth browser
+// client, which reaches for build-time configuration and a network call this test has no use for.
+// `useAuth` is the only thing the screens under test take from it.
 vi.mock("@/features/auth/auth-provider", () => ({
   useAuth: () => auth.current,
 }));
@@ -37,7 +37,6 @@ function setAuth(overrides: Partial<AuthContextValue> = {}): void {
     sessionExpired: false,
     signIn: signInSpy,
     signOut: vi.fn(),
-    completeSignIn: vi.fn(),
     ...overrides,
   };
 }
@@ -49,8 +48,19 @@ describe("an expired session", () => {
 
   beforeEach(() => {
     signInSpy.mockReset();
-    signInSpy.mockResolvedValue(undefined);
+    // SPIKE: signing in no longer leaves the app, so the spy stands in for a *successful* sign-in
+    // — it flips the session on, exactly as the real provider does before the form navigates.
+    signInSpy.mockImplementation(async () => {
+      setAuth({ status: "authenticated", accessToken: "token", sessionExpired: false });
+    });
   });
+
+  /** Fills the credential form the app now owns and submits it. */
+  async function signInThroughTheForm(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(screen.getByLabelText("Email"), "dev.alice@acme.dev.invalid");
+    await user.type(screen.getByLabelText("Password"), "spike-password-12345");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+  }
 
   function renderGate(route: string) {
     return renderWithProviders(
@@ -101,28 +111,31 @@ describe("an expired session", () => {
     setAuth({ status: "anonymous", sessionExpired: true });
     renderGate("/meetings/abc?tab=summary#section-2");
 
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await signInThroughTheForm(user);
 
     // A session that expires while the user is reading a summary should bring them back to that
-    // summary, not drop them at the meeting list.
-    expect(signInSpy).toHaveBeenCalledWith("/meetings/abc?tab=summary#section-2");
+    // summary, not drop them at the meeting list. The assertion is on the screen rather than on
+    // the call, because the return target is now applied by the form itself: there is no redirect
+    // to hand it to.
+    expect(await screen.findByText("the meeting")).toBeInTheDocument();
   });
 
-  it("has nothing to return to when the user came to sign in on their own", async () => {
+  it("lands on the meeting list when the user came to sign in on their own", async () => {
     const user = userEvent.setup();
     setAuth({ status: "anonymous" });
     renderWithProviders(
       <Routes>
         <Route path="/login" element={<LoginRoute />} />
+        <Route path="/meetings" element={<p>the meeting list</p>} />
       </Routes>,
       { route: "/login" },
     );
 
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await signInThroughTheForm(user);
 
     // Sign-in is exactly the moment an open redirect would be worth having, so anything that is
-    // not an in-app path — including nothing at all — resolves to no target.
-    expect(signInSpy).toHaveBeenCalledWith(null);
+    // not an in-app path — including nothing at all — resolves to the default landing screen.
+    expect(await screen.findByText("the meeting list")).toBeInTheDocument();
   });
 
   it("waits rather than flashing the sign-in screen while the session is still loading", () => {

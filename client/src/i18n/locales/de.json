@@ -12,9 +12,11 @@
   },
   "auth": {
     "signIn": "Anmelden",
-    "completing": "Anmeldung läuft…",
     "error": "Die Anmeldung wurde nicht abgeschlossen.",
-    "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dort weiterzumachen, wo du warst."
+    "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dort weiterzumachen, wo du warst.",
+    "email": "E-Mail",
+    "password": "Passwort",
+    "invalidCredentials": "E-Mail oder Passwort ist falsch."
   },
   "consent": {
     "title": "Bevor du aufnimmst",
@@ -40,7 +42,6 @@
       "label": "Titel des Meetings",
       "placeholder": "Optional — geht auch später"
     },
-
     "templateField": {
       "label": "Vorlage für die Zusammenfassung"
     },

@@ -9,15 +9,13 @@ import {
   type SummaryTemplateView,
 } from "@quorum/shared";
 import { buildServer } from "../src/app.js";
-import { createTokenVerifier } from "../src/auth/token-verifier.js";
+import { createTestAuth } from "./sessions.js";
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
 import { InMemoryMeetingStore } from "../src/meetings/memory.js";
 import { InMemorySummaryTemplateStore } from "../src/templates/memory.js";
-import { AUDIENCE, INTERNAL_ISSUER, ISSUER, createTestKeyPair, signAccessToken } from "./keys.js";
-import type { TestKeyPair } from "./keys.js";
 
-const keys: TestKeyPair = await createTestKeyPair();
+const fixture = await createTestAuth();
 
 const ACME = { tenantId: "tenant-acme", userId: "user-1" };
 const ACME_OTHER_USER = { tenantId: "tenant-acme", userId: "user-2" };
@@ -61,7 +59,7 @@ let app: FastifyInstance;
 let templates: InMemorySummaryTemplateStore;
 
 async function token(scope: { tenantId: string; userId: string }): Promise<string> {
-  return signAccessToken(keys, {
+  return fixture.issueSessionToken({
     subject: scope.userId,
     tenantId: scope.tenantId,
     roles: ["quorum-user"],
@@ -92,12 +90,7 @@ beforeAll(async () => {
     meetings: new InMemoryMeetingStore(),
     templates,
     auth: {
-      verifyAccessToken: createTokenVerifier({
-        issuers: [INTERNAL_ISSUER, ISSUER],
-        audience: AUDIENCE,
-        tenantClaim: "tenant_id",
-        keySource: keys.jwks,
-      }),
+      verifyAccessToken: fixture.verify,
     },
   });
   await app.ready();
@@ -119,12 +112,7 @@ describe("an instance built without a template store", () => {
       queue: new InMemoryJobQueue(),
       meetings: new InMemoryMeetingStore(),
       auth: {
-        verifyAccessToken: createTokenVerifier({
-          issuers: [INTERNAL_ISSUER, ISSUER],
-          audience: AUDIENCE,
-          tenantClaim: "tenant_id",
-          keySource: keys.jwks,
-        }),
+        verifyAccessToken: fixture.verify,
       },
     });
     await bare.ready();

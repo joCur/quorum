@@ -12,9 +12,11 @@
   },
   "auth": {
     "signIn": "Sign in",
-    "completing": "Signing you in…",
     "error": "Sign-in did not complete.",
-    "sessionExpired": "Your session ended. Sign in again to continue where you left off."
+    "sessionExpired": "Your session ended. Sign in again to continue where you left off.",
+    "email": "Email",
+    "password": "Password",
+    "invalidCredentials": "That email and password did not match."
   },
   "consent": {
     "title": "Before you record",
@@ -40,7 +42,6 @@
       "label": "Meeting title",
       "placeholder": "Optional — you can add it later"
     },
-
     "templateField": {
       "label": "Summary template"
     },

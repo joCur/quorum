@@ -7,7 +7,7 @@ import {
   watchRecordingProtocol,
 } from "../fixtures.js";
 import { devUsers } from "../support/env.js";
-import { fetchToken } from "../support/keycloak.js";
+import { fetchToken } from "../support/auth.js";
 import { startApi, stopApi } from "../support/stack.js";
 import { chunkSeqs, readManifest } from "../support/storage.js";
 

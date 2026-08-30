@@ -14,6 +14,8 @@ import type { ServerMetrics } from "./observability/metrics.js";
 import { LOGGER_BASE, LOGGER_FORMATTERS, LOGGER_TIMESTAMP } from "./observability/logging.js";
 import type { UserLimitsResolver } from "./limits.js";
 import { apiRateLimitPlugin } from "./api-rate-limit.js";
+import betterAuthRoutes from "./auth/better-auth/routes.js";
+import type { QuorumAuth } from "./auth/better-auth/instance.js";
 
 export interface BuildServerOptions {
   storage: RecordingStorage;
@@ -41,6 +43,12 @@ export interface BuildServerOptions {
    */
   templates?: SummaryTemplateStore;
   auth?: { verifyAccessToken: TokenVerifier };
+  /**
+   * SPIKE: the better-auth instance whose own endpoints (`/api/auth/*`) replace what the Keycloak
+   * container served. Omitting it builds an instance that validates sessions but cannot create
+   * them — which is what most unit tests want, since they mint sessions through the API object.
+   */
+  authEndpoints?: QuorumAuth;
   /**
    * Prometheus exposition served on `GET /metrics`, unauthenticated like `/healthz`. Omitting it
    * leaves the route off the instance entirely, which is what most unit tests want.
@@ -90,6 +98,10 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     await app.register(apiRateLimitPlugin, {
       ...(options.limits ? { limits: options.limits } : {}),
     });
+
+    if (options.authEndpoints) {
+      await app.register(betterAuthRoutes, { auth: options.authEndpoints });
+    }
   }
 
   // Liveness/readiness probe for compose and the reverse proxy. Public on purpose: an

@@ -8,7 +8,7 @@ import {
   watchRecordingProtocol,
 } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
-import { fetchToken } from "../support/keycloak.js";
+import { fetchToken } from "../support/auth.js";
 import {
   countQueueRows,
   countRowsForSession,

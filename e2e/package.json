@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Quorum end-to-end suite \u2014 Playwright against the real compose stack.",
+  "description": "Quorum end-to-end suite — Playwright against the real compose stack.",
   "scripts": {
     "e2e": "node scripts/run.mjs",
     "test": "playwright test"
@@ -11,9 +11,11 @@
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
     "@playwright/test": "^1.57.0",
+    "@quorum/server": "workspace:*",
     "@quorum/shared": "workspace:*",
     "@types/node": "^26.4.0",
     "@types/ws": "^8.18.1",
+    "pg": "^8.23.0",
     "postgres": "^3.4.9",
     "typescript": "^5.9.3",
     "ws": "^8.21.3"

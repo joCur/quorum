@@ -1,5 +1,5 @@
 import { expect, test as base, type Page } from "@playwright/test";
-import { stackEnv, type DevUser } from "./support/env.js";
+import { type DevUser } from "./support/env.js";
 
 /**
  * Shared fixtures for the suite.
@@ -9,21 +9,20 @@ import { stackEnv, type DevUser } from "./support/env.js";
  */
 
 export interface Fixtures {
-  /** Signs a dev user in through the real Keycloak login form. */
+  /** Signs a dev user in through the app's own login form. */
   signIn: (user: DevUser) => Promise<void>;
 }
 
 export const test = base.extend<Fixtures>({
   signIn: async ({ page }, use) => {
     await use(async (user: DevUser) => {
-      await page.goto("/");
+      // SPIKE: no redirect to a provider and back — the form is part of the app, so signing in is
+      // three interactions on one page. The suite no longer has to know the identity provider's
+      // DOM (`#username`, `#kc-login`), which was the most brittle thing in this file.
+      await page.goto("/login");
+      await page.getByLabel("Email").fill(user.email);
+      await page.getByLabel("Password").fill(user.password);
       await page.getByRole("button", { name: "Sign in" }).click();
-
-      // Keycloak's own login form — the app never sees these credentials.
-      await page.waitForURL(new RegExp(`^${escapeRegExp(stackEnv.keycloakUrl)}/realms/`));
-      await page.locator("#username").fill(user.username);
-      await page.locator("#password").fill(user.password);
-      await page.locator("#kc-login").click();
 
       await page.waitForURL(/\/meetings$/);
       await expect(page.getByRole("heading", { name: "Meetings" })).toBeVisible();
@@ -197,8 +196,4 @@ export async function waitForValue<T>(
     intervalMs,
   );
   return value as T;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

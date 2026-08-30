@@ -4,7 +4,7 @@
 // spans four processes and a browser, and a developer should not have to assemble that by hand.
 //
 // What runs where:
-//   * compose (project `quorum-e2e`): Postgres, Keycloak, MinIO, the API, and Whisper on request
+//   * compose (project `quorum-e2e`): Postgres, MinIO, the API, and Whisper on request
 //   * host: the transcription worker, the built PWA, and Playwright
 //
 // The worker and the PWA run on the host on purpose. The worker has no image yet, and building
@@ -41,7 +41,6 @@ const reuseStack = process.env.E2E_REUSE_STACK === "1";
 const mockWhisperPort = Number.parseInt(process.env.MOCK_WHISPER_PORT ?? "8123", 10);
 const clientPort = stack.CLIENT_PORT ?? "4173";
 const apiUrl = `http://localhost:${stack.API_PORT}`;
-const keycloakUrl = `http://localhost:${stack.KEYCLOAK_PORT}`;
 const clientUrl = `http://localhost:${clientPort}`;
 const databaseUrl = `postgres://${stack.POSTGRES_USER}:${stack.POSTGRES_PASSWORD}@127.0.0.1:${stack.POSTGRES_PORT}/${stack.POSTGRES_DB}`;
 const s3Endpoint = `http://127.0.0.1:${stack.MINIO_PORT}`;
@@ -62,7 +61,7 @@ const composeArgs = [
   "e2e/docker-compose.e2e.yml",
 ];
 
-const composeServices = ["postgres", "keycloak", "minio", "minio-init", "api"];
+const composeServices = ["postgres", "minio", "minio-init", "api"];
 if (whisperMode === "real") composeServices.push("whisper");
 
 /** Long-running child processes this script owns and must clean up. */
@@ -95,7 +94,6 @@ async function main() {
 
   await step("waiting for the stack", async () => {
     await waitForHttp(`${apiUrl}/healthz`, "the API");
-    await waitForHttp(`${keycloakUrl}/realms/quorum`, "Keycloak");
     await waitForHttp(`${s3Endpoint}/minio/health/live`, "MinIO");
     if (whisperMode === "real") await waitForHttp(`${whisperBaseUrl}/models`, "Whisper", 300_000);
   });
@@ -110,8 +108,33 @@ async function main() {
   }
 
   await step("building the workspaces", () =>
-    run("pnpm", ["--filter", "@quorum/shared", "--filter", "@quorum/worker", "run", "build"], {
+    run(
+      "pnpm",
+      [
+        "--filter",
+        "@quorum/shared",
+        "--filter",
+        "@quorum/server",
+        "--filter",
+        "@quorum/worker",
+        "run",
+        "build",
+      ],
+      { cwd: repoRoot },
+    ),
+  );
+
+  // SPIKE: the accounts the suite signs in with. The Keycloak realm carried them as imported
+  // data; with an in-process provider nothing exists until something creates it.
+  await step("seeding the development users", () =>
+    run(process.execPath, [resolve(here, "seed-users.mjs")], {
       cwd: repoRoot,
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+        AUTH_SECRET: stack.AUTH_SECRET,
+        AUTH_BASE_URL: stack.AUTH_BASE_URL ?? apiUrl,
+      },
     }),
   );
 
@@ -159,9 +182,6 @@ async function main() {
         // the deployment shape (one reverse proxy in front of both), so no CORS is involved here
         // and none is needed in production either.
         VITE_API_BASE_URL: "",
-        VITE_OIDC_ISSUER_URL: `${keycloakUrl}/realms/quorum`,
-        VITE_OIDC_CLIENT_ID: stack.OIDC_CLIENT_ID,
-        VITE_OIDC_SCOPE: "openid profile email",
       },
     }),
   );
@@ -195,13 +215,11 @@ async function main() {
     ...process.env,
     E2E_CLIENT_URL: clientUrl,
     E2E_API_URL: apiUrl,
-    E2E_KEYCLOAK_URL: keycloakUrl,
     E2E_DATABASE_URL: databaseUrl,
     E2E_S3_ENDPOINT: s3Endpoint,
     E2E_S3_BUCKET: stack.S3_BUCKET,
     E2E_S3_ACCESS_KEY: stack.MINIO_ROOT_USER,
     E2E_S3_SECRET_KEY: stack.MINIO_ROOT_PASSWORD,
-    E2E_OIDC_CLIENT_ID: stack.OIDC_CLIENT_ID,
     E2E_WHISPER: whisperMode,
   };
 
@@ -314,8 +332,8 @@ function loadCredentials() {
     MINIO_ROOT_PASSWORD: secret(),
     // MinIO's built-in KMS wants `<key-name>:<base64 32 bytes>`.
     MINIO_KMS_SECRET_KEY: `quorum-e2e-key:${randomBytes(32).toString("base64")}`,
-    KEYCLOAK_ADMIN_PASSWORD: secret(),
-    KEYCLOAK_DB_PASSWORD: secret(),
+    // SPIKE: two Keycloak passwords disappear; one signing secret appears.
+    AUTH_SECRET: `${secret()}${secret()}`,
   };
 
   writeFileSync(

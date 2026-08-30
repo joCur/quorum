@@ -13,16 +13,14 @@ import {
   type Transcript,
 } from "@quorum/shared";
 import { buildServer } from "../src/app.js";
-import { createTokenVerifier } from "../src/auth/token-verifier.js";
+import { createTestAuth } from "./sessions.js";
 import { DEFAULT_USER_LIMITS, StaticUserLimitsResolver } from "../src/limits.js";
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
 import { InMemoryMeetingStore } from "../src/meetings/memory.js";
 import { InMemorySummaryTemplateStore } from "../src/templates/memory.js";
-import { AUDIENCE, INTERNAL_ISSUER, ISSUER, createTestKeyPair, signAccessToken } from "./keys.js";
-import type { TestKeyPair } from "./keys.js";
 
-const keys: TestKeyPair = await createTestKeyPair();
+const fixture = await createTestAuth();
 
 const ACME = { tenantId: "tenant-acme", userId: "user-1" };
 const GLOBEX = { tenantId: "tenant-globex", userId: "user-9" };
@@ -109,7 +107,7 @@ let templates: InMemorySummaryTemplateStore;
 const store = new InMemoryMeetingStore();
 
 async function token(scope: { tenantId: string; userId: string }): Promise<string> {
-  return signAccessToken(keys, {
+  return fixture.issueSessionToken({
     subject: scope.userId,
     tenantId: scope.tenantId,
     roles: ["quorum-user"],
@@ -171,12 +169,7 @@ beforeAll(async () => {
     meetings: store,
     templates,
     auth: {
-      verifyAccessToken: createTokenVerifier({
-        issuers: [INTERNAL_ISSUER, ISSUER],
-        audience: AUDIENCE,
-        tenantClaim: "tenant_id",
-        keySource: keys.jwks,
-      }),
+      verifyAccessToken: fixture.verify,
     },
     // These tests exercise the regenerate handler, not the rate limiter, and there are more cases
     // here than the production per-minute allowance for a route that costs a model call.

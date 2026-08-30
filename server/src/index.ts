@@ -1,6 +1,9 @@
 import { buildServer } from "./app.js";
-import { loadConfig, resolveOidcConfig, resolveUserLimits } from "./config.js";
-import { createKeycloakJwks, createTokenVerifier } from "./auth/token-verifier.js";
+import { loadConfig, resolveAuthConfig, resolveUserLimits } from "./config.js";
+import { Pool } from "pg";
+import { createQuorumAuth } from "./auth/better-auth/instance.js";
+import { migrateAuthSchema } from "./auth/better-auth/provisioning.js";
+import { createSessionVerifier } from "./auth/better-auth/session-verifier.js";
 import { HeaderRecordingContextProvider } from "./recording/context-provider.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import { PgBossJobQueue, createPendingJobCounter } from "./recording/queue/pg-boss.js";
@@ -15,10 +18,10 @@ export { buildServer } from "./app.js";
 export type { BuildServerOptions } from "./app.js";
 export {
   loadConfig,
-  resolveOidcConfig,
+  resolveAuthConfig,
   resolveUserLimits,
   ServerConfigSchema,
-  type OidcConfig,
+  type AuthConfig,
   type ServerConfig,
 } from "./config.js";
 export { authPlugin } from "./auth/plugin.js";
@@ -27,13 +30,18 @@ export { hasRole } from "./auth/context.js";
 export type { RequestContext } from "./auth/context.js";
 export { AuthError } from "./auth/errors.js";
 export type { AuthErrorCode } from "./auth/errors.js";
+export { extractBearerToken } from "./auth/token-verifier.js";
+export type { TokenVerifier } from "./auth/token-verifier.js";
+export { createQuorumAuth, quorumAuthOptions } from "./auth/better-auth/instance.js";
+export type { QuorumAuth, QuorumAuthOptions } from "./auth/better-auth/instance.js";
+export { createSessionVerifier } from "./auth/better-auth/session-verifier.js";
 export {
-  createKeycloakJwks,
-  createTokenVerifier,
-  extractBearerToken,
-  keycloakJwksUri,
-} from "./auth/token-verifier.js";
-export type { TokenVerifier, TokenVerifierOptions } from "./auth/token-verifier.js";
+  compileAuthMigrations,
+  migrateAuthSchema,
+  provisionUser,
+} from "./auth/better-auth/provisioning.js";
+export type { ProvisionedUser } from "./auth/better-auth/provisioning.js";
+export { default as betterAuthRoutes } from "./auth/better-auth/routes.js";
 export * from "./recording/types.js";
 export * from "./recording/keys.js";
 export * from "./recording/frame.js";
@@ -88,7 +96,7 @@ export { PostgresQueueSnapshot } from "./observability/queue-snapshot.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const oidc = resolveOidcConfig(config);
+  const authConfig = resolveAuthConfig(config);
   // V1 has no plan tiers, so every user resolves to the same environment-configured limits.
   const limits = new StaticUserLimitsResolver(resolveUserLimits(config));
 
@@ -122,20 +130,33 @@ async function main(): Promise<void> {
   const queueSnapshot = new PostgresQueueSnapshot(config.DATABASE_URL);
   const metrics = createServerMetrics({ queues: queueSnapshot });
 
+  // better-auth talks to Postgres through Kysely, which needs a `pg` pool — a second driver next
+  // to the `postgres` (postgres.js) client the domain repositories use. Two pools on one database
+  // is the price of the in-process provider; it is small, but it is not zero.
+  const authPool = new Pool({ connectionString: config.DATABASE_URL });
+  const authOptions = {
+    secret: authConfig.secret,
+    baseURL: authConfig.baseURL,
+    trustedOrigins: authConfig.trustedOrigins,
+    database: authPool,
+    sessionExpiresInSeconds: authConfig.sessionTtlSeconds,
+    rateLimitMax: authConfig.rateLimitMax,
+    rateLimitWindowSeconds: authConfig.rateLimitWindowSeconds,
+    signInRateLimitMax: authConfig.signInRateLimitMax,
+  };
+  const auth = createQuorumAuth(authOptions);
+  // Fourth migration owner on this database, after the meeting store, the worker's template table
+  // and pg-boss. See the note in `auth/better-auth/provisioning.ts`.
+  await migrateAuthSchema(authOptions);
+
   const app = await buildServer({
     storage,
     queue,
     metrics,
     meetings,
     templates,
-    auth: {
-      verifyAccessToken: createTokenVerifier({
-        issuers: oidc.acceptedIssuers,
-        audience: oidc.audience,
-        tenantClaim: oidc.tenantClaim,
-        keySource: createKeycloakJwks(oidc.issuer, oidc.jwksUri),
-      }),
-    },
+    auth: { verifyAccessToken: createSessionVerifier(auth) },
+    authEndpoints: auth,
     // The header provider stays reachable only behind its explicit development gate; everywhere
     // else the recording scope comes from the validated access token.
     contextProvider: config.RECORDING_ALLOW_HEADER_AUTH
@@ -154,6 +175,7 @@ async function main(): Promise<void> {
         await meetings.close();
         await templates.close();
         await queueSnapshot.close();
+        await authPool.end();
       })();
     });
   }

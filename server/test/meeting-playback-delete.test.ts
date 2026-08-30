@@ -2,17 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { AudioFormat } from "@quorum/shared";
 import { buildServer } from "../src/app.js";
-import { createTokenVerifier } from "../src/auth/token-verifier.js";
+import { createTestAuth } from "./sessions.js";
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
 import { InMemoryMeetingStore } from "../src/meetings/memory.js";
 import { RecordingSessionHandler } from "../src/recording/session.js";
-import { AUDIENCE, INTERNAL_ISSUER, ISSUER, createTestKeyPair, signAccessToken } from "./keys.js";
-import type { TestKeyPair } from "./keys.js";
 import { FakeConnection, WEBM_HEADER, WEBM_OPUS, idSequence } from "./helpers.js";
 import { encodeChunkFrame } from "../src/recording/frame.js";
 
-const keys: TestKeyPair = await createTestKeyPair();
+const fixture = await createTestAuth();
 
 const ACME = { tenantId: "tenant-acme", userId: "user-1" };
 const GLOBEX = { tenantId: "tenant-globex", userId: "user-9" };
@@ -26,7 +24,7 @@ let meetingId: string;
 const EXPECTED_AUDIO = Buffer.from([...WEBM_HEADER, 10, 11, 20, 21, 22, 30]);
 
 async function token(scope: { tenantId: string; userId: string }): Promise<string> {
-  return signAccessToken(keys, {
+  return fixture.issueSessionToken({
     subject: scope.userId,
     tenantId: scope.tenantId,
     roles: ["quorum-user"],
@@ -83,12 +81,7 @@ beforeEach(async () => {
     queue: new InMemoryJobQueue(),
     meetings: store,
     auth: {
-      verifyAccessToken: createTokenVerifier({
-        issuers: [INTERNAL_ISSUER, ISSUER],
-        audience: AUDIENCE,
-        tenantClaim: "tenant_id",
-        keySource: keys.jwks,
-      }),
+      verifyAccessToken: fixture.verify,
     },
   });
   await app.ready();

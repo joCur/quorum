@@ -21,8 +21,6 @@ const resolve = {
  */
 const env = {
   VITE_API_BASE_URL: "https://api.test.invalid",
-  VITE_OIDC_ISSUER_URL: "https://auth.test.invalid/realms/quorum",
-  VITE_OIDC_CLIENT_ID: "quorum-pwa",
 };
 
 /**

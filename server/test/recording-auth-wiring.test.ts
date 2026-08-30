@@ -3,16 +3,14 @@ import type { FastifyInstance } from "fastify";
 import WebSocket from "ws";
 import { ServerMessageSchema, type ServerMessage } from "@quorum/shared";
 import { buildServer } from "../src/app.js";
-import { createTokenVerifier } from "../src/auth/token-verifier.js";
+import { createTestAuth } from "./sessions.js";
 import { JwtRecordingContextProvider } from "../src/recording/jwt-context-provider.js";
 import { UnauthorizedError } from "../src/recording/context-provider.js";
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
-import { AUDIENCE, ISSUER, createTestKeyPair, signAccessToken } from "./keys.js";
-import type { TestKeyPair } from "./keys.js";
 import { WEBM_OPUS } from "./helpers.js";
 
-const keys: TestKeyPair = await createTestKeyPair();
+const fixture = await createTestAuth();
 
 let app: FastifyInstance | null = null;
 
@@ -29,12 +27,7 @@ async function startAuthenticatedServer(
     storage,
     queue,
     auth: {
-      verifyAccessToken: createTokenVerifier({
-        issuers: [ISSUER],
-        audience: AUDIENCE,
-        tenantClaim: "tenant_id",
-        keySource: keys.jwks,
-      }),
+      verifyAccessToken: fixture.verify,
     },
   });
   await app.listen({ port: 0, host: "127.0.0.1" });
@@ -114,8 +107,7 @@ describe("recording endpoint on an authenticated server", () => {
     const queue = new InMemoryJobQueue();
     const port = await startAuthenticatedServer(storage, queue);
 
-    const token = await signAccessToken(keys, {
-      issuer: ISSUER,
+    const token = await fixture.issueSessionToken({
       subject: "user-42",
       tenantId: "tenant-acme",
     });

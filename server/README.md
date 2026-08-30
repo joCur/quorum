@@ -1,6 +1,10 @@
 # `@quorum/server`
 
-Fastify API server. It contains the auth foundation — Keycloak-issued JWT validation and the
+> **SPIKE BRANCH — `spike-better-auth`, do not merge.** Keycloak has been replaced by
+> better-auth running inside the API. Passages below that describe an OIDC issuer, a realm or the
+> `keycloak` service no longer apply on this branch; see `docs/spike-better-auth.md`.
+
+Fastify API server. It contains the auth foundation — better-auth session validation and the
 tenant-scoped request context every handler builds on — and the WebSocket recording endpoint of
 ADR-002.
 
@@ -432,11 +436,12 @@ list with defaults.
 
 | Variable                 | Purpose                                                                       |
 | ------------------------ | ----------------------------------------------------------------------------- |
-| `OIDC_ISSUER_URL`        | Issuer used for JWKS retrieval — inside compose, the container-internal URL.    |
-| `OIDC_PUBLIC_ISSUER_URL` | Second accepted `iss` value: the one browser-obtained tokens actually carry.    |
-| `OIDC_JWKS_URI`          | Optional override; defaults to `<issuer>/protocol/openid-connect/certs`.        |
-| `OIDC_AUDIENCE`          | Audience the access token must contain. Default `quorum-api`.                   |
-| `OIDC_TENANT_CLAIM`      | Claim holding the tenant. Default `tenant_id`.                                  |
+| `AUTH_SECRET`            | Signing secret for session tokens. At least 32 characters; rotating it ends every session. |
+| `AUTH_BASE_URL`          | Public origin the auth endpoints are reached at.                                |
+| `AUTH_TRUSTED_ORIGINS`   | Extra browser origins allowed to call them, comma-separated.                    |
+| `AUTH_SESSION_TTL_SECONDS` | Session lifetime; a session in use slides forward on every read. Default 8 h. |
+| `AUTH_RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_WINDOW_SECONDS` | Auth-endpoint requests per window per caller. |
+| `AUTH_SIGN_IN_RATE_LIMIT_MAX` | Sign-in attempts per window per caller — the brute-force bound.            |
 | `RECORDING_ALLOW_HEADER_AUTH` | Development-only header scope for the recording upgrade. Default `false`.  |
 | `RECORDING_MAX_RECORDED_SECONDS` | Hard stop on recorded audio, pauses excluded. Default `14400` (4 h).     |
 | `RECORDING_MAX_SESSION_LIFETIME_SECONDS` | Wall clock a session may stay open. Default `43200` (12 h).     |
@@ -461,10 +466,12 @@ on the next unknown `kid` without a restart.
 
 `pnpm test` from the repository root runs them (that is what CI runs too).
 
-The auth tests generate an RSA key pair in-process and sign their own tokens, so they need neither a
-network nor a running Keycloak, and they cover the valid case plus expired, wrong-issuer,
-wrong-audience, unknown-key, `alg: none`, malformed-header and missing-tenant tokens, default-deny
-on unknown routes, and that a token-scoped recording session ignores forged tenant headers.
+The auth tests run a real better-auth instance on the in-memory adapter, so they need neither a
+network nor a database, and they cover the valid case plus unknown, tampered, revoked and
+missing-tenant sessions, malformed `Authorization` headers, default-deny on unknown routes, and
+that a session-scoped recording session ignores forged tenant headers. The negative cases that
+were about token *format* — wrong issuer, wrong audience, unknown signing key, `alg: none` — have
+no counterpart here, because the credential is opaque and there is no issuer or audience.
 
 The integration tests in `test/integration.test.ts` run against the real MinIO and Postgres from
 `docker-compose.yml` and are opt-in:
@@ -484,24 +491,16 @@ cp .env.example .env      # then fill in the CHANGE_ME values
 # The dev override publishes Postgres and the MinIO S3 API on the host, which the base compose
 # file keeps internal — a server started outside the stack needs them.
 docker compose -f docker-compose.yml -f docker-compose.dev.yml \
-  up -d postgres keycloak minio minio-init
+  up -d postgres minio minio-init
 ```
 
-Wait until Keycloak reports healthy — the realm import runs on first start:
-
-```bash
-docker compose ps keycloak      # expect "healthy" after roughly 30 seconds
-docker compose logs keycloak | grep "imported"
-# -> KC-SERVICES: Realm 'quorum' imported
-```
-
-Start the API. Outside the compose network Keycloak is reachable at `localhost:8081`, so the issuer
-must be the public one:
+Start the API. There is no auth service to wait for: the API creates its own auth tables on
+startup and serves the sign-in endpoints itself.
 
 ```bash
 pnpm --filter @quorum/server run build
-OIDC_ISSUER_URL=http://localhost:8081/realms/quorum \
-OIDC_AUDIENCE=quorum-api \
+AUTH_SECRET=<at least 32 characters> \
+AUTH_BASE_URL=http://localhost:8080 \
 DATABASE_URL=postgres://quorum:<password>@localhost:5432/quorum \
 S3_ENDPOINT=http://localhost:9000 S3_BUCKET=recordings \
 S3_ACCESS_KEY=quorum-admin S3_SECRET_KEY=<password> \

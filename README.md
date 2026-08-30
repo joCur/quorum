@@ -1,4 +1,8 @@
 # Quorum — Fundament (Schemas & ADRs)
+
+> **SPIKE BRANCH — `spike-better-auth`, do not merge.** Keycloak has been replaced by
+> better-auth running inside the API. Passages below that describe an OIDC issuer, a realm or the
+> `keycloak` service no longer apply on this branch; see `docs/spike-better-auth.md`.
 > **Quorum** — Meetingaufzeichnung mit Transkription und konfigurierbaren Zusammenfassungen, self-hosted first.
 
 Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, geplant als SaaS. Webanwendung (Desktop + Mobile Browser, PWA), Wake Lock während der Aufnahme.
@@ -56,7 +60,7 @@ Root scripts (the same ones CI runs):
 Workspaces:
 
 - `shared/` — package `@quorum/shared`, the zod schemas shared by client and server
-- `server/` — package `@quorum/server`, the Fastify API: Keycloak JWT validation with a
+- `server/` — package `@quorum/server`, the Fastify API: better-auth session validation with a
   tenant-scoped request context, plus the WebSocket recording endpoint. See `server/README.md`
   for the scoping convention and the manual auth verification path.
 - `worker/` — package `@quorum/worker`, the job worker turning recorded audio into transcripts.
@@ -72,25 +76,23 @@ Workspaces:
 ### Web client
 
 The PWA reads its configuration from `VITE_*` variables; copy `client/.env.example` to
-`client/.env.local` and point `VITE_OIDC_ISSUER_URL` at the Keycloak realm before running
-`pnpm run dev:client`. Leave `VITE_API_BASE_URL` empty: the dev server proxies `/api`, `/ws` and
+`client/.env.local` before running `pnpm run dev:client`; authentication needs no client
+configuration, because the app signs in against `/api/auth` on the API it already talks to. Leave `VITE_API_BASE_URL` empty: the dev server proxies `/api`, `/ws` and
 `/healthz` to the API on port 8080, so the app is same-origin in development just as it is in a
 deployment. Fonts and icons are bundled — the app makes no requests to any CDN at runtime, which
 a self-hosted deployment depends on. `client/README.md` has the full flow.
 
 Infrastructure configuration:
 
-- `infra/keycloak/` — the versioned `quorum` realm imported by the `keycloak` service on startup
-  (ADR-006 §7), so `git clone && docker compose up` yields a working login with no admin-console
-  clicking. Dev-only test users are documented in `infra/keycloak/README.md`.
-- `infra/postgres/init/` — provisions Keycloak's own logical database on the shared Postgres
-  instance (no second database container).
+- Authentication has no infrastructure directory on this branch: better-auth runs inside the API
+  and owns tables in the main database. Accounts are created by whatever provisions them —
+  `e2e/scripts/seed-users.mjs` for the test stack — because there is no realm file to import.
 
 ### Running the stack with Docker Compose
 
 ```bash
 cp .env.example .env      # then replace every CHANGE_ME, see the comments in that file
-docker compose up -d      # postgres, keycloak, minio (+ bucket bootstrap), whisper, api
+docker compose up -d      # postgres, minio (+ bucket bootstrap), whisper, api
 curl http://localhost:8080/healthz
 ```
 
@@ -120,7 +122,7 @@ are configurable via `POSTGRES_PORT` / `MINIO_PORT` when they collide with local
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.dev.yml \
-  up -d postgres keycloak minio minio-init
+  up -d postgres minio minio-init
 pnpm --filter @quorum/server run build
 pnpm --filter @quorum/server run start   # environment as described in server/README.md
 ```

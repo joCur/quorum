@@ -37,12 +37,6 @@ function read(name: string, fallback: string): string {
 export const stackEnv = {
   clientUrl: read("E2E_CLIENT_URL", "http://localhost:4173"),
   apiUrl: read("E2E_API_URL", "http://localhost:8090"),
-  keycloakUrl: read("E2E_KEYCLOAK_URL", "http://localhost:8091"),
-  realm: read("E2E_KEYCLOAK_REALM", "quorum"),
-  /** Public browser client — Authorization Code + PKCE, used by the app itself. */
-  pwaClientId: read("E2E_OIDC_CLIENT_ID", "quorum-pwa"),
-  /** Development-only password-grant client, used to obtain tokens outside the browser. */
-  cliClientId: read("E2E_OIDC_CLI_CLIENT_ID", "quorum-dev-cli"),
   databaseUrl: read(
     "E2E_DATABASE_URL",
     `postgres://quorum:${generated["POSTGRES_PASSWORD"] ?? ""}@127.0.0.1:55433/quorum`,
@@ -58,11 +52,33 @@ export const stackEnv = {
   whisperMode: read("E2E_WHISPER", "mock"),
 } as const;
 
-/** Development fixtures from the imported realm — deliberately not secrets. */
+/**
+ * Development fixtures — deliberately not secrets.
+ *
+ * SPIKE: these used to come from the committed realm JSON, which the Keycloak container imported
+ * on first start. There is no import file any more, so `e2e/scripts/seed-users.mjs` creates them
+ * against the running API before the suite starts. The password is longer than it was because the
+ * server enforces a 12-character minimum; Keycloak's realm had no policy configured at all.
+ */
 export const devUsers = {
-  alice: { username: "dev.alice", password: "dev-password", tenantId: "tenant-acme" },
-  bob: { username: "dev.bob", password: "dev-password", tenantId: "tenant-acme" },
-  carol: { username: "dev.carol", password: "dev-password", tenantId: "tenant-globex" },
+  alice: {
+    email: "dev.alice@acme.dev.invalid",
+    name: "dev.alice",
+    password: "dev-password-1234",
+    tenantId: "tenant-acme",
+  },
+  bob: {
+    email: "dev.bob@acme.dev.invalid",
+    name: "dev.bob",
+    password: "dev-password-1234",
+    tenantId: "tenant-acme",
+  },
+  carol: {
+    email: "dev.carol@globex.dev.invalid",
+    name: "dev.carol",
+    password: "dev-password-1234",
+    tenantId: "tenant-globex",
+  },
 } as const;
 
 export type DevUser = (typeof devUsers)[keyof typeof devUsers];

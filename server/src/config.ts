@@ -74,14 +74,33 @@ export const ServerConfigSchema = z.object({
   /** Regenerate requests per window — the one route that costs a model call. Default 10. */
   API_RATE_LIMIT_SUMMARY_MAX: z.coerce.number().int().positive().default(10),
 
-  /** Issuer used for discovery and JWKS retrieval; inside compose the container-internal URL. */
-  OIDC_ISSUER_URL: z.string().url(),
+  // --- Authentication (SPIKE: better-auth runs in this process; there is no external issuer) ---
+  /**
+   * Signing secret for session tokens and cookies.
+   *
+   * There is no key rotation story behind this: rotating it invalidates every session at once,
+   * where Keycloak rotated realm signing keys without signing anybody out. The minimum length is
+   * enforced here because this one value is now what stands between a leaked environment file and
+   * every account in the deployment.
+   */
+  AUTH_SECRET: z.string().min(32),
+  /** Public base URL the auth endpoints are reachable under, e.g. `https://app.example.com`. */
+  AUTH_BASE_URL: z.string().url(),
+  /** Comma-separated browser origins allowed to call the auth endpoints. */
   /** Issuer that browser-obtained tokens actually carry, when it differs from the internal one. */
-  OIDC_PUBLIC_ISSUER_URL: z.string().url().optional(),
-  /** Explicit JWKS endpoint; defaults to the Keycloak convention derived from the issuer. */
-  OIDC_JWKS_URI: z.string().url().optional(),
-  OIDC_AUDIENCE: z.string().min(1).default("quorum-api"),
-  OIDC_TENANT_CLAIM: z.string().min(1).default("tenant_id"),
+  AUTH_TRUSTED_ORIGINS: z.string().default(""),
+  /** Session lifetime in seconds. Default 8 h. */
+  AUTH_SESSION_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(8 * 60 * 60),
+  /** Auth-endpoint requests per window per caller. */
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
+  /** Length of that window, in seconds. */
+  AUTH_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
+  /** Sign-in attempts per window per caller — the brute-force bound. */
+  AUTH_SIGN_IN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
 });
 
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
@@ -109,27 +128,30 @@ export function resolveUserLimits(config: ServerConfig): UserLimits {
   };
 }
 
-/** Everything the token verifier needs, derived from the flat environment configuration. */
-export interface OidcConfig {
-  /** Issuer used to reach Keycloak (discovery, JWKS). */
-  readonly issuer: string;
-  /** All issuers accepted in the `iss` claim, deduplicated. */
-  readonly acceptedIssuers: readonly string[];
-  readonly jwksUri: string | undefined;
-  readonly audience: string;
-  readonly tenantClaim: string;
+/** Everything the in-process auth instance needs, derived from the flat environment config. */
+export interface AuthConfig {
+  readonly secret: string;
+  readonly baseURL: string;
+  /** Origins allowed to call the auth endpoints; the base URL is always included. */
+  readonly trustedOrigins: readonly string[];
+  readonly sessionTtlSeconds: number;
+  readonly rateLimitMax: number;
+  readonly rateLimitWindowSeconds: number;
+  readonly signInRateLimitMax: number;
 }
 
-export function resolveOidcConfig(config: ServerConfig): OidcConfig {
-  const acceptedIssuers = [
-    ...new Set([config.OIDC_ISSUER_URL, config.OIDC_PUBLIC_ISSUER_URL]),
-  ].filter((issuer): issuer is string => issuer !== undefined);
+export function resolveAuthConfig(config: ServerConfig): AuthConfig {
+  const configured = config.AUTH_TRUSTED_ORIGINS.split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
 
   return {
-    issuer: config.OIDC_ISSUER_URL,
-    acceptedIssuers,
-    jwksUri: config.OIDC_JWKS_URI,
-    audience: config.OIDC_AUDIENCE,
-    tenantClaim: config.OIDC_TENANT_CLAIM,
+    secret: config.AUTH_SECRET,
+    baseURL: config.AUTH_BASE_URL,
+    trustedOrigins: [...new Set([config.AUTH_BASE_URL, ...configured])],
+    sessionTtlSeconds: config.AUTH_SESSION_TTL_SECONDS,
+    rateLimitMax: config.AUTH_RATE_LIMIT_MAX,
+    rateLimitWindowSeconds: config.AUTH_RATE_LIMIT_WINDOW_SECONDS,
+    signInRateLimitMax: config.AUTH_SIGN_IN_RATE_LIMIT_MAX,
   };
 }

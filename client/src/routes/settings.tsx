@@ -29,10 +29,11 @@ export function SettingsRoute() {
   const [signingOut, setSigningOut] = React.useState(false);
   const activeLanguage = i18n.resolvedLanguage ?? "en";
 
-  // Whatever the token actually carries, most recognizable first. A session with no readable name
-  // is still a session that can be signed out of, so the card never depends on finding one.
-  const profile = user?.profile;
-  const identity = profile?.name ?? profile?.preferred_username ?? profile?.email ?? null;
+  // Whatever the session actually carries, most recognizable first. A session with no readable
+  // name is still a session that can be signed out of, so the card never depends on finding one.
+  // SPIKE: the OIDC id-token `profile` claim set is gone; a better-auth user row has a name and
+  // an email and nothing else unless we add columns for it.
+  const identity = user?.name ?? user?.email ?? null;
 
   return (
     <div className="flex flex-col gap-6">

@@ -6,7 +6,12 @@ here would be one that nobody has ever restored from. What is written down inste
 be backed up, how often, how to restore it, and the two obligations that are easy to get wrong —
 the encryption key, and removing deleted meetings from the backups.
 
-Scope: PostgreSQL (meetings, transcripts, summaries, jobs, templates, and Keycloak's own database)
+> **SPIKE BRANCH — `spike-better-auth`, do not merge.** Keycloak has been replaced by
+> better-auth running inside the API. Passages below that describe an OIDC issuer, a realm or the
+> `keycloak` service no longer apply on this branch; see `docs/spike-better-auth.md`.
+
+Scope: PostgreSQL (meetings, transcripts, summaries, jobs, templates, and — on this branch — the
+auth tables, which live in the same database rather than in a separate one)
 and MinIO (recorded audio). Related: [`pipeline.md`](pipeline.md) for pipeline incidents.
 
 ## What has to be backed up
@@ -14,7 +19,7 @@ and MinIO (recorded audio). Related: [`pipeline.md`](pipeline.md) for pipeline i
 | What                        | Where it lives                        | Losing it means                                        |
 | --------------------------- | ------------------------------------- | ------------------------------------------------------ |
 | PostgreSQL `quorum` database | `pg-data` volume                      | Every meeting, transcript, summary and template is gone |
-| PostgreSQL `keycloak` database | same volume, separate logical database | Users and realm configuration are gone                 |
+| Auth tables in the `quorum` database | same dump as the domain data | Users and sessions are gone; nothing to restore separately |
 | MinIO bucket                | `minio-data` volume                   | Every recording is gone                                 |
 | **`MINIO_KMS_SECRET_KEY`**  | the deployment's environment          | **Every backed-up recording is unreadable ciphertext**  |
 
@@ -47,7 +52,6 @@ like a job whose audio has vanished; the opposite is a harmless orphan object.
 
 ```bash
 docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB" > quorum-$(date +%F).dump
-docker compose exec -T postgres pg_dump -U "$POSTGRES_USER" -Fc keycloak    > keycloak-$(date +%F).dump
 ```
 
 Custom format (`-Fc`) because it restores selectively and compresses. A logical dump survives a
@@ -93,7 +97,6 @@ docker compose up -d postgres minio minio-init
 
 ```bash
 docker compose exec -T postgres pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists < quorum-YYYY-MM-DD.dump
-docker compose exec -T postgres pg_restore -U "$POSTGRES_USER" -d keycloak       --clean --if-exists < keycloak-YYYY-MM-DD.dump
 ```
 
 **3. Restore the objects.**

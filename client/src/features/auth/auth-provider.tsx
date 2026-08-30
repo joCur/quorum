@@ -1,15 +1,26 @@
 import * as React from "react";
-import type { User, UserManager } from "oidc-client-ts";
-import { createUserManager } from "@/features/auth/user-manager";
-import { onUnauthorized, safeReturnTo } from "@/features/auth/session-expiry";
+import { authClient, readSessionToken, writeSessionToken } from "@/features/auth/auth-client";
+import type { SessionUser } from "@/features/auth/auth-client";
+import { onUnauthorized } from "@/features/auth/session-expiry";
 
 export type AuthStatus = "loading" | "authenticated" | "anonymous" | "error";
 
-/** Everything a screen can know and do about the current session. */
+/**
+ * Everything a screen can know and do about the current session.
+ *
+ * SPIKE: the shape is deliberately close to the OIDC one, so the screens outside this folder
+ * (`use-recording`, `use-templates`, `use-meetings`, the app shell's sign-out) compile unchanged.
+ * Two members are gone, and their absence is the whole difference in the client's model:
+ *
+ * * `completeSignIn` — there is no redirect to come back from, so there is no callback route.
+ * * `signIn()` no longer *leaves* the app. It takes credentials, because the login form is now
+ *   ours. That is the part with a product consequence: we now render, style, translate and
+ *   secure the screen where passwords are typed.
+ */
 export interface AuthContextValue {
   status: AuthStatus;
-  user: User | null;
-  /** Access token for API and WebSocket calls, or null when signed out. */
+  user: SessionUser | null;
+  /** Session token for API and WebSocket calls, or null when signed out. */
   accessToken: string | null;
   error: string | null;
   /**
@@ -17,142 +28,137 @@ export interface AuthContextValue {
    * letting the user wonder why they are looking at it again.
    */
   sessionExpired: boolean;
-  /** Starts the OIDC flow, remembering where to come back to afterwards. */
-  signIn: (returnTo?: string | null) => Promise<void>;
+  /** Signs in with email and password. Rejects with a message the form can show. */
+  signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  /** Finishes the flow and answers with the in-app path to return to, if one was remembered. */
-  completeSignIn: () => Promise<string | null>;
 }
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // One manager per provider instance, created lazily on first render.
-  const [manager] = React.useState<UserManager>(createUserManager);
-
-  const [user, setUser] = React.useState<User | null>(null);
+  const [user, setUser] = React.useState<SessionUser | null>(null);
   const [status, setStatus] = React.useState<AuthStatus>("loading");
   const [error, setError] = React.useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = React.useState(false);
+  const [token, setToken] = React.useState<string | null>(() => readSessionToken());
   // One renewal at a time: a screen that fires several requests answers with several 401s, and
-  // each extra silent renewal would be a second round trip for an answer already on its way.
+  // each extra check would be a second round trip for an answer already on its way.
   const renewing = React.useRef<Promise<void> | null>(null);
 
-  const adopt = React.useCallback((next: User | null) => {
+  const adopt = React.useCallback((next: SessionUser | null) => {
     setUser(next);
-    setStatus(next && !next.expired ? "authenticated" : "anonymous");
+    setToken(next === null ? null : readSessionToken());
+    setStatus(next === null ? "anonymous" : "authenticated");
+  }, []);
+
+  const drop = React.useCallback(() => {
+    writeSessionToken(null);
+    adopt(null);
+  }, [adopt]);
+
+  /** Reads the session the stored token stands for, if there is one. */
+  const loadSession = React.useCallback(async (): Promise<SessionUser | null> => {
+    if (readSessionToken() === null) return null;
+    const { data } = await authClient.getSession();
+    return (data?.user as SessionUser | undefined) ?? null;
   }, []);
 
   React.useEffect(() => {
     let active = true;
-
-    void manager
-      .getUser()
+    // A token in storage that the server will not resolve is a session that ended while the app
+    // was closed — a reload after the session expired, most often. Saying so is the difference
+    // between "sign in" and "sign in *again*", and it is the only place the two can be told
+    // apart: the credential is opaque, so the client cannot see for itself that it has expired.
+    const hadToken = readSessionToken() !== null;
+    void loadSession()
       .then((existing) => {
-        if (active) adopt(existing);
+        if (!active) return;
+        if (existing === null && hadToken) {
+          writeSessionToken(null);
+          setSessionExpired(true);
+        }
+        adopt(existing);
       })
       .catch(() => {
-        if (active) setStatus("anonymous");
+        if (!active) return;
+        if (hadToken) setSessionExpired(true);
+        setStatus("anonymous");
       });
-
-    const onLoaded = (next: User) => adopt(next);
-    const onUnloaded = () => adopt(null);
-    manager.events.addUserLoaded(onLoaded);
-    manager.events.addUserUnloaded(onUnloaded);
-    manager.events.addAccessTokenExpired(onUnloaded);
-
     return () => {
       active = false;
-      manager.events.removeUserLoaded(onLoaded);
-      manager.events.removeUserUnloaded(onUnloaded);
-      manager.events.removeAccessTokenExpired(onUnloaded);
     };
-  }, [manager, adopt]);
+  }, [loadSession, adopt]);
 
   /**
-   * The shared answer to a 401: renew silently, and fall back to the login flow.
+   * The shared answer to a 401: re-read the session, and give up if there is none.
    *
-   * A 401 is an authentication problem, never a data problem, so it is handled once here rather
-   * than screen by screen. A silent renewal that works is invisible — the screens re-request with
-   * the new token. One that fails drops the user, which makes the auth gate route to the sign-in
-   * screen with the current location in hand.
+   * SPIKE: this replaces `signinSilent()`. There is no refresh token and no hidden iframe — a
+   * better-auth session slides forward on every read, so "renewal" is the read itself. That
+   * removes a whole class of failure (third-party-cookie policies breaking silent renewal) and
+   * removes a capability with it: there is no way to obtain a fresh credential once the old one
+   * is gone, so a session that has truly expired always ends at the login form.
    */
   const recoverSession = React.useCallback(async (): Promise<void> => {
     if (renewing.current) return renewing.current;
     const attempt = (async () => {
       try {
-        adopt(await manager.signinSilent());
+        const refreshed = await loadSession();
+        if (refreshed === null) throw new Error("no session");
+        adopt(refreshed);
       } catch {
-        // Nothing to renew from, or the provider refused: the session is over.
-        await manager.removeUser().catch(() => undefined);
         setSessionExpired(true);
-        adopt(null);
+        drop();
       } finally {
         renewing.current = null;
       }
     })();
     renewing.current = attempt;
     return attempt;
-  }, [manager, adopt]);
+  }, [loadSession, adopt, drop]);
 
   React.useEffect(() => onUnauthorized(() => void recoverSession()), [recoverSession]);
 
   const signIn = React.useCallback(
-    async (returnTo?: string | null) => {
+    async (email: string, password: string) => {
       setError(null);
       setSessionExpired(false);
-      const target = safeReturnTo(returnTo);
-      // The target rides along in the OIDC `state`, which the provider hands back untouched at the
-      // callback. It is deliberately not a query parameter: the address bar is not a place to keep
-      // application state across a redirect the user can bookmark.
-      await manager.signinRedirect(target === null ? undefined : { state: { returnTo: target } });
+      const { data, error: failure } = await authClient.signIn.email({ email, password });
+      if (failure || !data) {
+        const message = failure?.message ?? "sign-in failed";
+        setError(message);
+        throw new Error(message);
+      }
+      adopt(data.user as unknown as SessionUser);
     },
-    [manager],
+    [adopt],
   );
 
   /**
-   * Ends the session at the provider and here.
+   * Ends the session on the server and here.
    *
-   * The end-session request is what makes this a real sign-out: without it Keycloak keeps its own
-   * session cookie, and the next sign-in would wave the user straight back in. The redirect leaves
-   * the app, so the local cleanup below only runs when the provider could not be reached — in that
-   * case the session still ends here, which is what the user asked for.
+   * SPIKE: no end-session redirect and no provider cookie to worry about — a session is a row,
+   * and signing out deletes it. The local cleanup runs either way, because the user asked to be
+   * signed out and a server that cannot be reached does not change that.
    */
   const signOut = React.useCallback(async () => {
     try {
-      await manager.signoutRedirect();
-    } catch {
-      await manager.removeUser().catch(() => undefined);
-      adopt(null);
+      await authClient.signOut();
+    } finally {
+      drop();
     }
-  }, [manager, adopt]);
-
-  const completeSignIn = React.useCallback(async (): Promise<string | null> => {
-    try {
-      const next = await manager.signinRedirectCallback();
-      adopt(next);
-      setSessionExpired(false);
-      const state = next.state as { returnTo?: unknown } | undefined;
-      return safeReturnTo(state?.returnTo);
-    } catch (cause) {
-      setStatus("error");
-      setError(cause instanceof Error ? cause.message : String(cause));
-      throw cause;
-    }
-  }, [manager, adopt]);
+  }, [drop]);
 
   const value = React.useMemo<AuthContextValue>(
     () => ({
       status,
       user,
-      accessToken: user && !user.expired ? user.access_token : null,
+      accessToken: status === "authenticated" ? token : null,
       error,
       sessionExpired,
       signIn,
       signOut,
-      completeSignIn,
     }),
-    [status, user, error, sessionExpired, signIn, signOut, completeSignIn],
+    [status, user, token, error, sessionExpired, signIn, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

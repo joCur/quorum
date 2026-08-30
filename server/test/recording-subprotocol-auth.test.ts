@@ -4,14 +4,13 @@ import WebSocket from "ws";
 import { ServerMessageSchema, type ServerMessage } from "@quorum/shared";
 import { buildServer } from "../src/app.js";
 import { BEARER_SUBPROTOCOL } from "../src/auth/subprotocol.js";
-import { createTokenVerifier } from "../src/auth/token-verifier.js";
+import { bearerSubprotocolOffer } from "@quorum/shared";
+import { createTestAuth } from "./sessions.js";
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
-import { AUDIENCE, ISSUER, createTestKeyPair, signAccessToken } from "./keys.js";
-import type { TestKeyPair } from "./keys.js";
 import { WEBM_OPUS } from "./helpers.js";
 
-const keys: TestKeyPair = await createTestKeyPair();
+const fixture = await createTestAuth();
 
 let app: FastifyInstance | null = null;
 
@@ -31,12 +30,7 @@ async function startAuthenticatedServer(
     queue,
     logger,
     auth: {
-      verifyAccessToken: createTokenVerifier({
-        issuers: [ISSUER],
-        audience: AUDIENCE,
-        tenantClaim: "tenant_id",
-        keySource: keys.jwks,
-      }),
+      verifyAccessToken: fixture.verify,
     },
   });
   await app.listen({ port: 0, host: "127.0.0.1" });
@@ -47,7 +41,7 @@ async function startAuthenticatedServer(
 
 /** Opens the recording socket the way the browser client does: marker first, then the token. */
 function openWithSubprotocol(port: number, token: string): WebSocket {
-  return new WebSocket(`ws://127.0.0.1:${port}/ws/recording`, [BEARER_SUBPROTOCOL, token]);
+  return new WebSocket(`ws://127.0.0.1:${port}/ws/recording`, bearerSubprotocolOffer(token));
 }
 
 async function waitForOpen(socket: WebSocket): Promise<void> {
@@ -96,8 +90,7 @@ describe("recording upgrade authenticated via the bearer subprotocol", () => {
     const queue = new InMemoryJobQueue();
     const port = await startAuthenticatedServer(storage, queue);
 
-    const token = await signAccessToken(keys, {
-      issuer: ISSUER,
+    const token = await fixture.issueSessionToken({
       subject: "user-42",
       tenantId: "tenant-acme",
     });
@@ -141,14 +134,13 @@ describe("recording upgrade authenticated via the bearer subprotocol", () => {
     const storage = new InMemoryRecordingStorage();
     const port = await startAuthenticatedServer(storage, new InMemoryJobQueue());
 
-    const headerToken = await signAccessToken(keys, {
-      issuer: ISSUER,
+    const headerToken = await fixture.issueSessionToken({
       subject: "user-42",
       tenantId: "tenant-acme",
     });
     const socket = new WebSocket(
       `ws://127.0.0.1:${port}/ws/recording`,
-      [BEARER_SUBPROTOCOL, "not.a.token"],
+      bearerSubprotocolOffer("not.a.token"),
       { headers: { authorization: `Bearer ${headerToken}` } },
     );
 
@@ -162,29 +154,32 @@ describe("recording upgrade authenticated via the bearer subprotocol", () => {
       new InMemoryRecordingStorage(),
       new InMemoryJobQueue(),
     );
-    const forged = await signAccessToken(await createTestKeyPair("other-key"), {
-      issuer: ISSUER,
-      subject: "user-42",
-    });
-    const { status, body } = await rejectedUpgrade(port, [BEARER_SUBPROTOCOL, forged]);
+    // Forgery in this world is not "signed by the wrong key" — there is no signature to forge.
+    // An attacker's only move is to present a session identifier that is not in the store.
+    const forged = "0123456789abcdef.0123456789abcdef";
+    const { status, body } = await rejectedUpgrade(port, bearerSubprotocolOffer(forged));
     expect(status).toBe(401);
     expect(body).toContain("invalid_token");
   });
 
-  it("refuses an expired token", async () => {
+  it("refuses a token whose session was revoked", async () => {
+    // SPIKE: this replaces "refuses an expired token". A self-contained JWT could be handed to the
+    // suite already expired; an opaque session token cannot be aged on demand, so the equivalent —
+    // and stronger — assertion is that a session which has been ended stops working immediately.
     const port = await startAuthenticatedServer(
       new InMemoryRecordingStorage(),
       new InMemoryJobQueue(),
     );
-    const now = Math.floor(Date.now() / 1000);
-    const expired = await signAccessToken(keys, {
-      issuer: ISSUER,
-      issuedAt: now - 3600,
-      expiresAt: now - 1800,
+    const token = await fixture.issueSessionToken({
+      subject: "user-revoked",
+      username: "dev.revoked",
+      tenantId: "tenant-acme",
     });
-    const { status, body } = await rejectedUpgrade(port, [BEARER_SUBPROTOCOL, expired]);
+    await fixture.revokeSessions("user-revoked");
+
+    const { status, body } = await rejectedUpgrade(port, bearerSubprotocolOffer(token));
     expect(status).toBe(401);
-    expect(body).toContain("expired_token");
+    expect(body).toContain("invalid_token");
   });
 
   it("refuses a marker that carries no token", async () => {
@@ -212,7 +207,7 @@ describe("recording upgrade authenticated via the bearer subprotocol", () => {
       new InMemoryRecordingStorage(),
       new InMemoryJobQueue(),
     );
-    expect((await rejectedUpgrade(port, [BEARER_SUBPROTOCOL, "not.a.token"])).status).toBe(401);
+    expect((await rejectedUpgrade(port, bearerSubprotocolOffer("not.a.token"))).status).toBe(401);
 
     const instance = app;
     app = null;
@@ -236,13 +231,17 @@ describe("recording upgrade authenticated via the bearer subprotocol", () => {
       { level: "trace" },
     );
 
-    const valid = await signAccessToken(keys, { issuer: ISSUER, tenantId: "tenant-acme" });
+    const valid = await fixture.issueSessionToken({
+      subject: "user-logging",
+      username: "dev.logging",
+      tenantId: "tenant-acme",
+    });
     const socket = openWithSubprotocol(port, valid);
     await waitForOpen(socket);
     socket.close();
 
     const rejected = "forged.but.unique-token-value";
-    expect((await rejectedUpgrade(port, [BEARER_SUBPROTOCOL, rejected])).status).toBe(401);
+    expect((await rejectedUpgrade(port, bearerSubprotocolOffer(rejected))).status).toBe(401);
 
     const log = written.join("");
     // Positive control: the assertions below are only meaningful if logging actually happened.

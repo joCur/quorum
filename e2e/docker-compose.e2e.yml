@@ -19,6 +19,11 @@ services:
     environment:
       API_RATE_LIMIT_MAX: ${API_RATE_LIMIT_MAX:-10000}
       API_RATE_LIMIT_SUMMARY_MAX: ${API_RATE_LIMIT_SUMMARY_MAX:-1000}
+      # SPIKE: the auth endpoints have their own limiter now, and the suite signs the same user in
+      # dozens of times in a couple of minutes — far faster than a person. Raised for the same
+      # reason the API limits are, and still on, so an outright refusal still fails the suite.
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-10000}
+      AUTH_SIGN_IN_RATE_LIMIT_MAX: ${AUTH_SIGN_IN_RATE_LIMIT_MAX:-1000}
 
   postgres:
     ports:

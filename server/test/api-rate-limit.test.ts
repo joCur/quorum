@@ -6,25 +6,12 @@ import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
 import { InMemoryMeetingStore } from "../src/meetings/memory.js";
 import { InMemorySummaryTemplateStore } from "../src/templates/memory.js";
-import { createTokenVerifier } from "../src/auth/token-verifier.js";
-import {
-  AUDIENCE,
-  INTERNAL_ISSUER,
-  ISSUER,
-  createTestKeyPair,
-  signAccessToken,
-  type TestKeyPair,
-} from "./keys.js";
+import { createTestAuth } from "./sessions.js";
 
-let keys: TestKeyPair | null = null;
-
-async function keyPair(): Promise<TestKeyPair> {
-  keys ??= await createTestKeyPair();
-  return keys;
-}
+const fixture = await createTestAuth();
 
 async function signedToken(subject: string): Promise<string> {
-  return signAccessToken(await keyPair(), { subject, tenantId: "tenant-acme" });
+  return fixture.issueSessionToken({ subject, username: subject, tenantId: "tenant-acme" });
 }
 
 let app: FastifyInstance | null = null;
@@ -42,12 +29,7 @@ async function build(limits: UserLimits): Promise<FastifyInstance> {
     meetings: new InMemoryMeetingStore(),
     templates: new InMemorySummaryTemplateStore(),
     auth: {
-      verifyAccessToken: createTokenVerifier({
-        issuers: [INTERNAL_ISSUER, ISSUER],
-        audience: AUDIENCE,
-        tenantClaim: "tenant_id",
-        keySource: (await keyPair()).jwks,
-      }),
+      verifyAccessToken: fixture.verify,
     },
     limits: resolver,
   });

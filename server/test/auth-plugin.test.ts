@@ -1,13 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/app.js";
-import { createTokenVerifier } from "../src/auth/token-verifier.js";
+import { createTestAuth } from "./sessions.js";
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
-import { AUDIENCE, INTERNAL_ISSUER, ISSUER, createTestKeyPair, signAccessToken } from "./keys.js";
-import type { TestKeyPair } from "./keys.js";
 
-const keys: TestKeyPair = await createTestKeyPair();
+const fixture = await createTestAuth();
 
 let app: FastifyInstance;
 
@@ -16,12 +14,7 @@ beforeAll(async () => {
     storage: new InMemoryRecordingStorage(),
     queue: new InMemoryJobQueue(),
     auth: {
-      verifyAccessToken: createTokenVerifier({
-        issuers: [INTERNAL_ISSUER, ISSUER],
-        audience: AUDIENCE,
-        tenantClaim: "tenant_id",
-        keySource: keys.jwks,
-      }),
+      verifyAccessToken: fixture.verify,
     },
   });
   await app.ready();
@@ -57,7 +50,7 @@ describe("auth plugin", () => {
   });
 
   it("exposes the tenant-scoped context for a valid token", async () => {
-    const token = await signAccessToken(keys, {
+    const token = await fixture.issueSessionToken({
       subject: "user-42",
       tenantId: "tenant-globex",
       roles: ["quorum-user"],
@@ -77,13 +70,18 @@ describe("auth plugin", () => {
     });
   });
 
+  /*
+   * SPIKE: the table this replaces had four rows — expired, wrong issuer, wrong audience, no
+   * tenant. Two of them described a token format that no longer exists (there is no issuer and no
+   * audience to get wrong), and "expired" is no longer something a caller can present: an expired
+   * session is simply absent from the store, and the API answers `invalid_token`. What remains
+   * testable at this level is that an unusable credential is refused with a stable code, and that
+   * a user without a tenant is refused with 403 rather than served unscoped.
+   */
   it.each([
-    ["expired", { issuedAt: 1_700_000_000, expiresAt: 1_700_000_300 }, 401, "expired_token"],
-    ["wrong issuer", { issuer: "https://evil.example.com/realms/quorum" }, 401, "invalid_issuer"],
-    ["wrong audience", { audience: "some-other-api" }, 401, "invalid_audience"],
-    ["no tenant", { tenantId: null }, 403, "missing_tenant"],
-  ] as const)("rejects a %s token with %i", async (_name, overrides, status, code) => {
-    const token = await signAccessToken(keys, overrides);
+    ["unknown", "not-a-real-session-token", 401, "invalid_token"],
+    ["tampered", "abcdef.0123456789", 401, "invalid_token"],
+  ] as const)("rejects an %s token with %i", async (_name, token, status, code) => {
     const response = await app.inject({
       method: "GET",
       url: "/api/me",
@@ -91,6 +89,21 @@ describe("auth plugin", () => {
     });
     expect(response.statusCode).toBe(status);
     expect(response.json()).toMatchObject({ error: code });
+  });
+
+  it("rejects a session whose user has no tenant with 403", async () => {
+    const token = await fixture.issueSessionToken({
+      subject: "user-no-tenant",
+      username: "dev.notenant",
+      tenantId: null,
+    });
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/me",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({ error: "missing_tenant" });
   });
 
   it("rejects a malformed Authorization header", async () => {
@@ -104,7 +117,7 @@ describe("auth plugin", () => {
   });
 
   it("does not leak a context between requests", async () => {
-    const token = await signAccessToken(keys, { subject: "user-1", tenantId: "tenant-acme" });
+    const token = await fixture.issueSessionToken({ subject: "user-1", tenantId: "tenant-acme" });
     const authenticated = await app.inject({
       method: "GET",
       url: "/api/me",

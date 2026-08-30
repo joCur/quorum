@@ -1,38 +1,39 @@
 import { expect, test } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
-import { decodeClaims, fetchToken } from "../support/keycloak.js";
+import { fetchScope, fetchToken } from "../support/auth.js";
 import { RecordingSocket, startSession } from "../support/recording-socket.js";
 
 /**
  * Critical path: authentication (CLAUDE.md).
  *
- * Sign-in through the real Keycloak login form, the token the app ends up holding, and the tenant
- * scope that token carries into the API.
+ * SPIKE: sign-in through the app's own login form, the session token the app ends up holding, and
+ * the tenant scope the API derives from it. The shape of the path is unchanged; what changed is
+ * that no part of it leaves the application, and that the scope is read from the API rather than
+ * decoded out of the credential.
  */
 test.describe("auth", () => {
-  test("signs in through Keycloak and renders the protected view", async ({ page, signIn }) => {
+  test("signs in through the app's own form and renders the protected view", async ({
+    page,
+    signIn,
+  }) => {
     await page.goto("/meetings");
     // Unauthenticated: the gate sends every protected screen to the sign-in page.
     await expect(page).toHaveURL(/\/login$/);
 
     await signIn(devUsers.alice);
 
-    // The access token really is in the app's hands, and it is scoped to Alice's tenant.
-    const accessToken = await page.evaluate(() => {
-      for (let index = 0; index < window.sessionStorage.length; index += 1) {
-        const key = window.sessionStorage.key(index);
-        if (key === null || !key.startsWith("oidc.user:")) continue;
-        const raw = window.sessionStorage.getItem(key);
-        if (raw === null) continue;
-        return (JSON.parse(raw) as { access_token?: string }).access_token ?? null;
-      }
-      return null;
-    });
+    // The session token really is in the app's hands, and the API scopes it to Alice's tenant.
+    const accessToken = await page.evaluate(() =>
+      window.sessionStorage.getItem("quorum.session-token"),
+    );
     expect(accessToken).not.toBeNull();
 
-    const claims = decodeClaims(accessToken as string);
-    expect(claims["preferred_username"]).toBe(devUsers.alice.username);
-    expect(claims["tenant_id"]).toBe(devUsers.alice.tenantId);
+    // The token itself says nothing — it is opaque. Only the API can resolve it, which is the
+    // substantive difference from a JWT and the reason this assertion moved server-side.
+    expect(accessToken).not.toContain("{");
+    expect(await fetchScope(accessToken as string)).toMatchObject({
+      tenantId: devUsers.alice.tenantId,
+    });
 
     // And the API accepts it, reporting the same scope back.
     const me = await page.request.get(`${stackEnv.apiUrl}/api/me`, {
@@ -41,7 +42,7 @@ test.describe("auth", () => {
     expect(me.ok()).toBe(true);
     expect(await me.json()).toMatchObject({
       tenantId: devUsers.alice.tenantId,
-      username: devUsers.alice.username,
+      username: devUsers.alice.name,
     });
   });
 
@@ -60,20 +61,11 @@ test.describe("auth", () => {
     await page.goto("/templates");
     await expect(page.getByRole("heading", { name: "Templates" })).toBeVisible();
 
-    // The token the app holds is replaced with one the API cannot accept, refresh token included,
-    // so the silent renewal has nothing to renew from. This is what a session that outlived its
-    // anchor looks like from the app's side: every request comes back 401.
+    // The token the app holds is replaced with one the API cannot accept. There is no refresh
+    // token to invalidate as well — a session either resolves or it does not — so this single
+    // write is the whole "session that outlived its anchor" scenario.
     await page.evaluate(() => {
-      for (let index = 0; index < window.sessionStorage.length; index += 1) {
-        const key = window.sessionStorage.key(index);
-        if (key === null || !key.startsWith("oidc.user:")) continue;
-        const raw = window.sessionStorage.getItem(key);
-        if (raw === null) continue;
-        const stored = JSON.parse(raw) as Record<string, unknown>;
-        stored["access_token"] = "not-a-valid-token";
-        stored["refresh_token"] = "not-a-valid-refresh-token";
-        window.sessionStorage.setItem(key, JSON.stringify(stored));
-      }
+      window.sessionStorage.setItem("quorum.session-token", "not-a-valid-session-token");
     });
 
     await page.reload();
@@ -84,56 +76,47 @@ test.describe("auth", () => {
     await expect(page.getByText("Your session ended.", { exact: false })).toBeVisible();
     await expect(page.getByText("could not be loaded")).toHaveCount(0);
 
-    // Signing in again continues where the session ended. Keycloak's own session usually survives,
-    // so its login form may not appear at all; when it does, it is filled like anywhere else.
+    // Signing in again continues where the session ended. There is no provider session that might
+    // wave the user straight through, so the credentials are always asked for — one behaviour
+    // instead of two, which is also one fewer branch in this test.
+    await page.getByLabel("Email").fill(devUsers.alice.email);
+    await page.getByLabel("Password").fill(devUsers.alice.password);
     await page.getByRole("button", { name: "Sign in" }).click();
-    const username = page.locator("#username");
-    if (await username.isVisible().catch(() => false)) {
-      await username.fill(devUsers.alice.username);
-      await page.locator("#password").fill(devUsers.alice.password);
-      await page.locator("#kc-login").click();
-    }
     await page.waitForURL(/\/templates$/);
     await expect(page.getByRole("heading", { name: "Templates" })).toBeVisible();
   });
 
-  test("signs out at the provider and lands on the signed-out view", async ({ page, signIn }) => {
+  test("signs out and lands on the signed-out view", async ({ page, signIn }) => {
     await signIn(devUsers.alice);
     await page.goto("/settings");
 
-    // Signing out drops the local session first, which routes this tab to the signed-out view a
-    // moment before the browser leaves for the provider's end-session endpoint. Waiting for that
-    // request is what separates the two: everything below then runs on the page the round trip
-    // came back to, not on one that is about to be navigated away.
-    const endSession = page.waitForRequest((request) =>
-      request.url().includes("/protocol/openid-connect/logout"),
-    );
-    await page.getByRole("button", { name: "Sign out" }).click();
-    await endSession;
+    // SPIKE: there is no end-session redirect to wait for. Signing out is one API call that
+    // deletes the session row, so the assertion is simply that nothing of it survives — in the
+    // browser or on the server.
+    const token = await page.evaluate(() => window.sessionStorage.getItem("quorum.session-token"));
+    expect(token).not.toBeNull();
 
-    // Back at the signed-out landing view, with nothing of the session left in the browser.
+    await page.getByRole("button", { name: "Sign out" }).click();
     await page.waitForURL(/\/login$/);
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+
     await expect
       .poll(async () =>
         page
-          .evaluate(() => {
-            let count = 0;
-            for (let index = 0; index < window.sessionStorage.length; index += 1) {
-              if (window.sessionStorage.key(index)?.startsWith("oidc.user:")) count += 1;
-            }
-            return count;
-          })
+          .evaluate(() => window.sessionStorage.getItem("quorum.session-token"))
           // A read that lands mid-navigation says nothing about the session; asking again is
           // honest, where trusting one arbitrary instant is not.
-          .catch(() => -1),
+          .catch(() => "still-navigating"),
       )
-      .toBe(0);
+      .toBeNull();
 
-    // And the provider's own session is gone too: signing in again asks for the credentials
-    // instead of waving the browser through on a surviving Keycloak cookie.
-    await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.locator("#username")).toBeVisible();
+    // And the server has forgotten it too: the revoked token is refused, where a Keycloak access
+    // token would have stayed valid until it expired.
+    const refused = await page.request.get(`${stackEnv.apiUrl}/api/me`, {
+      headers: { authorization: `Bearer ${token as string}` },
+      failOnStatusCode: false,
+    });
+    expect(refused.status()).toBe(401);
   });
 
   test("keeps tenants apart", async ({ page, signIn }) => {

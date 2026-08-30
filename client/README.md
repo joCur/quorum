@@ -34,7 +34,11 @@ built app against a real API.
 
 ## Local development
 
-1. Bring up the stack (API, Postgres, MinIO, Keycloak):
+> **SPIKE BRANCH — `spike-better-auth`, do not merge.** Keycloak has been replaced by
+> better-auth running inside the API. Passages below that describe an OIDC issuer, a realm or the
+> `keycloak` service no longer apply on this branch; see `docs/spike-better-auth.md`.
+
+1. Bring up the stack (API, Postgres, MinIO):
 
    ```bash
    docker compose up -d
@@ -47,7 +51,8 @@ built app against a real API.
    ```
 
    Leave `VITE_API_BASE_URL` empty — the dev proxy above is what makes that work. Point
-   `VITE_OIDC_ISSUER_URL` at the Keycloak realm as reachable from the browser.
+   Authentication needs no configuration of its own: the app signs in against `/api/auth` on the
+   API above. The API must list the dev server's origin in `AUTH_TRUSTED_ORIGINS`.
 
 3. Start the dev server:
 
@@ -56,7 +61,7 @@ built app against a real API.
    ```
 
    The app is at http://localhost:5173 and signs in against the dev realm; the test users are
-   documented in `infra/keycloak/README.md`.
+   created by `e2e/scripts/seed-users.mjs`.
 
 Setting `VITE_API_BASE_URL` to an absolute origin is a supported deployment configuration, but in
 development it bypasses the proxy and lands on CORS errors. Prefer the empty value.

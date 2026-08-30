@@ -1,7 +1,11 @@
 # @quorum/e2e
 
 End-to-end suite for Quorum's critical paths. Playwright drives a real browser against the real
-compose stack — Postgres, Keycloak, MinIO, the API, the transcription worker — and checks what
+> **SPIKE BRANCH — `spike-better-auth`, do not merge.** Keycloak has been replaced by
+> better-auth running inside the API. Passages below that describe an OIDC issuer, a realm or the
+> `keycloak` service no longer apply on this branch; see `docs/spike-better-auth.md`.
+
+compose stack — Postgres, MinIO, the API, the transcription worker — and checks what
 landed in object storage and in the database, not only what the UI says.
 
 ## The rule
@@ -37,8 +41,8 @@ repository:
   fixed credentials, and committing throwaway ones only teaches everyone to wave secret scanners
   through. Delete the file to roll them; the stack is recreated with the new ones next run.
 
-The Keycloak sign-in credentials are the opposite case: `dev.alice` and friends are documented
-fixtures of the committed realm (`infra/keycloak/README.md`), and the suite reads them from there
+The sign-in credentials are the opposite case: `dev.alice` and friends are documented fixtures
+declared in `support/env.ts` and created by `scripts/seed-users.mjs` before the suite runs
 rather than inventing its own.
 
 The stack runs as its own compose project (`quorum-e2e`) on its own ports, so it does not collide
@@ -101,7 +105,7 @@ e2e/
   scripts/run.mjs         the orchestrator behind `pnpm run e2e`
   scripts/mock-whisper.mjs  stub transcription and summary endpoints
   support/env.ts          where the stack is reachable, and the dev users
-  support/keycloak.ts     tokens outside the browser (password grant, dev-only client)
+  support/auth.ts         sessions outside the browser (the same endpoint the app uses)
   support/storage.ts      MinIO assertions — chunk continuity, manifests
   support/database.ts     queue and transcript queries
   support/stack.ts        stopping and starting the API, for the crash test
@@ -132,7 +136,7 @@ only the read API answering 404 means both steps are done.
 
 | Spec                       | Critical path  | What it proves                                                                                                                       |
 | -------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `auth.spec.ts`             | Auth flows     | Sign-in through Keycloak's own form; the protected view renders; the token carries the tenant claim and the API agrees; no token means 401; a second tenant cannot address the first tenant's session |
+| `auth.spec.ts`             | Auth flows     | Sign-in through the app's own form; the protected view renders; the API reports the tenant the session is scoped to; no token means 401; signing out revokes the session server-side; a second tenant cannot address the first tenant's session |
 | `recording.spec.ts`        | The core path  | Consent → capture → stop; every chunk in object storage under the right tenant/user prefix with no gap; manifest consistent; `transcribe` job queued; transcript row written and scoped; the summary derived from it stored and scoped |
 | `crash-recovery.spec.ts`   | Crash recovery | The API is killed mid-recording: the banner names the buffered duration, capture keeps running, and after the restart the stored sequence is gap-free and duplicate-free |
 | `deletion-cascade.spec.ts` | Deletion       | A recorded meeting with a transcript and a summary is deleted through the list's delete flow: no audio left under the session prefix, no transcript, summary or job rows — pg-boss's own queue rows included — the meeting gone from the read API, another tenant refused, and a repeat delete still a 404 |
