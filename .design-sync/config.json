@@ -1,0 +1,75 @@
+{
+  "projectId": "27458af3-1094-4b15-ade3-526f73c54c9d",
+  "shape": "package",
+  "pkg": "@quorum/client",
+  "globalName": "Quorum",
+  "buildCmd": "pnpm -F @quorum/client build",
+  "tsconfig": "tsconfig.json",
+  "cssEntry": "dist/assets/index-BcpHjdEI.css",
+  "extraEntries": [
+    "../../../../.design-sync/preview-support.tsx"
+  ],
+  "componentSrcMap": {
+    "Button": "src/components/ui/button.tsx",
+    "Badge": "src/components/ui/badge.tsx",
+    "Card": "src/components/ui/card.tsx",
+    "Dialog": "src/components/ui/dialog.tsx",
+    "AlertDialog": "src/components/ui/alert-dialog.tsx",
+    "Input": "src/components/ui/input.tsx",
+    "Label": "src/components/ui/label.tsx",
+    "Skeleton": "src/components/ui/skeleton.tsx",
+    "AppShell": "src/components/layout/app-shell.tsx",
+    "EmptyState": "src/components/layout/empty-state.tsx",
+    "IconTile": "src/components/layout/icon-tile.tsx",
+    "AudioPlayer": "src/components/meetings/audio-player.tsx",
+    "DeleteMeetingDialog": "src/components/meetings/delete-meeting-dialog.tsx",
+    "MeetingList": "src/components/meetings/meeting-list.tsx",
+    "MeetingListItem": "src/components/meetings/meeting-list-item.tsx",
+    "MeetingSearch": "src/components/meetings/meeting-search.tsx",
+    "PipelineStepper": "src/components/meetings/pipeline-stepper.tsx",
+    "StatusBadge": "src/components/meetings/status-badge.tsx",
+    "SummaryView": "src/components/meetings/summary-view.tsx",
+    "TranscriptView": "src/components/meetings/transcript-view.tsx",
+    "ConnectionBanner": "src/components/recording/connection-banner.tsx",
+    "ConsentNotice": "src/components/recording/consent-notice.tsx",
+    "LevelMeter": "src/components/recording/level-meter.tsx",
+    "RecordButton": "src/components/recording/record-button.tsx",
+    "RecordingIndicator": "src/components/recording/recording-indicator.tsx",
+    "RecoveryCard": null,
+    "SyncStatus": "src/components/recording/sync-status.tsx"
+  },
+  "provider": {
+    "component": "DsPreviewProvider"
+  },
+  "srcDir": "src/components",
+  "libOverrides": {
+    "source-kit.mjs": "honor componentSrcMap null-exclusions in the synth-entry file set (env/OIDC import chain throws at load)"
+  },
+  "extraFonts": [
+    "node_modules/@fontsource-variable/plus-jakarta-sans/index.css",
+    "node_modules/@fontsource/jetbrains-mono/400.css",
+    "node_modules/@fontsource/jetbrains-mono/500.css"
+  ],
+  "overrides": {
+    "Dialog": {
+      "cardMode": "single",
+      "viewport": "640x480"
+    },
+    "AlertDialog": {
+      "cardMode": "single",
+      "viewport": "640x480"
+    },
+    "DeleteMeetingDialog": {
+      "cardMode": "single",
+      "viewport": "640x480"
+    },
+    "ConsentNotice": {
+      "cardMode": "single",
+      "primaryStory": "BeforeRecording"
+    },
+    "SyncStatus": {
+      "cardMode": "column"
+    }
+  },
+  "readmeHeader": ".design-sync/conventions.md"
+}

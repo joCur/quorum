@@ -46,3 +46,10 @@ Thumbs.db
 playwright-report/
 test-results/
 .nyc_output/
+
+# design-sync working state
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
