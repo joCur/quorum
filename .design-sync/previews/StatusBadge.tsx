@@ -1,6 +1,11 @@
 import { StatusBadge } from "@quorum/client";
 
-const row: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" };
+const row: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+};
 
 export function AllStatuses() {
   return (

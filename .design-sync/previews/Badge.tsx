@@ -55,21 +55,27 @@ export function WithIcons() {
 export function InContext() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 420 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+      >
         <span style={{ fontWeight: 600 }}>Quarterly roadmap review</span>
         <Badge variant="success">
           <CheckCircle2 />
           Summary ready
         </Badge>
       </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+      >
         <span style={{ fontWeight: 600 }}>Design sync — recording</span>
         <Badge variant="recording">
           <Mic />
           Recording
         </Badge>
       </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
+      >
         <span style={{ fontWeight: 600 }}>Customer interview: Acme</span>
         <Badge variant="info">
           <Clock />

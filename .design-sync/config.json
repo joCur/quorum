@@ -6,9 +6,7 @@
   "buildCmd": "pnpm -F @quorum/client build",
   "tsconfig": "tsconfig.json",
   "cssEntry": "dist/assets/index-BcpHjdEI.css",
-  "extraEntries": [
-    "../../../../.design-sync/preview-support.tsx"
-  ],
+  "extraEntries": ["../../../../.design-sync/preview-support.tsx"],
   "componentSrcMap": {
     "Button": "src/components/ui/button.tsx",
     "Badge": "src/components/ui/badge.tsx",

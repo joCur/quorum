@@ -24,7 +24,9 @@ export function MeetingListRow() {
 export function MeetingListLoading() {
   const widths = ["64%", "48%", "72%"];
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 480, width: "100%" }}>
+    <div
+      style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 480, width: "100%" }}
+    >
       {widths.map((w) => (
         <div key={w} style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <Skeleton style={{ height: 40, width: 40, borderRadius: 9999, flexShrink: 0 }} />
@@ -41,7 +43,9 @@ export function MeetingListLoading() {
 
 export function TranscriptLoading() {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 480, width: "100%" }}>
+    <div
+      style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 480, width: "100%" }}
+    >
       <Skeleton style={{ height: 24, width: 200 }} />
       <Skeleton style={{ height: 12, width: "100%" }} />
       <Skeleton style={{ height: 12, width: "94%" }} />

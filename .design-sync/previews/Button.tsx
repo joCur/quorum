@@ -1,7 +1,12 @@
 import { Mic, Trash2 } from "lucide-react";
 import { Button } from "@quorum/client";
 
-const row: React.CSSProperties = { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" };
+const row: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+};
 
 export function Variants() {
   return (

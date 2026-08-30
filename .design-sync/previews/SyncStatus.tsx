@@ -22,7 +22,13 @@ export function SavingBacklog() {
   return (
     <div style={stage}>
       <SyncStatus
-        status={{ ...base, connection: "open", persistedSeq: 200, pendingChunks: 12, pendingSeconds: 12.4 }}
+        status={{
+          ...base,
+          connection: "open",
+          persistedSeq: 200,
+          pendingChunks: 12,
+          pendingSeconds: 12.4,
+        }}
       />
     </div>
   );

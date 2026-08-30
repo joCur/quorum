@@ -15,7 +15,13 @@ export function Offline() {
   return (
     <div style={stage}>
       <ConnectionBanner
-        status={{ ...base, connection: "closed", persistedSeq: 161, pendingChunks: 23, pendingSeconds: 23.4 }}
+        status={{
+          ...base,
+          connection: "closed",
+          persistedSeq: 161,
+          pendingChunks: 23,
+          pendingSeconds: 23.4,
+        }}
         storageLow={false}
       />
     </div>
@@ -26,7 +32,13 @@ export function Reconnecting() {
   return (
     <div style={stage}>
       <ConnectionBanner
-        status={{ ...base, connection: "reconnecting", persistedSeq: 176, pendingChunks: 8, pendingSeconds: 8.2 }}
+        status={{
+          ...base,
+          connection: "reconnecting",
+          persistedSeq: 176,
+          pendingChunks: 8,
+          pendingSeconds: 8.2,
+        }}
         storageLow={false}
       />
     </div>
@@ -48,7 +60,13 @@ export function Connecting() {
   return (
     <div style={stage}>
       <ConnectionBanner
-        status={{ ...base, connection: "connecting", sessionId: null, lastSeq: -1, persistedSeq: -1 }}
+        status={{
+          ...base,
+          connection: "connecting",
+          sessionId: null,
+          lastSeq: -1,
+          persistedSeq: -1,
+        }}
         storageLow={false}
       />
     </div>

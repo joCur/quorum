@@ -84,7 +84,10 @@ const segments: Segment[] = [
     72.4,
     88.0,
     "One more thing on exports — the CSV job still times out for the largest accounts, and support has had four tickets about it this month.",
-    { editedText: "One more thing on exports — the CSV job still times out for our largest accounts, and support has had four tickets about it this month." },
+    {
+      editedText:
+        "One more thing on exports — the CSV job still times out for our largest accounts, and support has had four tickets about it this month.",
+    },
   ),
 ];
 
