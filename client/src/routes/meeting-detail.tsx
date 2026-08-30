@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { AudioPlayer, type PlayerHandle } from "@/components/meetings/audio-player";
 import { DeleteMeetingDialog } from "@/components/meetings/delete-meeting-dialog";
 import { PipelineStepper } from "@/components/meetings/pipeline-stepper";
+import { RegenerateSummary } from "@/components/meetings/regenerate-summary";
 import { StatusBadge } from "@/components/meetings/status-badge";
 import { SummaryView } from "@/components/meetings/summary-view";
 import { TranscriptView } from "@/components/meetings/transcript-view";
@@ -16,6 +17,8 @@ import { formatMeetingDate, formatMeetingDuration, meetingLabel } from "@/featur
 import { isPipelineComplete } from "@/features/meetings/pipeline";
 import { useMeeting } from "@/features/meetings/use-meeting";
 import { useMeetingAudio } from "@/features/meetings/use-meeting-audio";
+import { useSummaryRegeneration } from "@/features/templates/use-regenerate";
+import { useTemplates } from "@/features/templates/use-templates";
 import { cn } from "@/lib/utils";
 
 type TabKey = "transcript" | "summary";
@@ -35,6 +38,7 @@ export function MeetingDetailRoute() {
       detail={meeting.detail}
       deleting={meeting.deleting}
       onDelete={meeting.remove}
+      onReload={meeting.reload}
     />
   );
 }
@@ -43,10 +47,12 @@ function MeetingDetailScreen({
   detail,
   deleting,
   onDelete,
+  onReload,
 }: {
   detail: MeetingDetail;
   deleting: boolean;
   onDelete: () => Promise<void>;
+  onReload: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -132,7 +138,7 @@ function MeetingDetailScreen({
       {tab === "transcript" ? (
         <TranscriptPanel detail={detail} currentTime={currentTime} onSeek={seek} />
       ) : (
-        <SummaryPanel detail={detail} />
+        <SummaryPanel detail={detail} onReload={onReload} />
       )}
 
       {/*
@@ -270,21 +276,77 @@ function TranscriptPanel({
   );
 }
 
-function SummaryPanel({ detail }: { detail: MeetingDetail }) {
+/**
+ * The summary, the template it was made with, and the action to make it again.
+ *
+ * While a new summary is being written the previous one stays on screen, dimmed and labeled as
+ * the previous version (COMPONENTS.md §11): nothing vanishes optimistically, because the old
+ * summary is the only one that exists until the new one is stored.
+ */
+function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: () => void }) {
   const { t } = useTranslation();
   const failure = detail.meeting.failure;
-  const summary = detail.summaries[0] ?? null;
+  const templates = useTemplates();
+
+  // Summaries arrive oldest first; the newest is what a screen with no choice made yet should
+  // show, and its template is what the picker opens on.
+  const newest = detail.summaries.at(-1) ?? null;
+  const [templateId, setTemplateId] = React.useState<string | null>(null);
+  const selected =
+    templateId ?? newest?.templateSnapshot.templateId ?? templates.templates[0]?.template.id ?? "";
+
+  const forSelected =
+    detail.summaries.find((entry) => entry.templateSnapshot.templateId === selected) ?? null;
+  // While the chosen template has no summary yet, the newest one stays on screen rather than the
+  // panel going blank — nothing vanishes before its replacement exists.
+  const summary = forSelected ?? newest;
+  const regeneration = useSummaryRegeneration(detail.meeting.id, forSelected?.id ?? null, onReload);
 
   return (
-    <div role="tabpanel" id="panel-summary" aria-labelledby="tab-summary">
-      {failure?.stage === "summarize" ? (
+    <div
+      role="tabpanel"
+      id="panel-summary"
+      aria-labelledby="tab-summary"
+      className="flex flex-col gap-4"
+    >
+      {detail.transcript ? (
+        <RegenerateSummary
+          templates={templates.templates}
+          templateId={selected}
+          onTemplateChange={setTemplateId}
+          pending={regeneration.pending}
+          onRegenerate={regeneration.start}
+        />
+      ) : null}
+
+      {regeneration.errorMessage ? (
+        <p role="alert" className="text-sm text-destructive">
+          {regeneration.errorCode === "summary_in_progress"
+            ? t("meeting.summary.alreadyRunning")
+            : regeneration.errorMessage}
+        </p>
+      ) : null}
+
+      {failure?.stage === "summarize" && !regeneration.pending ? (
         <FailurePanel
           title={t("meeting.summary.failed")}
           message={failure.message}
           code={failure.code}
         />
       ) : summary ? (
-        <SummaryView summary={summary} />
+        <div className={cn("flex flex-col gap-2", regeneration.pending && "opacity-60")}>
+          {regeneration.pending ? (
+            <p className="text-sm text-muted-foreground">{t("meeting.summary.previousVersion")}</p>
+          ) : null}
+          <SummaryView
+            summary={summary}
+            templateName={
+              templates.templates.find(
+                (view) => view.template.id === summary.templateSnapshot.templateId,
+              )?.template.name ?? null
+            }
+          />
+        </div>
       ) : (
         <WaitingPanel message={t("meeting.summary.working")} />
       )}

@@ -125,9 +125,68 @@
   },
   "templates": {
     "title": "Templates",
+    "create": "Create a template",
+    "system": "System",
+    "edit": "Edit {{template}}",
+    "delete": "Delete {{template}}",
+    "deleteDialog": {
+      "title": "Delete this template?",
+      "body": "“{{template}}” will be permanently deleted. Summaries already written with it are not affected: each one keeps its own copy of the template it was made with. This cannot be undone.",
+      "confirm": "Delete template"
+    },
+    "sectionCount_one": "{{count}} section",
+    "sectionCount_other": "{{count}} sections",
+    "loadError": "Your templates could not be loaded.",
+    "saveFailed": "This template could not be saved.",
     "empty": {
       "title": "Summaries, your way",
-      "body": "The template editor is on its way. Until then, every summary uses the system template."
+      "body": "Start from the system template and shape the sections you actually need."
+    },
+    "editor": {
+      "name": "Name",
+      "nameHelp": "Give this template a name you'll recognize later.",
+      "nameRequired": "A template needs a name.",
+      "style": "Style",
+      "tone": "Tone",
+      "length": "Length",
+      "language": "Summary language",
+      "languageHelp": "Following the recording keeps a meeting's summary in the language it was held in.",
+      "sections": "Sections",
+      "sectionsRequired": "Keep at least one section — a summary with none has nothing to say.",
+      "addSection": "Add a section",
+      "newSectionTitle": "New section",
+      "untitledSection": "Untitled section",
+      "sectionTitle": "Heading",
+      "instruction": "What belongs in it",
+      "instructionHelp": "Describe what this section should cover. This text is what the summary is written from.",
+      "format": "Format",
+      "moveUp": "Move {{section}} up",
+      "moveDown": "Move {{section}} down",
+      "removeSection": "Remove {{section}}",
+      "preview": "Preview",
+      "previewMeta": "{{tone}} · {{length}} · {{language}}",
+      "save": "Save template",
+      "saving": "Saving…"
+    },
+    "format": {
+      "prose": "Paragraphs",
+      "bullets": "Bullet points",
+      "table": "Table"
+    },
+    "tone": {
+      "neutral": "Neutral",
+      "formal": "Formal",
+      "casual": "Casual"
+    },
+    "length": {
+      "brief": "Brief",
+      "standard": "Standard",
+      "detailed": "Detailed"
+    },
+    "language": {
+      "auto": "Follow the recording",
+      "en": "English",
+      "de": "German"
     }
   },
   "settings": {
@@ -194,7 +253,13 @@
       "failed": "Summary failed",
       "copyAll": "Copy the whole summary",
       "copySection": "Copy {{section}}",
-      "meta": "Template version {{version}} · {{model}} · {{date}}"
+      "meta": "Template version {{version}} · {{model}} · {{date}}",
+      "template": "Template",
+      "regenerate": "Regenerate",
+      "regenerating": "Writing…",
+      "previousVersion": "Previous version — the new one replaces it as soon as it is written.",
+      "alreadyRunning": "A summary of this meeting is already being written.",
+      "madeWith": "Made with {{template}}"
     }
   }
 }

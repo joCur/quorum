@@ -125,9 +125,68 @@
   },
   "templates": {
     "title": "Vorlagen",
+    "create": "Vorlage erstellen",
+    "system": "System",
+    "edit": "{{template}} bearbeiten",
+    "delete": "{{template}} löschen",
+    "deleteDialog": {
+      "title": "Diese Vorlage löschen?",
+      "body": "„{{template}}“ wird endgültig gelöscht. Bereits erstellte Zusammenfassungen bleiben davon unberührt: Jede behält ihre eigene Kopie der Vorlage, mit der sie erstellt wurde. Das lässt sich nicht rückgängig machen.",
+      "confirm": "Vorlage löschen"
+    },
+    "sectionCount_one": "{{count}} Abschnitt",
+    "sectionCount_other": "{{count}} Abschnitte",
+    "loadError": "Deine Vorlagen konnten nicht geladen werden.",
+    "saveFailed": "Diese Vorlage konnte nicht gespeichert werden.",
     "empty": {
-      "title": "Zusammenfassungen nach deinen Regeln",
-      "body": "Der Vorlagen-Editor kommt noch. Bis dahin nutzt jede Zusammenfassung die Systemvorlage."
+      "title": "Zusammenfassungen nach deinem Kopf",
+      "body": "Starte mit der Systemvorlage und forme die Abschnitte, die du wirklich brauchst."
+    },
+    "editor": {
+      "name": "Name",
+      "nameHelp": "Gib der Vorlage einen Namen, den du später wiedererkennst.",
+      "nameRequired": "Eine Vorlage braucht einen Namen.",
+      "style": "Stil",
+      "tone": "Tonfall",
+      "length": "Länge",
+      "language": "Sprache der Zusammenfassung",
+      "languageHelp": "Der Aufnahme zu folgen hält die Zusammenfassung in der Sprache des Meetings.",
+      "sections": "Abschnitte",
+      "sectionsRequired": "Behalte mindestens einen Abschnitt — ohne hat die Zusammenfassung nichts zu sagen.",
+      "addSection": "Abschnitt hinzufügen",
+      "newSectionTitle": "Neuer Abschnitt",
+      "untitledSection": "Abschnitt ohne Titel",
+      "sectionTitle": "Überschrift",
+      "instruction": "Was hineingehört",
+      "instructionHelp": "Beschreibe, was dieser Abschnitt abdecken soll. Aus diesem Text entsteht die Zusammenfassung.",
+      "format": "Format",
+      "moveUp": "{{section}} nach oben",
+      "moveDown": "{{section}} nach unten",
+      "removeSection": "{{section}} entfernen",
+      "preview": "Vorschau",
+      "previewMeta": "{{tone}} · {{length}} · {{language}}",
+      "save": "Vorlage speichern",
+      "saving": "Wird gespeichert…"
+    },
+    "format": {
+      "prose": "Absätze",
+      "bullets": "Stichpunkte",
+      "table": "Tabelle"
+    },
+    "tone": {
+      "neutral": "Neutral",
+      "formal": "Förmlich",
+      "casual": "Locker"
+    },
+    "length": {
+      "brief": "Kurz",
+      "standard": "Standard",
+      "detailed": "Ausführlich"
+    },
+    "language": {
+      "auto": "Der Aufnahme folgen",
+      "en": "Englisch",
+      "de": "Deutsch"
     }
   },
   "settings": {
@@ -194,7 +253,13 @@
       "failed": "Zusammenfassung fehlgeschlagen",
       "copyAll": "Ganze Zusammenfassung kopieren",
       "copySection": "{{section}} kopieren",
-      "meta": "Vorlagenversion {{version}} · {{model}} · {{date}}"
+      "meta": "Vorlagenversion {{version}} · {{model}} · {{date}}",
+      "template": "Vorlage",
+      "regenerate": "Neu erstellen",
+      "regenerating": "Wird geschrieben…",
+      "previousVersion": "Vorherige Fassung — sie wird ersetzt, sobald die neue fertig ist.",
+      "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben.",
+      "madeWith": "Erstellt mit {{template}}"
     }
   }
 }

@@ -92,6 +92,45 @@ export async function findSummary(sessionId: string): Promise<SummaryRow | null>
 }
 
 /**
+ * Every summary of a session, newest first.
+ *
+ * A meeting may have several (ADR-004 section 3: one active per template), which is exactly what
+ * regenerating with a different template produces — so a spec that checks regeneration has to see
+ * all of them, not just the latest.
+ */
+export async function findSummaries(sessionId: string): Promise<SummaryRow[]> {
+  if (!(await tableExists("summaries"))) return [];
+
+  const rows = await sql<
+    {
+      id: string;
+      meeting_id: string;
+      transcript_id: string;
+      tenant_id: string;
+      user_id: string;
+      template_id: string;
+      model: string;
+      is_active: boolean;
+    }[]
+  >`
+    SELECT id, meeting_id, transcript_id, tenant_id, user_id, template_id, model, is_active
+    FROM summaries
+    WHERE session_id = ${sessionId}::uuid
+    ORDER BY created_at DESC
+  `;
+  return rows.map((row) => ({
+    id: row.id,
+    meetingId: row.meeting_id,
+    transcriptId: row.transcript_id,
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    templateId: row.template_id,
+    model: row.model,
+    isActive: row.is_active,
+  }));
+}
+
+/**
  * Queue rows pg-boss still holds for a meeting, live and archived.
  *
  * These are queue internals, and the deletion cascade reaches into them on purpose: a `transcribe`
