@@ -29,16 +29,26 @@ responsibility:
 - For GPU transcription: NVIDIA drivers and the NVIDIA container toolkit. Without them Whisper
   runs on the CPU, which is slower but works.
 
-## 1. Get the release
+## 1. Download the deployment bundle
+
+Every release carries a `quorum-deploy-<version>.tar.gz` asset: the compose file, the preflight
+scripts, the production realm, the monitoring configuration and a copy of this guide. It is about
+30 KB and it is everything a deployment needs.
 
 ```bash
-git clone --branch v1.0.0 https://github.com/joCur/quorum.git
-cd quorum
+VERSION=1.0.0
+curl -fsSLO https://github.com/joCur/quorum/releases/download/v${VERSION}/quorum-deploy-${VERSION}.tar.gz
+tar -xzf quorum-deploy-${VERSION}.tar.gz
+cd quorum-deploy-${VERSION}
 ```
 
-The checkout is for the compose file, the preflight scripts and the Prometheus and Grafana
-configuration — the application itself comes from the published images and is never built here.
-Check out the tag matching the version you intend to run, so the compose file and the images agree.
+**There is no source code here, and no git checkout on the deploy host.** The application comes
+from the published images and is never built on this machine.
+
+The bundle's `.env.example` already pins `QUORUM_VERSION` to the version you downloaded, so the
+configuration files and the images they run cannot drift apart. That is the reason the artifact is
+one archive rather than a handful of files fetched individually: the pieces are only correct
+together.
 
 ## 2. Write the .env file
 
@@ -52,7 +62,7 @@ missing or still holds a placeholder:
 
 | Variable                  | What it is                                                          |
 | ------------------------- | ------------------------------------------------------------------- |
-| `QUORUM_VERSION`          | The release to run, e.g. `1.0.0`. Pinned; never `latest`.            |
+| `QUORUM_VERSION`          | Already set by the bundle to the version you downloaded. Leave it.   |
 | `QUORUM_PUBLIC_URL`       | The app origin browsers use. Must be `https://`, not loopback.       |
 | `KEYCLOAK_PUBLIC_URL`     | The Keycloak origin. Must be `https://`, not loopback.               |
 | `POSTGRES_USER` / `_DB`   | Database role and database name.                                     |
@@ -126,12 +136,9 @@ The recording endpoint is a long-lived WebSocket that streams audio for the leng
 Raise your proxy's read timeout accordingly — an hour-long recording behind a 60-second idle
 timeout reconnects constantly.
 
-Build the PWA and serve the output directory from the app virtual host:
-
-```bash
-pnpm install --frozen-lockfile
-pnpm --filter @quorum/client run build   # writes client/dist
-```
+The PWA's static files are in the bundle, in `client/`. Serve that directory from the app virtual
+host — nothing to build, no toolchain on this machine. It is a single-page app, so unknown paths
+fall back to `client/index.html`.
 
 ## 5. The realm is applied for you
 
@@ -211,12 +218,28 @@ check that covers all of it at once.
 
 ## Upgrading
 
+Download the next bundle and carry your `.env` across. Do not raise `QUORUM_VERSION` in an old
+bundle: the compose file, the preflight scripts and the realm are versioned with the images, and
+the whole point of the bundle is that they move together.
+
 ```bash
-git fetch --tags && git checkout v1.1.0     # compose file, scripts and the realm file
-# raise QUORUM_VERSION in .env to match
+VERSION=1.1.0
+curl -fsSLO https://github.com/joCur/quorum/releases/download/v${VERSION}/quorum-deploy-${VERSION}.tar.gz
+tar -xzf quorum-deploy-${VERSION}.tar.gz
+cp .env ../quorum-deploy-${VERSION}/.env          # from the directory you are running today
+cd ../quorum-deploy-${VERSION}
+```
+
+Then compare your `.env` against the new `.env.example` for variables that were added or renamed,
+set `QUORUM_VERSION` to the new version, and bring it up:
+
+```bash
 docker compose -f docker-compose.release.yml pull
 docker compose -f docker-compose.release.yml up -d --wait
 ```
+
+The volumes are named after the Compose project, not the directory, so the database and the
+recordings follow the upgrade rather than being left behind.
 
 Take a database backup first. Read the release notes for the versions you are skipping — a
 release that changes the database schema says so there. Any realm change in the new version is
