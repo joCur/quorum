@@ -127,7 +127,13 @@ const summaryRoutesImpl: FastifyPluginAsync<SummaryRoutesOptions> = async (app, 
     });
 
     request.log.info(
-      { meetingId: found.meeting.id, jobId: job.id, templateId: template.id },
+      {
+        event: "summary.regenerate_queued",
+        meetingId: found.meeting.id,
+        sessionId: found.meeting.sessionId,
+        jobId: job.id,
+        templateId: template.id,
+      },
       "queued a summary of an existing transcript",
     );
 

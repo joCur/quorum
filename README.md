@@ -16,6 +16,8 @@ Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, gepl
 - `ROADMAP.md` — V1 → V2 → später (wird bei Projektstart zu GitHub-Issues)
 - `OPEN-QUESTIONS.md` — Stack-Vorschläge, Observability, Missbrauchsschutz (bewusst offen)
 - `COST-MODEL.md` — Kosten pro Meeting-Stunde (eigener Server vs. Cloud)
+- `docs/observability.md` — the structured log schema both services emit and the Prometheus
+  metrics they expose (queue depth, job throughput, failure rate)
 - `docker-compose.yml` + `docker-compose.gpu.yml` + `.env.example` — Self-Hosting-Skeleton, Hardware-Wechsel rein per Env
 - `shared/src/` — Zod-Schemas als Single Source of Truth für Client & Server
   - `recording-protocol.ts` — WebSocket-Control-Messages + binäres Chunk-Format

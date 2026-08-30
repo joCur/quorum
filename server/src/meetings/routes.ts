@@ -173,7 +173,12 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
     if (!deleted) return reply.code(404).send(notFound());
 
     request.log.info(
-      { meetingId: params.data.meetingId, objects: objects.length },
+      {
+        event: "meeting.deleted",
+        meetingId: params.data.meetingId,
+        sessionId: found.meeting.sessionId,
+        objects: objects.length,
+      },
       "deleted a meeting and everything derived from it",
     );
     return reply.code(204).send();
