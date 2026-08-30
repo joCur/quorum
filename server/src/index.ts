@@ -1,5 +1,5 @@
 import { buildServer } from "./app.js";
-import { loadConfig, resolveOidcConfig } from "./config.js";
+import { loadConfig, resolveOidcConfig, resolveRecordingLimits } from "./config.js";
 import { createKeycloakJwks, createTokenVerifier } from "./auth/token-verifier.js";
 import { HeaderRecordingContextProvider } from "./recording/context-provider.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
@@ -13,6 +13,7 @@ export type { BuildServerOptions } from "./app.js";
 export {
   loadConfig,
   resolveOidcConfig,
+  resolveRecordingLimits,
   ServerConfigSchema,
   type OidcConfig,
   type ServerConfig,
@@ -35,6 +36,7 @@ export * from "./recording/keys.js";
 export * from "./recording/frame.js";
 export * from "./recording/audio-format.js";
 export * from "./recording/session.js";
+export * from "./recording/limits.js";
 export { default as recordingPlugin } from "./recording/plugin.js";
 export { S3RecordingStorage } from "./recording/storage/s3.js";
 export * from "./meetings/status.js";
@@ -72,6 +74,7 @@ export { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js
 async function main(): Promise<void> {
   const config = loadConfig();
   const oidc = resolveOidcConfig(config);
+  const limits = resolveRecordingLimits(config);
 
   const storage = new S3RecordingStorage({
     endpoint: config.S3_ENDPOINT,
@@ -112,6 +115,7 @@ async function main(): Promise<void> {
       ? new HeaderRecordingContextProvider(true)
       : new JwtRecordingContextProvider(),
     allowUnauthenticatedRecording: config.RECORDING_ALLOW_HEADER_AUTH,
+    limits,
     logger: { level: config.LOG_LEVEL },
   });
 

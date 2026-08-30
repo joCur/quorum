@@ -10,6 +10,7 @@ import { summaryRoutes } from "./summaries/routes.js";
 import type { SummaryTemplateStore } from "./templates/repository.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./recording/types.js";
+import type { RecordingLimits } from "./recording/limits.js";
 
 export interface BuildServerOptions {
   storage: RecordingStorage;
@@ -47,6 +48,11 @@ export interface BuildServerOptions {
    * provider can supply the scope without an access token. Never set in production.
    */
   allowUnauthenticatedRecording?: boolean;
+  /**
+   * Abuse and cost limits for the recording endpoint. Defaults to `DEFAULT_RECORDING_LIMITS`,
+   * which sits far above any real recording — an instance built without them is still protected.
+   */
+  limits?: RecordingLimits;
   logger?: boolean | { level: string };
 }
 
@@ -107,6 +113,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     meetings: options.meetings,
     contextProvider: options.contextProvider ?? new JwtRecordingContextProvider(),
     publicUpgrade: options.allowUnauthenticatedRecording === true,
+    ...(options.limits ? { limits: options.limits } : {}),
   });
 
   return app;
