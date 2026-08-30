@@ -61,6 +61,36 @@ built app against a real API.
 Setting `VITE_API_BASE_URL` to an absolute origin is a supported deployment configuration, but in
 development it bypasses the proxy and lands on CORS errors. Prefer the empty value.
 
+## Tests
+
+`pnpm test` from the repository root runs both suites; CI runs the same command.
+
+| Suite        | Environment | Lives in                 | Covers                                                      |
+| ------------ | ----------- | ------------------------ | ----------------------------------------------------------- |
+| `logic`      | Node        | `client/test/*.test.ts`  | Schemas, protocol framing, formatting, timing gates          |
+| `components` | jsdom       | `client/test/components/` | What a rendered component does when a user interacts with it |
+
+Run one at a time with `pnpm vitest run --project components`.
+
+The component suite sits between the logic tests and the end-to-end suite, and it exists for the
+failures neither of them catches: a status badge showing the wrong state, a confirmation that does
+not actually block, a control that appears when it should stay quiet, a missing translation key.
+All of those render perfectly well and throw nothing.
+
+Two rules for anything added here:
+
+- **Behavior, not output.** Assert what a user can perceive — a label, a role, focus, which
+  callback fired. No snapshots: they fail on every deliberate change and pass on most real
+  regressions, which is the wrong way round.
+- **Real translations.** Tests render through the actual i18n instance and assert the actual
+  English strings, so a component referencing a key that does not exist fails instead of quietly
+  rendering the key.
+
+`client/test/components/render.tsx` wraps a component in the providers the app always gives it
+(i18n and a router). `setup.ts` stubs the browser APIs jsdom does not implement, each at its
+narrowest honest shape — `matchMedia` reports no match, so tests that care about reduced motion or
+color scheme set it themselves rather than inheriting a convenient default.
+
 ## Runtime assets
 
 Fonts ship as WOFF2 from `@fontsource` and icons come from `lucide-react`, all bundled. The app

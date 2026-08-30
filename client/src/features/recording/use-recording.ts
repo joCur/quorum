@@ -1,4 +1,5 @@
 import * as React from "react";
+import type { LimitErrorCode } from "@quorum/shared";
 import { webSocketUrl } from "@/env";
 import { useAuth } from "@/features/auth/auth-provider";
 import {
@@ -22,6 +23,7 @@ import {
   requestWakeLock,
   type WakeLockHandle,
 } from "@/features/recording/wake-lock";
+import { isRecordingFinalizedDespite } from "@/features/limits/messages";
 import { LEVEL_EPSILON, followEnvelope, normalizeRms } from "@/lib/level-envelope";
 
 /** Route the recording endpoint is mounted on server-side. */
@@ -62,6 +64,14 @@ export interface RecordingState {
   storageLow: boolean;
   meetingId: string | null;
   recoverable: BufferedSession | null;
+  /**
+   * The limit the server stopped this session with, if it did.
+   *
+   * Kept apart from `error`: a limit is not a malfunction, and the hard stop at the maximum
+   * session length is not even a failure — the recording is finalized and safe. Only the screen
+   * decides how each of them reads.
+   */
+  limit: LimitErrorCode | null;
 }
 
 const INITIAL_STATE: RecordingState = {
@@ -76,6 +86,7 @@ const INITIAL_STATE: RecordingState = {
   storageLow: false,
   meetingId: null,
   recoverable: null,
+  limit: null,
 };
 
 /**
@@ -206,7 +217,7 @@ export function useRecording() {
 
   const start = React.useCallback(
     async (meetingTitle: string | null, summaryTemplateId: string | null = null) => {
-      patch({ phase: "requesting", error: null });
+      patch({ phase: "requesting", error: null, limit: null });
 
       const format = selectRecordingFormat();
       if (!format) {
@@ -266,6 +277,19 @@ export function useRecording() {
             recorderRef.current?.stop();
             teardownCapture();
             patch({ phase: "error", error: { kind: "storage", detail: error.message } });
+            return;
+          }
+          if (error.code === "limit" && error.limit) {
+            // Capture stops either way — the session is over — but a hard stop at the maximum
+            // length has already been finalized by the server, so it keeps the finalized phase
+            // and the meeting it produced. Everything else is a refusal.
+            recorderRef.current?.stop();
+            teardownCapture();
+            patch(
+              isRecordingFinalizedDespite(error.limit)
+                ? { limit: error.limit }
+                : { phase: "error", limit: error.limit },
+            );
           }
         },
       });
@@ -345,6 +369,15 @@ export function useRecording() {
         clientInfo: describeClient(),
         onStatusChange: (status) => patch({ status }),
         onFinalized: ({ meetingId }) => patch({ phase: "finalized", meetingId, recoverable: null }),
+        onError: (error: RecordingClientError) => {
+          if (error.code === "limit" && error.limit) {
+            patch(
+              isRecordingFinalizedDespite(error.limit)
+                ? { limit: error.limit }
+                : { phase: "error", limit: error.limit },
+            );
+          }
+        },
       });
       clientRef.current = client;
       patch({ phase: "finalizing", recoverable: null });

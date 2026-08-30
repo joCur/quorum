@@ -5,7 +5,8 @@ import { onUnauthorized, safeReturnTo } from "@/features/auth/session-expiry";
 
 export type AuthStatus = "loading" | "authenticated" | "anonymous" | "error";
 
-interface AuthContextValue {
+/** Everything a screen can know and do about the current session. */
+export interface AuthContextValue {
   status: AuthStatus;
   user: User | null;
   /** Access token for API and WebSocket calls, or null when signed out. */
