@@ -16,7 +16,8 @@
     "build": "pnpm --recursive --if-present run build",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "e2e": "node e2e/scripts/run.mjs"
+    "e2e": "node e2e/scripts/run.mjs",
+    "check:realm-drift": "node scripts/realm-drift/check.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
