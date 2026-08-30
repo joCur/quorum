@@ -242,6 +242,20 @@ export class InMemoryRepository implements TranscriptRepository {
     this.jobStates.push(job);
   }
 
+  /**
+   * Default template per `tenantId/userId`, standing in for the `user_settings`
+   * row. Empty by default, which is the normal state of a user who never chose
+   * one.
+   */
+  readonly defaultTemplates = new Map<string, string>();
+  /** Set to make the settings lookup fail the way a database hiccup would. */
+  defaultTemplateLookupError: Error | null = null;
+
+  async findDefaultTemplateId(tenantId: string, userId: string): Promise<string | null> {
+    if (this.defaultTemplateLookupError) throw this.defaultTemplateLookupError;
+    return this.defaultTemplates.get(`${tenantId} ${userId}`) ?? null;
+  }
+
   async close(): Promise<void> {}
 
   get activeTranscripts(): Transcript[] {

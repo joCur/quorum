@@ -3,9 +3,11 @@ import type { SummaryTemplateDraft, SummaryTemplateView } from "@quorum/shared";
 import { useAuth } from "@/features/auth/auth-provider";
 import { MeetingApiError } from "@/features/meetings/api";
 import {
+  clearDefaultTemplate,
   createTemplate,
   deleteTemplate,
   listTemplates,
+  setDefaultTemplate,
   updateTemplate,
 } from "@/features/templates/api";
 
@@ -20,6 +22,12 @@ export interface TemplatesState {
   create: (draft: SummaryTemplateDraft) => Promise<SummaryTemplateView>;
   update: (templateId: string, draft: SummaryTemplateDraft) => Promise<SummaryTemplateView>;
   remove: (templateId: string) => Promise<void>;
+  /**
+   * Chooses the template new recordings are summarized with. `null` gives the
+   * choice up, which is the same state as never having made one: the system
+   * template.
+   */
+  chooseDefault: (templateId: string | null) => Promise<void>;
 }
 
 /**
@@ -96,5 +104,15 @@ export function useTemplates(): TemplatesState {
     [write],
   );
 
-  return { templates, status, errorCode, saving, reload, create, update, remove };
+  const chooseDefault = React.useCallback(
+    (templateId: string | null) =>
+      write((token) =>
+        templateId === null
+          ? clearDefaultTemplate({ accessToken: token })
+          : setDefaultTemplate(templateId, { accessToken: token }),
+      ),
+    [write],
+  );
+
+  return { templates, status, errorCode, saving, reload, create, update, remove, chooseDefault };
 }

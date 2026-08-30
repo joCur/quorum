@@ -50,9 +50,12 @@ const templateRoutesImpl: FastifyPluginAsync<TemplateRoutesOptions> = async (app
 
   app.get(prefix, async (request) => {
     const scope = scopeOf(request.requireContext());
-    const templates = await store.listTemplates(scope);
+    const [templates, defaultTemplateId] = await Promise.all([
+      store.listTemplates(scope),
+      store.findDefaultTemplateId(scope),
+    ]);
     const body: SummaryTemplateList = {
-      templates: templates.map((template) => toView(template, templates)),
+      templates: templates.map((template) => toView(template, templates, defaultTemplateId)),
     };
     return body;
   });
@@ -68,7 +71,8 @@ const templateRoutesImpl: FastifyPluginAsync<TemplateRoutesOptions> = async (app
     if (!template) return reply.code(404).send(notFound());
 
     const base = await loadBase(store, scope, template);
-    const body: SummaryTemplateView = toView(template, base ? [base] : []);
+    const defaultTemplateId = await store.findDefaultTemplateId(scope);
+    const body: SummaryTemplateView = toView(template, base ? [base] : [], defaultTemplateId);
     return body;
   });
 
@@ -79,7 +83,9 @@ const templateRoutesImpl: FastifyPluginAsync<TemplateRoutesOptions> = async (app
 
     try {
       const created = await store.createTemplate(scope, draft.draft);
-      const body: SummaryTemplateView = toView(created, draft.base ? [draft.base] : []);
+      // A brand-new template is nobody's default yet; creating one is not a
+      // decision to summarize with it from now on.
+      const body: SummaryTemplateView = toView(created, draft.base ? [draft.base] : [], null);
       return reply.code(201).send(body);
     } catch (error) {
       return unavailable(error, reply);
@@ -97,7 +103,12 @@ const templateRoutesImpl: FastifyPluginAsync<TemplateRoutesOptions> = async (app
     try {
       const updated = await store.updateTemplate(scope, params.data.templateId, draft.draft);
       if (!updated) return reply.code(404).send(notFound());
-      const body: SummaryTemplateView = toView(updated, draft.base ? [draft.base] : []);
+      const defaultTemplateId = await store.findDefaultTemplateId(scope);
+      const body: SummaryTemplateView = toView(
+        updated,
+        draft.base ? [draft.base] : [],
+        defaultTemplateId,
+      );
       return body;
     } catch (error) {
       return unavailable(error, reply);
@@ -116,6 +127,40 @@ const templateRoutesImpl: FastifyPluginAsync<TemplateRoutesOptions> = async (app
 
     const deleted = await store.deleteTemplate(scope, params.data.templateId);
     if (!deleted) return reply.code(404).send(notFound());
+    return reply.code(204).send();
+  });
+
+  /**
+   * Makes one of the caller's own templates the one new recordings are summarized with.
+   *
+   * PUT rather than POST because the choice is a single value being set to a state, and setting
+   * it twice has to mean what setting it once means. Only a user template can be chosen: the
+   * system template is what "no choice" already resolves to, so naming it here would be a second
+   * way to express the same state.
+   */
+  app.put(`${prefix}/:templateId/default`, async (request, reply) => {
+    const scope = scopeOf(request.requireContext());
+    const params = TemplateParamsSchema.safeParse(request.params);
+    if (!params.success) return reply.code(404).send(notFound());
+
+    try {
+      const chosen = await store.setDefaultTemplate(scope, params.data.templateId);
+      if (!chosen) return reply.code(404).send(notFound());
+    } catch (error) {
+      return unavailable(error, reply);
+    }
+    return reply.code(204).send();
+  });
+
+  /**
+   * Gives up the choice, which puts the caller back on the system template.
+   *
+   * Unconditionally 204: a caller who has chosen nothing is already in the state this asks for,
+   * and reporting that as a failure would make the control lie about what it did.
+   */
+  app.delete(`${prefix}/default`, async (request, reply) => {
+    const scope = scopeOf(request.requireContext());
+    await store.clearDefaultTemplate(scope);
     return reply.code(204).send();
   });
 };
@@ -197,6 +242,7 @@ async function readDraft(
 export function toView(
   template: SummaryTemplate,
   candidates: readonly SummaryTemplate[],
+  defaultTemplateId: string | null = null,
 ): SummaryTemplateView {
   const base =
     template.basedOn === null
@@ -210,7 +256,15 @@ export function toView(
     if (!(error instanceof TemplateResolutionError)) throw error;
   }
 
-  return { template, resolvedSections, editable: template.scope === "user" };
+  return {
+    template,
+    resolvedSections,
+    editable: template.scope === "user",
+    // A caller who has chosen nothing is on the system template, so exactly one
+    // template in a list is marked rather than none — the screen never has to
+    // explain an absence.
+    isDefault: (defaultTemplateId ?? SYSTEM_TEMPLATE_ID) === template.id,
+  };
 }
 
 async function loadBase(

@@ -44,6 +44,13 @@ export interface TranscriptRepository {
     jobId: string,
   ): Promise<SaveTranscriptResult>;
   saveJob(job: Job, scope: JobScope, attempt: number): Promise<void>;
+  /**
+   * The template this user has chosen for new recordings, or `null` when they
+   * have chosen none — or when the one they chose no longer exists. The caller
+   * falls back to the system template in both cases, so a deleted default never
+   * leaves a meeting without a summary.
+   */
+  findDefaultTemplateId(tenantId: string, userId: string): Promise<string | null>;
   close(): Promise<void>;
 }
 
@@ -196,6 +203,39 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
       // nothing left to record against.
       if (error instanceof MeetingGoneError) return;
       throw new JobError("TRANSCRIPT_PERSIST_FAILED", "failed to record the job state", {
+        retryable: true,
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Reads the user's chosen default template.
+   *
+   * The join is what makes "deleting the default falls back to the system
+   * template" true without a cleanup pass: a pointer whose template is gone
+   * matches no row and reads as no default. The predicate carries tenant and
+   * user (ADR-001), so a stored pointer is only ever resolved for the person it
+   * belongs to.
+   */
+  async findDefaultTemplateId(tenantId: string, userId: string): Promise<string | null> {
+    try {
+      const rows = await this.sql<{ default_template_id: string }[]>`
+        SELECT s.default_template_id
+          FROM user_settings s
+         WHERE s.tenant_id = ${tenantId}
+           AND s.user_id = ${userId}
+           AND EXISTS (
+             SELECT 1 FROM summary_templates t
+              WHERE t.id = s.default_template_id
+                AND (t.scope = 'system'
+                     OR (t.tenant_id = ${tenantId} AND t.user_id = ${userId}))
+           )
+         LIMIT 1
+      `;
+      return rows[0]?.default_template_id ?? null;
+    } catch (error) {
+      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to read the default summary template", {
         retryable: true,
         cause: error,
       });

@@ -54,6 +54,12 @@ export const SummaryTemplateViewSchema = z.object({
   resolvedSections: z.array(TemplateSectionSchema),
   /** False for the system template: it is everybody's, so nobody edits it here. */
   editable: z.boolean(),
+  /**
+   * Whether this is the caller's default template — the one a new recording is
+   * summarized with. At most one template in a list carries it; a caller who has
+   * chosen none falls back to the system template.
+   */
+  isDefault: z.boolean().default(false),
 });
 
 export const SummaryTemplateListSchema = z.object({
