@@ -207,6 +207,49 @@ with a plain `401`.
 - Sequence numbers more than 1024 ahead of `persistedSeq` are refused.
 - Duplicate and out-of-order sequence numbers are handled idempotently.
 
+### Abuse and cost limits
+
+The GPU worker is the expensive part of this system: every recorded hour eventually buys GPU time
+and model tokens (`COST-MODEL.md`, roughly 0.10 € marginal cost per meeting hour). The recording
+endpoint therefore bounds what one connection and one user can push into the pipeline, in
+`src/recording/limits.ts`.
+
+| Limit             | Default        | What it bounds                                           |
+| ----------------- | -------------- | -------------------------------------------------------- |
+| Session duration  | 4 h            | Wall clock of a single recording.                         |
+| Parallel sessions | 3 per user     | Open recording sessions of one user, per server process.  |
+| Chunk rate        | 20/s sustained | Frames per second on one connection.                      |
+| Byte rate         | 4 MiB/s        | Bytes per second on one connection.                       |
+| Burst             | 10 s           | Seconds' worth of both rates spendable at once.           |
+
+A live recording sends 0.5–1 chunk and about 4 KiB per second (chunks are 1–2 s of audio), so the
+rate defaults sit 20x and 1000x above live speed. The burst allowance is what makes a reconnect
+work: a client that buffered audio while offline replays it as fast as the socket allows, and that
+must not look like an attack.
+
+**The duration limit does not throw the recording away.** When it is passed, the server finalizes
+the session through exactly the same path `session.end` takes — manifest written, transcription
+enqueued, `session.finalized` sent — and only then closes the socket. What was recorded stays a
+normal, playable meeting; only the audio past the limit is lost. The check runs when a frame
+arrives rather than on a timer: a session that sends nothing costs nothing, and every frame that
+would add cost is checked before it is accepted. A reconnect to a session that ran past the limit
+while it was disconnected is stopped the same way instead of being revived.
+
+Violations are reported through the close frame, and the reason is a **machine-readable code**
+defined in `@quorum/shared` (`limits.ts`), never a sentence — the client renders the message through
+i18n:
+
+| Close code            | Reason                             | Meaning                                      |
+| --------------------- | ---------------------------------- | -------------------------------------------- |
+| 1000 normal           | `limit.session_duration_exceeded`  | Finalized by the server; the meeting exists.  |
+| 1008 policy violation | `limit.parallel_sessions_exceeded` | Too many open sessions for this user.         |
+| 1008 policy violation | `limit.chunk_rate_exceeded`        | Too many frames per second.                   |
+| 1008 policy violation | `limit.byte_rate_exceeded`         | Too many bytes per second.                    |
+
+The rate buckets are per connection and in memory; the parallel-session registry is per server
+process. Both are cheap ceilings against one client misbehaving, not cluster-wide accounting: with
+several API replicas the effective session cap is the configured number times the replica count.
+
 ### Where the recording scope comes from
 
 The recording plugin never derives a tenant itself; it asks a `RecordingContextProvider`.
@@ -278,6 +321,11 @@ list with defaults.
 | `OIDC_AUDIENCE`          | Audience the access token must contain. Default `quorum-api`.                   |
 | `OIDC_TENANT_CLAIM`      | Claim holding the tenant. Default `tenant_id`.                                  |
 | `RECORDING_ALLOW_HEADER_AUTH` | Development-only header scope for the recording upgrade. Default `false`.  |
+| `RECORDING_MAX_SESSION_SECONDS` | Server-side hard stop on recording length. Default `14400` (4 h).        |
+| `RECORDING_MAX_PARALLEL_SESSIONS` | Open recording sessions per user. Default `3`.                         |
+| `RECORDING_MAX_CHUNKS_PER_SECOND` | Sustained frames per second per connection. Default `20`.              |
+| `RECORDING_MAX_BYTES_PER_SECOND` | Sustained bytes per second per connection. Default `4194304` (4 MiB).    |
+| `RECORDING_RATE_BURST_SECONDS` | Seconds' worth of both rates spendable at once. Default `10`.             |
 | `DATABASE_URL`, `S3_*`   | Queue and object storage, see `.env.example`.                                   |
 | `HOST`, `PORT`, `LOG_LEVEL` | Listener and logging.                                                        |
 

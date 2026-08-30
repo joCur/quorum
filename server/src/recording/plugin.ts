@@ -10,6 +10,7 @@ import {
   RecordingSessionHandler,
 } from "./session.js";
 import { MAX_CHUNK_PAYLOAD_BYTES } from "./audio-format.js";
+import { DEFAULT_RECORDING_LIMITS, SessionRegistry, type RecordingLimits } from "./limits.js";
 import { CHUNK_HEADER_BYTES } from "@quorum/shared";
 import type {
   JobQueue,
@@ -31,6 +32,8 @@ export interface RecordingPluginOptions {
    * decides the scope. Only the development header path sets this.
    */
   publicUpgrade?: boolean;
+  /** Abuse and cost limits; defaults to `DEFAULT_RECORDING_LIMITS`. */
+  limits?: RecordingLimits;
 }
 
 /**
@@ -41,6 +44,11 @@ export interface RecordingPluginOptions {
  * context provider, never from the plugin itself.
  */
 const recordingPlugin: FastifyPluginAsync<RecordingPluginOptions> = async (app, options) => {
+  const limits = options.limits ?? DEFAULT_RECORDING_LIMITS;
+  // One registry for the whole plugin instance: the parallel-session cap is about a user across
+  // their connections, so it cannot live on a single connection.
+  const registry = new SessionRegistry(limits.maxParallelSessions);
+
   if (!app.hasDecorator("websocketServer")) {
     await app.register(fastifyWebsocket, {
       options: {
@@ -70,7 +78,15 @@ const recordingPlugin: FastifyPluginAsync<RecordingPluginOptions> = async (app, 
         queue: options.queue,
         meetings: options.meetings,
         context: { tenantId: "", userId: "" },
+        limits,
+        registry,
         logger: request.log,
+      });
+
+      // Whatever ends the connection — a finalize, a limit, a dropped network — the user's
+      // parallel-session slot has to come back, or a few dead sockets would lock them out.
+      socket.on("close", () => {
+        handler.dispose();
       });
 
       // Messages are serialized: the protocol's `persistedSeq` bookkeeping must not
