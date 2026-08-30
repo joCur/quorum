@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ListChecks, Pencil, Plus, Trash2 } from "lucide-react";
+import { ListChecks, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { SummaryTemplateDraft, SummaryTemplateView } from "@quorum/shared";
 import { EmptyState } from "@/components/layout/empty-state";
@@ -134,6 +134,11 @@ export function TemplatesRoute() {
             view={view}
             onEdit={() => setMode({ kind: "edit", templateId: view.template.id })}
             onDelete={() => setConfirming(view.template.id)}
+            onToggleDefault={() => {
+              // Unsetting is not "no default" — it is falling back to the system template, which
+              // is what the list then marks. The user is never left without one.
+              void templates.chooseDefault(view.isDefault ? null : view.template.id);
+            }}
           />
         ))}
       </div>
@@ -158,10 +163,12 @@ function TemplateCard({
   view,
   onEdit,
   onDelete,
+  onToggleDefault,
 }: {
   view: SummaryTemplateView;
   onEdit: () => void;
   onDelete: () => void;
+  onToggleDefault: () => void;
 }) {
   const { t } = useTranslation();
 
@@ -178,8 +185,20 @@ function TemplateCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {view.isDefault ? <Badge variant="plum">{t("templates.default")}</Badge> : null}
           {view.editable ? (
             <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onToggleDefault}
+                aria-pressed={view.isDefault}
+                aria-label={t(view.isDefault ? "templates.unsetDefault" : "templates.setDefault", {
+                  template: view.template.name,
+                })}
+              >
+                <Star aria-hidden="true" className={view.isDefault ? "fill-current" : undefined} />
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"
