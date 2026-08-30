@@ -1,5 +1,5 @@
 import * as React from "react";
-import { MicOff, Pause, TriangleAlert, X } from "lucide-react";
+import { CircleCheck, MicOff, Pause, TriangleAlert, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -12,9 +12,15 @@ import { LevelMeter } from "@/components/recording/level-meter";
 import { RecordButton } from "@/components/recording/record-button";
 import { RecordingIndicator } from "@/components/recording/recording-indicator";
 import { SyncStatus } from "@/components/recording/sync-status";
+import { isRecordingFinalizedDespite, limitMessageKey } from "@/features/limits/messages";
 import { useRecording } from "@/features/recording/use-recording";
 import { useTemplates } from "@/features/templates/use-templates";
 import { formatDuration } from "@/lib/duration";
+import type { LimitErrorCode } from "@quorum/shared";
+import { cn } from "@/lib/utils";
+
+/** How long the finalized screen waits for a closing limit before it navigates on. */
+const FINALIZE_SETTLE_MS = 600;
 
 /**
  * Recording screen — full-screen and distraction-free on every size.
@@ -45,10 +51,16 @@ export function RecordRoute() {
   const live = active || state.phase === "paused";
 
   React.useEffect(() => {
-    if (state.phase === "finalized") {
-      void navigate("/meetings", { replace: true });
-    }
-  }, [state.phase, navigate]);
+    if (state.phase !== "finalized" || state.limit !== null) return;
+    // The server closes the socket right after finalizing, and a hard stop at the maximum length
+    // names that limit in the close frame — one tick after the finalized message. The short wait
+    // is what keeps the screen from navigating away from a message it is about to receive.
+    const handle = window.setTimeout(
+      () => void navigate("/meetings", { replace: true }),
+      FINALIZE_SETTLE_MS,
+    );
+    return () => window.clearTimeout(handle);
+  }, [state.phase, state.limit, navigate]);
 
   // Closing the tab mid-recording is survivable, but it should not be silent.
   React.useEffect(() => {
@@ -110,7 +122,11 @@ export function RecordRoute() {
 
         <SyncStatus status={state.status} />
 
-        {state.error ? (
+        {state.limit ? (
+          <LimitPanel limit={state.limit} onLeave={() => void navigate("/meetings")} />
+        ) : null}
+
+        {state.error && !state.limit ? (
           <ErrorPanel error={state.error} onRetry={() => setConsentOpen(true)} />
         ) : null}
 
@@ -212,6 +228,39 @@ function ErrorPanel({
       {error.detail ? <p className="font-mono text-xs opacity-80">{error.detail}</p> : null}
       <Button variant="secondary" size="sm" onClick={onRetry}>
         {t("common.retry")}
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * A limit the server enforced, said plainly.
+ *
+ * The hard stop at the maximum session length is not a failure and is not styled as one: the
+ * recording was finalized by the server and is on its way through the pipeline like any other.
+ * The remaining limits refuse something, and those read as refusals — what the limit is, and what
+ * the user can do about it, with no invitation to retry something that would be refused again.
+ */
+function LimitPanel({ limit, onLeave }: { limit: LimitErrorCode; onLeave: () => void }) {
+  const { t } = useTranslation();
+  const finalized = isRecordingFinalizedDespite(limit);
+
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex max-w-sm flex-col items-center gap-3 rounded-md p-4 text-center text-sm",
+        finalized ? "bg-muted text-foreground" : "bg-destructive/10 text-destructive",
+      )}
+    >
+      {finalized ? (
+        <CircleCheck className="size-5 text-success" aria-hidden="true" />
+      ) : (
+        <TriangleAlert className="size-5" aria-hidden="true" />
+      )}
+      <p>{t(limitMessageKey(limit))}</p>
+      <Button variant="secondary" size="sm" onClick={onLeave}>
+        {t("recording.limit.toMeetings")}
       </Button>
     </div>
   );
