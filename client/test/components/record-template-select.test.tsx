@@ -157,7 +157,7 @@ describe("record screen template choice", () => {
     // The template travels as an explicit id rather than as "send nothing", the prefilled default
     // included: what the screen showed when the recording started is what the summary is made
     // with, even if the default changes afterwards.
-    expect(startSpy).toHaveBeenCalledWith("Weekly sync", MINE);
+    expect(startSpy).toHaveBeenCalledWith("Weekly sync", MINE, null);
   });
 
   it("sends no template when the user has none to choose from", async () => {
@@ -169,6 +169,6 @@ describe("record screen template choice", () => {
     await user.click(screen.getByRole("button", { name: "I have informed the participants" }));
 
     // Nothing was shown, so nothing is claimed; the server applies its own default.
-    expect(startSpy).toHaveBeenCalledWith(null, null);
+    expect(startSpy).toHaveBeenCalledWith(null, null, null);
   });
 });

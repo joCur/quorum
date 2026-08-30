@@ -1,11 +1,14 @@
 import {
+  capturedAudioConstraints,
   expect,
+  fakeAudioInputs,
   pauseRecording,
   recordingTimer,
   resumeRecording,
   startRecording,
   stopRecording,
   test,
+  useFakeInputDevices,
   waitFor,
   waitForValue,
   watchRecordingProtocol,
@@ -153,4 +156,44 @@ test("pauses and resumes without splitting the meeting", async ({ page, signIn }
   );
   expect(job.sessionId).toBe(sessionId);
   expect(job.tenantId).toBe(alice.tenantId);
+});
+
+/**
+ * The chosen microphone reaches capture, and is still chosen next time.
+ *
+ * Two named inputs are injected because Chromium offers one unnamed fake device, which is the
+ * case where the product deliberately shows nothing. What is asserted is the contract the picker
+ * exists for: the device id travels into the `getUserMedia` constraint, and the choice survives a
+ * reload — with the recording itself still producing a gap-free chunk sequence.
+ */
+test("records with the microphone the user picked", async ({ page, signIn }) => {
+  const alice = await fetchToken(devUsers.alice);
+  const protocol = watchRecordingProtocol(page);
+
+  await useFakeInputDevices(page);
+  await signIn(devUsers.alice);
+  await page.goto("/record");
+
+  const picker = page.getByLabel("Microphone", { exact: true });
+  await expect(picker).toBeVisible();
+  await picker.selectOption(fakeAudioInputs[0]!.deviceId);
+
+  await startRecording(page);
+  const sessionId = await protocol.waitForSessionId();
+
+  const constraints = await capturedAudioConstraints(page);
+  expect(constraints.at(-1)?.deviceId).toEqual({ exact: fakeAudioInputs[0]!.deviceId });
+
+  await protocol.waitForAck(2);
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+
+  const seqs = await chunkSeqs({ tenantId: alice.tenantId, userId: alice.userId, sessionId });
+  expect(seqs).toEqual(seqs.map((_value, index) => index));
+
+  // The choice is a property of this machine, so it is still there on the next visit.
+  await page.goto("/record");
+  await expect(page.getByLabel("Microphone", { exact: true })).toHaveValue(
+    fakeAudioInputs[0]!.deviceId,
+  );
 });

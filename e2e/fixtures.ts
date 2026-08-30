@@ -84,6 +84,61 @@ export async function stopRecording(page: Page): Promise<void> {
   await panel.getByRole("button", { name: "Stop", exact: true }).click();
 }
 
+/** The named audio inputs the browser is made to report for the device-picker test. */
+export const fakeAudioInputs = [
+  { deviceId: "quorum-headset", label: "Quorum Test Headset" },
+  { deviceId: "quorum-built-in", label: "Quorum Test Built-in" },
+];
+
+/**
+ * Makes the browser report two named microphones and records what capture asks for.
+ *
+ * Chromium's fake device is a single unnamed input, which is exactly the case where the product
+ * shows no picker at all — so the device list is replaced. `getUserMedia` still reaches the real
+ * fake device: the constraint is captured and the device id then dropped, so the test asserts what
+ * the app asked for while real audio keeps flowing through the rest of the pipeline.
+ */
+export async function useFakeInputDevices(page: Page): Promise<void> {
+  await page.addInitScript((inputs: { deviceId: string; label: string }[]) => {
+    const media = navigator.mediaDevices;
+    const captured: unknown[] = [];
+    (window as unknown as Record<string, unknown>)["__capturedAudioConstraints"] = captured;
+
+    media.enumerateDevices = async () =>
+      inputs.map(
+        (input) =>
+          ({
+            ...input,
+            kind: "audioinput",
+            groupId: "fake",
+            toJSON: () => input,
+          }) as MediaDeviceInfo,
+      );
+
+    const original = media.getUserMedia.bind(media);
+    media.getUserMedia = async (constraints?: MediaStreamConstraints) => {
+      const audio = constraints?.audio;
+      if (typeof audio === "object") {
+        captured.push(audio);
+        const { deviceId: _ignored, ...rest } = audio;
+        return original({ ...constraints, audio: rest });
+      }
+      captured.push(audio ?? null);
+      return original(constraints ?? {});
+    };
+  }, fakeAudioInputs);
+}
+
+/** The audio constraints every `getUserMedia` call of this page was made with, in order. */
+export async function capturedAudioConstraints(page: Page): Promise<MediaTrackConstraints[]> {
+  return await page.evaluate(
+    () =>
+      (window as unknown as Record<string, MediaTrackConstraints[]>)[
+        "__capturedAudioConstraints"
+      ] ?? [],
+  );
+}
+
 /**
  * Watches the recording WebSocket and reports what the protocol actually did.
  *
