@@ -10,11 +10,14 @@ import {
   JOB_ID,
   MEETING_ID,
   VERBOSE_RESPONSE_WITH_WORDS,
+  capturingLogger,
   manifest,
   silentLogger,
   transcribeJob,
   transcribePayload,
 } from "./helpers.js";
+import { RecordingEnqueuer } from "./summary-helpers.js";
+import { SYSTEM_SUMMARY_TEMPLATE } from "../src/summary/template.js";
 
 function deps(overrides: Partial<Parameters<typeof runTranscribeJob>[2]> = {}) {
   return {
@@ -159,6 +162,79 @@ describe("failure handling", () => {
     });
     await expect(runTranscribeJob(transcribePayload(), 0, dependencies)).rejects.toThrow();
     expect((dependencies.repository as InMemoryRepository).transcripts.size).toBe(0);
+  });
+});
+
+/**
+ * A meeting can be deleted while its transcription is already running. The
+ * cascade drops the work still queued for it, but an active job survives that
+ * sweep, and persisting its transcript afterwards would bring a deleted
+ * recording back (ADR-001). The handler checks the meeting immediately before
+ * the write and abandons the job quietly.
+ */
+describe("a meeting deleted while the job runs", () => {
+  it("persists normally while the meeting is still there", async () => {
+    const dependencies = deps();
+    const outcome = await runTranscribeJob(transcribePayload(), 0, dependencies);
+
+    expect(outcome.abandoned).toBeUndefined();
+    expect((dependencies.repository as InMemoryRepository).transcripts.size).toBe(1);
+  });
+
+  it("writes no transcript and no job row when the meeting is already gone", async () => {
+    const repository = new InMemoryRepository();
+    repository.meetings.delete(MEETING_ID);
+    const { logger, events } = capturingLogger();
+
+    const outcome = await runTranscribeJob(transcribePayload(), 0, deps({ repository, logger }));
+
+    expect(outcome.abandoned).toBe("meeting-deleted");
+    expect(repository.transcripts.size).toBe(0);
+    expect(repository.jobStates).toEqual([]);
+    expect(events.at(-1)).toMatchObject({
+      level: "info",
+      event: "job.abandoned",
+      reason: "meeting-deleted",
+      artifact: "transcript",
+      jobId: JOB_ID,
+      meetingId: MEETING_ID,
+      tenantId: "tenant-a",
+    });
+  });
+
+  // The tightest window there is: the job has started and recorded itself as
+  // running, the audio has been transcribed, and the delete commits in the
+  // instant before the insert. The real repository closes this by checking and
+  // inserting in one transaction; here the hook fires at the same point.
+  it("writes nothing when the delete lands between the job start and the persist", async () => {
+    const repository = new InMemoryRepository();
+    repository.onBeforeSaveTranscript = () => repository.meetings.delete(MEETING_ID);
+    const summaries = new RecordingEnqueuer();
+
+    const outcome = await runTranscribeJob(
+      transcribePayload(),
+      0,
+      deps({ repository, summaries, summaryTemplateId: SYSTEM_SUMMARY_TEMPLATE.id }),
+    );
+
+    expect(outcome.abandoned).toBe("meeting-deleted");
+    expect(repository.transcripts.size).toBe(0);
+    // The `running` row was written before the delete, and the cascade removes
+    // it. What matters is that nothing was written *after* the meeting was gone.
+    expect(repository.jobStates.map((state) => state.status)).toEqual(["running"]);
+    // No follow-up summary job either — that would only resurrect the meeting
+    // one queue hop later.
+    expect(summaries.enqueued).toEqual([]);
+    expect(outcome.summaryEnqueued).toBe(false);
+  });
+
+  it("resolves instead of throwing, so the queue completes rather than dead-letters", async () => {
+    const repository = new InMemoryRepository();
+    repository.meetings.delete(MEETING_ID);
+
+    await expect(
+      runTranscribeJob(transcribePayload(), 0, deps({ repository })),
+    ).resolves.toMatchObject({ abandoned: "meeting-deleted" });
   });
 });
 

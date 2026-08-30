@@ -1,7 +1,8 @@
 import type { Job, SummarySection, Transcript } from "@quorum/shared";
 import type { SummaryRepository } from "../db/repository.js";
-import type { WorkerLogger } from "../logger.js";
-import { JobError, toJobError } from "../errors.js";
+import { logMeetingGone, type WorkerLogger } from "../logger.js";
+import { JobError, MeetingGoneError, toJobError } from "../errors.js";
+import { summaryIdForJob } from "../ids.js";
 import type { SummarizeJobPayload } from "../payload.js";
 import type { ChatCompletionClient, ChatMessage } from "./chat-client.js";
 import { mapToSummary } from "./map.js";
@@ -27,6 +28,12 @@ export interface SummarizeOutcome {
   /** `true` when the first answer was unparseable and the repair turn succeeded. */
   repaired: boolean;
   transcriptTruncated: boolean;
+  /**
+   * Set when the meeting was deleted while the job was running. Nothing was
+   * written — not the summary and not a job row — and `summaryId` is only the
+   * id the run would have used.
+   */
+  abandoned?: "meeting-deleted";
 }
 
 /**
@@ -159,6 +166,17 @@ export async function runSummarizeJob(
       transcriptTruncated: window.truncated,
     };
   } catch (error) {
+    if (error instanceof MeetingGoneError) {
+      logMeetingGone(log, "summary");
+      return {
+        summaryId: summaryIdForJob(payload.job.id),
+        created: false,
+        sectionCount: 0,
+        repaired: false,
+        transcriptTruncated: false,
+        abandoned: "meeting-deleted",
+      };
+    }
     const jobError = toJobError(error);
     const failed: Job = {
       ...payload.job,
@@ -188,16 +206,22 @@ async function loadTranscript(
   deps: SummarizeHandlerDependencies,
 ): Promise<Transcript> {
   const transcript = await deps.repository.loadTranscript(payload.transcriptId, payload.tenantId);
-  if (!transcript) {
-    // Terminal: the transcript was deleted (ADR-001 cascade) or never belonged
-    // to this tenant. Retrying cannot make it reappear.
-    throw new JobError(
-      "TRANSCRIPT_NOT_FOUND",
-      `transcript ${payload.transcriptId} not found for tenant ${payload.tenantId}`,
-      { retryable: false },
-    );
+  if (transcript) return transcript;
+
+  // The transcript is gone. Which of the two reasons it is decides everything:
+  // if the meeting was deleted, the cascade took the transcript with it and the
+  // job is simply obsolete — abandoning it quietly is the whole point of this
+  // check, and dead-lettering it would leave an operator a job to replay that
+  // must never be replayed. Only a transcript missing while its meeting still
+  // exists is a real, terminal fault worth reporting.
+  if (!(await deps.repository.meetingExists(payload.job.meetingId, payload.tenantId))) {
+    throw new MeetingGoneError(payload.job.meetingId);
   }
-  return transcript;
+  throw new JobError(
+    "TRANSCRIPT_NOT_FOUND",
+    `transcript ${payload.transcriptId} not found for tenant ${payload.tenantId}`,
+    { retryable: false },
+  );
 }
 
 /**

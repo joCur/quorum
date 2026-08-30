@@ -5,7 +5,7 @@ import { summarizeJobIdFor, summaryIdForJob } from "../src/ids.js";
 import { parseSummarizeJobPayload } from "../src/payload.js";
 import { SYSTEM_SUMMARY_TEMPLATE } from "../src/summary/template.js";
 import { summarizeJobPayload } from "../src/summary/enqueue.js";
-import { MEETING_ID, silentLogger, transcribeJob } from "./helpers.js";
+import { MEETING_ID, capturingLogger, silentLogger, transcribeJob } from "./helpers.js";
 import {
   FakeChatClient,
   InMemorySummaryRepository,
@@ -223,6 +223,81 @@ describe("failure handling", () => {
     const dependencies = deps({ chat: new FakeChatClient([new Error("kaboom")]) });
     await expect(runSummarizeJob(summarizePayload(), 0, dependencies)).rejects.toThrow();
     expect((dependencies.repository as InMemorySummaryRepository).summaries.size).toBe(0);
+  });
+});
+
+/**
+ * The same window as the transcription half, one queue hop later: the summarize
+ * job is already running when the meeting is deleted. Its transcript vanishes
+ * in the same cascade, so the handler has to tell "the meeting is gone" apart
+ * from "this job is broken" — the first is a quiet no-op, the second still
+ * dead-letters.
+ */
+describe("a meeting deleted while the job runs", () => {
+  it("persists normally while the meeting is still there", async () => {
+    const dependencies = deps();
+    const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+
+    expect(outcome.abandoned).toBeUndefined();
+    expect((dependencies.repository as InMemorySummaryRepository).summaries.size).toBe(1);
+  });
+
+  it("writes no summary and no job row when the meeting is already gone", async () => {
+    const repository = new InMemorySummaryRepository();
+    repository.meetings.delete(MEETING_ID);
+    repository.transcripts.clear(); // the cascade took the transcript too
+    const { logger, events } = capturingLogger();
+
+    const outcome = await runSummarizeJob(summarizePayload(), 0, deps({ repository, logger }));
+
+    expect(outcome.abandoned).toBe("meeting-deleted");
+    expect(repository.summaries.size).toBe(0);
+    expect(repository.jobStates).toEqual([]);
+    expect(events.at(-1)).toMatchObject({
+      level: "info",
+      event: "job.abandoned",
+      reason: "meeting-deleted",
+      artifact: "summary",
+      jobId: SUMMARIZE_JOB_ID,
+      meetingId: MEETING_ID,
+      tenantId: "tenant-a",
+    });
+  });
+
+  // The tightest window: the model has already answered — the call is paid for
+  // — and the delete commits in the instant before the insert. The real
+  // repository checks and inserts in one transaction; the hook fires there.
+  it("writes nothing when the delete lands between the job start and the persist", async () => {
+    const repository = new InMemorySummaryRepository();
+    repository.onBeforeSaveSummary = () => repository.meetings.delete(MEETING_ID);
+
+    const outcome = await runSummarizeJob(summarizePayload(), 0, deps({ repository }));
+
+    expect(outcome.abandoned).toBe("meeting-deleted");
+    expect(repository.summaries.size).toBe(0);
+    // The `running` row predates the delete and the cascade removes it; nothing
+    // was written after the meeting was gone.
+    expect(repository.jobStates.map((state) => state.status)).toEqual(["running"]);
+  });
+
+  it("resolves instead of throwing, so the queue completes rather than dead-letters", async () => {
+    const repository = new InMemorySummaryRepository();
+    repository.meetings.delete(MEETING_ID);
+    repository.transcripts.clear();
+
+    await expect(
+      runSummarizeJob(summarizePayload(), 0, deps({ repository })),
+    ).resolves.toMatchObject({ abandoned: "meeting-deleted" });
+  });
+
+  // The distinction that keeps the quiet path from swallowing real faults.
+  it("still dead-letters a missing transcript when the meeting does exist", async () => {
+    const repository = new InMemorySummaryRepository([]);
+
+    await expect(
+      runSummarizeJob(summarizePayload(), 0, deps({ repository })),
+    ).rejects.toMatchObject({ code: "TRANSCRIPT_NOT_FOUND", retryable: false });
+    expect(repository.jobStates.at(-1)).toMatchObject({ status: "failed" });
   });
 });
 

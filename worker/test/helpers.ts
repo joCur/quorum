@@ -8,6 +8,8 @@ import type { TranscriptionClient, TranscriptionRequest } from "../src/whisper/c
 import type { WhisperTranscriptionResponse } from "../src/whisper/response.js";
 import type { TranscribeJobPayload } from "../src/payload.js";
 import { chunkKey } from "../src/storage/keys.js";
+import { MeetingGoneError } from "../src/errors.js";
+import type { WorkerLogger } from "../src/logger.js";
 
 export const SCOPE: JobScope = {
   tenantId: "tenant-a",
@@ -18,8 +20,30 @@ export const SCOPE: JobScope = {
 export const JOB_ID = "22222222-2222-4222-8222-222222222222";
 export const MEETING_ID = "33333333-3333-4333-8333-333333333333";
 
-/** Silent logger — the tests assert on behavior, not on log output. */
+/** Silent logger — most tests assert on behavior, not on log output. */
 export const silentLogger = pino({ level: "silent" });
+
+/**
+ * Logger that keeps every line it emits, for the few assertions where the log
+ * *is* the observable outcome — an abandoned job writes nothing else.
+ */
+export function capturingLogger(): {
+  logger: WorkerLogger;
+  events: Record<string, unknown>[];
+} {
+  const events: Record<string, unknown>[] = [];
+  const logger = pino(
+    // Same level formatting as `createLogger`, so assertions see the labels
+    // that actually reach the log.
+    { level: "info", base: null, formatters: { level: (label: string) => ({ level: label }) } },
+    {
+      write(line: string) {
+        events.push(JSON.parse(line) as Record<string, unknown>);
+      },
+    },
+  );
+  return { logger, events };
+}
 
 export function transcribeJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -167,14 +191,21 @@ export class FakeTranscriptionClient implements TranscriptionClient {
 }
 
 /**
- * In-memory stand-in for the PostgreSQL repository. It reproduces the two rules
- * the real implementation relies on: `job_id` is unique, and only one
- * transcript per meeting is active.
+ * In-memory stand-in for the PostgreSQL repository. It reproduces the three
+ * rules the real implementation relies on: `job_id` is unique, only one
+ * transcript per meeting is active, and a transcript is only ever written for a
+ * meeting that still exists.
  */
 export class InMemoryRepository implements TranscriptRepository {
   readonly transcripts = new Map<string, { transcript: Transcript; scope: JobScope }>();
   readonly byJob = new Map<string, string>();
   readonly jobStates: Job[] = [];
+  readonly meetings = new Set<string>([MEETING_ID]);
+  /**
+   * Runs at the top of `saveTranscript`, standing in for a delete that commits
+   * in the last instant before the write.
+   */
+  onBeforeSaveTranscript: (() => void) | null = null;
   migrated = false;
 
   async migrate(): Promise<void> {
@@ -186,6 +217,12 @@ export class InMemoryRepository implements TranscriptRepository {
     scope: JobScope,
     jobId: string,
   ): Promise<SaveTranscriptResult> {
+    this.onBeforeSaveTranscript?.();
+    // The real repository checks and inserts in one transaction; here the
+    // single-threaded fake gives the same guarantee for free.
+    if (!this.meetings.has(transcript.meetingId)) {
+      throw new MeetingGoneError(transcript.meetingId);
+    }
     const existing = this.byJob.get(jobId);
     if (existing) return { transcriptId: existing, created: false };
     for (const entry of this.transcripts.values()) {
@@ -199,6 +236,9 @@ export class InMemoryRepository implements TranscriptRepository {
   }
 
   async saveJob(job: Job): Promise<void> {
+    // Mirrors the real repository: no job row is recorded for a meeting that is
+    // no longer there.
+    if (!this.meetings.has(job.meetingId)) return;
     this.jobStates.push(job);
   }
 

@@ -7,7 +7,7 @@ import {
   type SummaryTemplate,
   type Transcript,
 } from "@quorum/shared";
-import { JobError } from "../errors.js";
+import { JobError, MeetingGoneError } from "../errors.js";
 import { MIGRATIONS } from "./schema.js";
 
 /** Arbitrary but fixed key; only this migration ever takes it. */
@@ -34,6 +34,10 @@ export interface SaveSummaryResult {
 /** Persistence port; the in-memory implementation in the tests mirrors it. */
 export interface TranscriptRepository {
   migrate(): Promise<void>;
+  /**
+   * Persists the transcript, or raises `MeetingGoneError` when the meeting was
+   * deleted in the meantime. The check and the insert share one transaction.
+   */
   saveTranscript(
     transcript: Transcript,
     scope: JobScope,
@@ -50,6 +54,16 @@ export interface SummaryRepository {
   /** Highest version of a template visible to the tenant, or `null`. */
   loadTemplate(templateId: string, tenantId: string): Promise<SummaryTemplate | null>;
   loadTranscript(transcriptId: string, tenantId: string): Promise<Transcript | null>;
+  /**
+   * Whether the meeting still exists in the caller's tenant. Used to tell a
+   * deleted meeting apart from a genuinely broken job when the transcript a
+   * summarize job names cannot be loaded.
+   */
+  meetingExists(meetingId: string, tenantId: string): Promise<boolean>;
+  /**
+   * Persists the summary, or raises `MeetingGoneError` when the meeting was
+   * deleted in the meantime. The check and the insert share one transaction.
+   */
   saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult>;
   saveJob(job: Job, scope: JobScope, attempt: number): Promise<void>;
 }
@@ -93,6 +107,8 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
   ): Promise<SaveTranscriptResult> {
     try {
       return await this.sql.begin(async (sql) => {
+        await requireMeeting(sql, transcript.meetingId, scope.tenantId);
+
         const existing = await sql<{ id: string }[]>`
           SELECT id FROM transcripts WHERE job_id = ${jobId} FOR UPDATE
         `;
@@ -131,7 +147,7 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
         return { transcriptId: row.id, created: true };
       });
     } catch (error) {
-      if (error instanceof JobError) throw error;
+      if (error instanceof JobError || error instanceof MeetingGoneError) throw error;
       throw new JobError("TRANSCRIPT_PERSIST_FAILED", "failed to persist the transcript", {
         retryable: true,
         cause: error,
@@ -139,29 +155,46 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
     }
   }
 
-  /** Records the job state of `shared/src/job.ts` — queued, running, succeeded, failed. */
+  /**
+   * Records the job state of `shared/src/job.ts` — queued, running, succeeded,
+   * failed.
+   *
+   * The write is skipped, silently, when the meeting no longer exists. A job
+   * row is as much a piece of the meeting as its transcript is — the deletion
+   * cascade removes both in one transaction — so inserting one afterwards would
+   * leave residue behind a meeting the user deleted. The handlers already
+   * abandon such a job, but the guard belongs here as well: the very first
+   * thing a job does is record itself as `running`, long before it reaches a
+   * point where a handler could check anything.
+   */
   async saveJob(job: Job, scope: JobScope, attempt: number): Promise<void> {
     try {
-      await this.sql`
-        INSERT INTO jobs (
-          id, meeting_id, tenant_id, user_id, session_id, type, status, progress,
-          error, result_id, attempt, created_at, started_at, finished_at, updated_at
-        ) VALUES (
-          ${job.id}, ${job.meetingId}, ${scope.tenantId}, ${scope.userId}, ${scope.sessionId},
-          ${job.type}, ${job.status}, ${job.progress}, ${job.error ? this.sql.json(job.error) : null},
-          ${job.resultId}, ${attempt}, ${job.createdAt}, ${job.startedAt}, ${job.finishedAt}, now()
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          status = EXCLUDED.status,
-          progress = EXCLUDED.progress,
-          error = EXCLUDED.error,
-          result_id = EXCLUDED.result_id,
-          attempt = EXCLUDED.attempt,
-          started_at = COALESCE(jobs.started_at, EXCLUDED.started_at),
-          finished_at = EXCLUDED.finished_at,
-          updated_at = now()
-      `;
+      await this.sql.begin(async (sql) => {
+        await requireMeeting(sql, job.meetingId, scope.tenantId);
+        await sql`
+          INSERT INTO jobs (
+            id, meeting_id, tenant_id, user_id, session_id, type, status, progress,
+            error, result_id, attempt, created_at, started_at, finished_at, updated_at
+          ) VALUES (
+            ${job.id}, ${job.meetingId}, ${scope.tenantId}, ${scope.userId}, ${scope.sessionId},
+            ${job.type}, ${job.status}, ${job.progress}, ${job.error ? sql.json(job.error) : null},
+            ${job.resultId}, ${attempt}, ${job.createdAt}, ${job.startedAt}, ${job.finishedAt}, now()
+          )
+          ON CONFLICT (id) DO UPDATE SET
+            status = EXCLUDED.status,
+            progress = EXCLUDED.progress,
+            error = EXCLUDED.error,
+            result_id = EXCLUDED.result_id,
+            attempt = EXCLUDED.attempt,
+            started_at = COALESCE(jobs.started_at, EXCLUDED.started_at),
+            finished_at = EXCLUDED.finished_at,
+            updated_at = now()
+        `;
+      });
     } catch (error) {
+      // A deleted meeting is not a persistence failure — there was simply
+      // nothing left to record against.
+      if (error instanceof MeetingGoneError) return;
       throw new JobError("TRANSCRIPT_PERSIST_FAILED", "failed to record the job state", {
         retryable: true,
         cause: error,
@@ -275,6 +308,8 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
   async saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult> {
     try {
       return await this.sql.begin(async (sql) => {
+        await requireMeeting(sql, summary.meetingId, scope.tenantId);
+
         const existing = await sql<{ id: string }[]>`
           SELECT id FROM summaries WHERE job_id = ${jobId} FOR UPDATE
         `;
@@ -316,8 +351,23 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
         return { summaryId: row.id, created: true };
       });
     } catch (error) {
-      if (error instanceof JobError) throw error;
+      if (error instanceof JobError || error instanceof MeetingGoneError) throw error;
       throw new JobError("SUMMARY_PERSIST_FAILED", "failed to persist the summary", {
+        retryable: true,
+        cause: error,
+      });
+    }
+  }
+
+  async meetingExists(meetingId: string, tenantId: string): Promise<boolean> {
+    try {
+      return await this.sql.begin(async (sql) => {
+        await requireMeeting(sql, meetingId, tenantId);
+        return true;
+      });
+    } catch (error) {
+      if (error instanceof MeetingGoneError) return false;
+      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to check the meeting", {
         retryable: true,
         cause: error,
       });
@@ -327,4 +377,46 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
   async close(): Promise<void> {
     await this.sql.end({ timeout: 5 });
   }
+}
+
+/**
+ * Raises `MeetingGoneError` unless the meeting still exists for this tenant.
+ *
+ * WHY THE WORKER READS A SERVER-OWNED TABLE: `meetings` is the authority on
+ * whether a recording exists — the deletion cascade removes that row in the
+ * same transaction as the artifacts — so it is the only honest thing to check.
+ * This mirrors the existing arrangement in the other direction, where the API
+ * server reads the worker's `transcripts`, `summaries` and `jobs` tables
+ * without writing them. Folding both schemas into a single migration owner is
+ * the follow-up already noted in `schema.ts` on both sides; this call does not
+ * change that plan.
+ *
+ * WHY `FOR SHARE`: the row lock is what makes the check race-free rather than
+ * merely narrow. The delete cascade opens with `SELECT ... FOR UPDATE` on the
+ * same row, so a delete that arrives after this statement blocks until the
+ * insert has committed, and a delete that arrives before it makes this
+ * statement wait and then find nothing. Both transactions take the `meetings`
+ * row first, so the lock order is consistent and cannot deadlock.
+ *
+ * WHY A MISSING TABLE COUNTS AS PRESENT: the server may not have applied its
+ * schema yet on a fresh database. No meeting can have been deleted if no
+ * meeting was ever recorded, so failing open here discards no data — whereas
+ * failing closed would throw away real work over a start-order race.
+ */
+async function requireMeeting(
+  sql: postgres.TransactionSql,
+  meetingId: string,
+  tenantId: string,
+): Promise<void> {
+  const registered = await sql<{ present: boolean }[]>`
+    SELECT to_regclass('public.meetings') IS NOT NULL AS present
+  `;
+  if (registered[0]?.present !== true) return;
+
+  const rows = await sql<{ id: string }[]>`
+    SELECT id FROM meetings
+     WHERE id = ${meetingId} AND tenant_id = ${tenantId}
+     FOR SHARE
+  `;
+  if (rows.length === 0) throw new MeetingGoneError(meetingId);
 }
