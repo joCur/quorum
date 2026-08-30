@@ -8,6 +8,8 @@ import { S3RecordingStorage } from "./recording/storage/s3.js";
 import { PostgresMeetingStore } from "./meetings/repository.js";
 import { PostgresSummaryTemplateStore } from "./templates/repository.js";
 import { StaticUserLimitsResolver } from "./limits.js";
+import { createServerMetrics } from "./observability/metrics.js";
+import { PostgresQueueSnapshot } from "./observability/queue-snapshot.js";
 
 export { buildServer } from "./app.js";
 export type { BuildServerOptions } from "./app.js";
@@ -80,6 +82,9 @@ export { apiRateLimitPlugin } from "./api-rate-limit.js";
 export { InMemoryJobQueue } from "./recording/queue/memory.js";
 export { HeaderRecordingContextProvider, UnauthorizedError } from "./recording/context-provider.js";
 export { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
+export * from "./observability/metrics.js";
+export * from "./observability/logging.js";
+export { PostgresQueueSnapshot } from "./observability/queue-snapshot.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -112,9 +117,15 @@ async function main(): Promise<void> {
   // not its migration owner — see the note in `templates/repository.ts`.
   const templates = new PostgresSummaryTemplateStore(config.DATABASE_URL);
 
+  // Queue depth is reported by the API rather than the worker: a crashed worker is precisely the
+  // case the backlog alert has to survive, and a gauge that dies with its process cannot.
+  const queueSnapshot = new PostgresQueueSnapshot(config.DATABASE_URL);
+  const metrics = createServerMetrics({ queues: queueSnapshot });
+
   const app = await buildServer({
     storage,
     queue,
+    metrics,
     meetings,
     templates,
     auth: {
@@ -142,6 +153,7 @@ async function main(): Promise<void> {
         await queue.stop();
         await meetings.close();
         await templates.close();
+        await queueSnapshot.close();
       })();
     });
   }

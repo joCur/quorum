@@ -78,7 +78,22 @@ export interface SessionDeps {
   registry?: SessionRegistry | undefined;
   now?: () => Date;
   newId?: () => string;
-  logger?: { warn(details: Record<string, unknown>, message: string): void };
+  logger?: SessionLogger | undefined;
+}
+
+/**
+ * The slice of a pino logger this handler uses.
+ *
+ * `child` is optional so a test can pass a two-method stub, but in production it
+ * is what puts `sessionId` and `meetingId` on every line a connection emits —
+ * the meeting↔session↔job correlation the rest of the observability work builds
+ * on. Without it a failed recording logs a reason and no way to tell whose
+ * recording failed.
+ */
+export interface SessionLogger {
+  info(details: Record<string, unknown>, message: string): void;
+  warn(details: Record<string, unknown>, message: string): void;
+  child?(bindings: Record<string, unknown>): SessionLogger;
 }
 
 interface ActiveSession {
@@ -107,6 +122,8 @@ export class RecordingSessionHandler {
   private readonly connection: Connection;
   private session: ActiveSession | null = null;
   private context: RecordingContext | null;
+  /** Rebound to a session-scoped child as soon as there is a session to name. */
+  private log: SessionLogger | undefined;
   private readonly limitsResolver: UserLimitsResolver;
   /**
    * Limits of the acting user, resolved once the session is known and then fixed for its whole
@@ -122,6 +139,7 @@ export class RecordingSessionHandler {
     this.connection = connection;
     this.deps = deps;
     this.context = deps.context ?? null;
+    this.log = deps.logger;
     this.limitsResolver = deps.limits ?? new StaticUserLimitsResolver();
   }
 
@@ -136,6 +154,12 @@ export class RecordingSessionHandler {
     this.rateMeter = new ConnectionRateMeter(this.limits, () =>
       (this.deps.now?.() ?? new Date()).getTime(),
     );
+  }
+
+  /** Binds session and meeting id onto every subsequent line from this connection. */
+  private bindSessionLog(record: SessionRecord): void {
+    const base = this.deps.logger;
+    this.log = base?.child?.({ sessionId: record.sessionId, meetingId: record.meetingId }) ?? base;
   }
 
   /** Supplies the tenant/user scope once authentication has resolved it. */
@@ -230,6 +254,7 @@ export class RecordingSessionHandler {
       this.fail("failed to persist session metadata", error);
       return;
     }
+    this.bindSessionLog(record);
     await this.indexMeeting(record);
     this.session = {
       record,
@@ -241,6 +266,10 @@ export class RecordingSessionHandler {
       recordedSeconds: 0,
       chunksSinceUsageFlush: 0,
     };
+    this.log?.info(
+      { event: "session.started", container: record.audioFormat.container },
+      "recording session started",
+    );
     this.connection.send({ type: "session.ready", sessionId: record.sessionId });
   }
 
@@ -268,8 +297,8 @@ export class RecordingSessionHandler {
         monthStart(this.deps.now?.() ?? new Date()),
       );
     } catch (error) {
-      this.deps.logger?.warn(
-        { err: error, tenantId: context.tenantId, userId: context.userId },
+      this.log?.warn(
+        { event: "quota.read_failed", err: error },
         "failed to read the recording quota usage; letting the session start",
       );
       return true;
@@ -304,8 +333,8 @@ export class RecordingSessionHandler {
         { audioBytes: session.audioBytes, recordedSeconds: session.recordedSeconds },
       );
     } catch (error) {
-      this.deps.logger?.warn(
-        { err: error, sessionId: session.record.sessionId },
+      this.log?.warn(
+        { event: "quota.usage_write_failed", err: error, sessionId: session.record.sessionId },
         "failed to record session usage; the quota may lag behind",
       );
     }
@@ -382,10 +411,17 @@ export class RecordingSessionHandler {
       chunksSinceUsageFlush: 0,
     };
     this.session = session;
+    // Bound before the deadline check, so a recording that is finalized on reconnect still logs
+    // under its session and meeting id.
+    this.bindSessionLog(record);
     // A recording that ran past the duration limit while it was disconnected must not be revived
     // by a reconnect; it is finalized here instead of continuing.
     if (await this.stopIfPastDeadline(session)) return false;
     this.advance(session);
+    this.log?.info(
+      { event: "session.reattached", persistedSeq: session.persistedSeq },
+      "reattached to an existing session after a reconnect",
+    );
     return true;
   }
 
@@ -438,11 +474,23 @@ export class RecordingSessionHandler {
       const finalized = await this.finalize(session);
       if (!finalized) return true;
     }
+    this.log?.info(
+      { event: "limit.session_duration_exceeded", elapsedSeconds: this.elapsedSeconds(session) },
+      "recording reached the session duration limit and was finalized",
+    );
     this.connection.close(CLOSE_NORMAL, "limit.session_duration_exceeded");
     return true;
   }
 
+  /**
+   * The single funnel for a limit refusal, which is why the log line lives here.
+   *
+   * Without it a refused recording is invisible on the server: the user sees a connection that
+   * closes and the operator sees nothing at all. `info`, not `warn` — a limit doing its job is
+   * normal operation, and the connection-scoped logger supplies the tenant and user behind it.
+   */
   private closeWithLimit(code: LimitErrorCode): void {
+    this.log?.info({ event: code }, "recording refused by a limit");
     this.connection.close(CLOSE_POLICY_VIOLATION, code);
   }
 
@@ -609,13 +657,23 @@ export class RecordingSessionHandler {
         this.timestamp(),
       );
     } catch (error) {
-      this.deps.logger?.warn(
-        { err: error, sessionId: session.record.sessionId },
+      this.log?.warn(
+        { event: "meeting.finalize_index_failed", err: error },
         "failed to mark the meeting finalized in the meeting index",
       );
     }
 
     session.finalized = true;
+    // The one line that ties a recording to the job id the pipeline is about to run under. A
+    // stuck transcription is diagnosed by starting here and following `jobId` into the worker.
+    this.log?.info(
+      {
+        event: "session.finalized",
+        jobId,
+        chunkCount: session.persistedSeq + 1,
+      },
+      "recording finalized and transcription job enqueued",
+    );
     this.connection.send({
       type: "session.finalized",
       sessionId: session.record.sessionId,
@@ -642,8 +700,8 @@ export class RecordingSessionHandler {
       });
       session.audioBytes = objects.reduce((total, object) => total + object.size, 0);
     } catch (error) {
-      this.deps.logger?.warn(
-        { err: error, sessionId: session.record.sessionId },
+      this.log?.warn(
+        { event: "quota.usage_measure_failed", err: error, sessionId: session.record.sessionId },
         "failed to measure the stored audio; the usage estimate of this connection is used",
       );
     }
@@ -669,8 +727,8 @@ export class RecordingSessionHandler {
         createdAt: record.createdAt,
       });
     } catch (error) {
-      this.deps.logger?.warn(
-        { err: error, sessionId: record.sessionId },
+      this.log?.warn(
+        { event: "meeting.index_failed", err: error, sessionId: record.sessionId },
         "failed to index the meeting; the recording continues",
       );
     }
@@ -687,7 +745,7 @@ export class RecordingSessionHandler {
   }
 
   private fail(message: string, error: unknown): void {
-    this.deps.logger?.warn({ err: error, sessionId: this.sessionId }, message);
+    this.log?.warn({ event: "session.failed", err: error, sessionId: this.sessionId }, message);
     this.connection.close(CLOSE_INTERNAL_ERROR, message);
   }
 
