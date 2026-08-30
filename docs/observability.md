@@ -4,8 +4,14 @@ Async pipelines fail quietly. This document describes the two signals that make 
 diagnosable without reading code: the structured log schema both services emit, and the Prometheus
 metrics they expose.
 
-The alert rules and the monitoring stack that consume these are documented separately in
-`docs/runbooks/`.
+The alert rules and the monitoring stack that consume these live in `infra/monitoring/`; what to do
+when one of them fires is in [`runbooks/pipeline.md`](runbooks/pipeline.md).
+
+Start the monitoring stack — it is opt-in, and no other service depends on it:
+
+```bash
+docker compose --profile monitoring up -d
+```
 
 ## Why Prometheus and not OpenTelemetry
 

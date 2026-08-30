@@ -1,0 +1,122 @@
+# Alert rules for the Quorum pipeline.
+#
+# Every rule below answers one question an operator would otherwise answer by reading code. The
+# `runbook` annotation points at the section of docs/runbooks/pipeline.md that says what to do,
+# so an alert never arrives without an instruction.
+#
+# Thresholds are starting points for the single-tenant private phase. They are meant to be tuned
+# once real timings exist — see the note under each `for` clause.
+
+groups:
+  - name: quorum-pipeline
+    rules:
+      # THE ALERT THE TICKET ASKED FOR: a job that has been waiting too long to start.
+      #
+      # `quorum_queue_oldest_pending_age_seconds` only counts jobs whose start_after has passed,
+      # so a job serving out its retry backoff never trips this. 15 minutes is chosen against the
+      # user-visible promise rather than against machine speed: a transcription that has not even
+      # begun a quarter of an hour after the recording ended is already a bad experience, and it
+      # is far longer than any healthy queue wait on a single-worker stack.
+      - alert: QuorumJobStuckInQueue
+        expr: quorum_queue_oldest_pending_age_seconds > 900
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "A {{ $labels.queue }} job has been waiting {{ $value | humanizeDuration }} to start"
+          description: >-
+            The oldest ready job on the {{ $labels.queue }} queue has not been picked up.
+            Nothing is transcribing or summarizing for the user who is waiting on it.
+          runbook: docs/runbooks/pipeline.md#a-job-is-stuck-in-queued
+
+      # The same failure one step earlier and far more specific: work is waiting and nothing is
+      # running. This fires minutes before the age threshold above and names the cause outright.
+      - alert: QuorumNothingConsumingQueue
+        expr: |
+          sum by (queue) (quorum_queue_jobs{state=~"created|retry"}) > 0
+          and on (queue) (sum by (queue) (quorum_jobs_in_flight) == 0)
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Jobs are waiting on {{ $labels.queue }} but no worker is running any"
+          description: >-
+            The queue has work and the worker reports nothing in flight. Either the worker is not
+            consuming this queue or it has stopped fetching.
+          runbook: docs/runbooks/pipeline.md#a-job-is-stuck-in-queued
+
+      # A single dead-lettered job is a user with no transcript. This is not a rate threshold on
+      # purpose: at this scale one is already worth a look.
+      - alert: QuorumJobsDeadLettered
+        expr: increase(quorum_jobs_total{outcome="deadletter"}[15m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $value | printf "%.0f" }} {{ $labels.queue }} job(s) dead-lettered in the last 15 minutes'
+          description: >-
+            These jobs will not be retried by themselves and produced no artifact. The dead-letter
+            queue holds them for inspection and redrive.
+          runbook: docs/runbooks/pipeline.md#redriving-the-dead-letter-queue
+
+      # Retries are normal; a sustained quarter of all attempts failing is a backend problem, not
+      # bad luck. Written over a 30 m window so one flaky minute does not page anyone.
+      - alert: QuorumJobFailureRateHigh
+        expr: |
+          sum by (queue) (rate(quorum_jobs_total{outcome=~"failed|deadletter"}[30m]))
+          /
+          sum by (queue) (rate(quorum_jobs_total[30m])) > 0.25
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.queue }} attempts are failing at {{ $value | humanizePercentage }}"
+          description: >-
+            More than a quarter of attempts on this queue are being redone. Usually the
+            transcription or summary backend, not the job code.
+          runbook: docs/runbooks/pipeline.md#a-backend-is-failing-attempts
+
+      # Long-running by design, but not this long: the worker's per-attempt budget is two hours,
+      # so an attempt past one hour is heading for an expiry and a retry of the same work.
+      - alert: QuorumJobRunningTooLong
+        expr: |
+          sum by (queue) (quorum_jobs_in_flight) > 0
+          and on (queue) (
+            sum by (queue) (increase(quorum_jobs_total[1h])) == 0
+          )
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "A {{ $labels.queue }} job has been running for over an hour without finishing"
+          description: >-
+            The worker is holding an attempt but has completed nothing on this queue for an hour.
+            Likely a transcription backend that accepted the request and never answered.
+          runbook: docs/runbooks/pipeline.md#an-attempt-runs-forever
+
+  - name: quorum-availability
+    rules:
+      - alert: QuorumTargetDown
+        expr: up{job=~"quorum-.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is not answering scrapes"
+          description: >-
+            The process is down, wedged, or unreachable. While the worker is down nothing is being
+            transcribed; while the API is down nothing can be recorded.
+          runbook: docs/runbooks/pipeline.md#a-service-is-down
+
+      # Without this, a database the API cannot read looks exactly like an empty queue, and every
+      # queue alert above goes quiet for the wrong reason.
+      - alert: QuorumQueueSnapshotFailing
+        expr: quorum_queue_snapshot_failed > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Queue metrics are stale — the API cannot read the queue"
+          description: >-
+            The queue gauges are frozen at their last known values. Treat every other queue alert
+            as unreliable until this clears.
+          runbook: docs/runbooks/pipeline.md#queue-metrics-are-stale

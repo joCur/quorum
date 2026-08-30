@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: quorum
+    type: file
+    # Dashboards are files in this repository, not clicks in a UI: a dashboard someone edited in
+    # the browser is lost the moment the container is recreated.
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

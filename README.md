@@ -18,6 +18,10 @@ Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, gepl
 - `COST-MODEL.md` — Kosten pro Meeting-Stunde (eigener Server vs. Cloud)
 - `docs/observability.md` — the structured log schema both services emit and the Prometheus
   metrics they expose (queue depth, job throughput, failure rate)
+- `docs/runbooks/pipeline.md` — what to do when the pipeline misbehaves: retry and dead-letter
+  semantics per job type, the dead-letter redrive procedure, and a response for every alert
+- `infra/monitoring/` — Prometheus, Alertmanager and Grafana as code, behind the opt-in
+  `monitoring` compose profile
 - `docker-compose.yml` + `docker-compose.gpu.yml` + `.env.example` — Self-Hosting-Skeleton, Hardware-Wechsel rein per Env
 - `shared/src/` — Zod-Schemas als Single Source of Truth für Client & Server
   - `recording-protocol.ts` — WebSocket-Control-Messages + binäres Chunk-Format

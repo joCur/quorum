@@ -1,0 +1,157 @@
+{
+  "uid": "quorum-pipeline",
+  "title": "Quorum — recording pipeline",
+  "description": "Queue health and job outcomes. Read top to bottom: is work waiting, is anything running, and how are the attempts ending.",
+  "tags": ["quorum"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Queue depth by state",
+      "description": "Many 'created' with nothing 'active' means nothing is consuming the queue. 'retry' climbing means a backend is flapping.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "fillOpacity": 20, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum by (queue, state) (quorum_queue_jobs)",
+          "legendFormat": "{{queue}} / {{state}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Oldest ready job — waiting time",
+      "description": "The signal behind QuorumJobStuckInQueue. Only counts jobs whose retry backoff has elapsed, so a healthy retry never appears here.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 900 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "quorum_queue_oldest_pending_age_seconds",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Attempts in flight",
+      "description": "Pinned at the concurrency limit means saturated; zero while the queue has work means nothing is consuming.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [{ "expr": "quorum_jobs_in_flight", "legendFormat": "{{queue}}", "refId": "A" }]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Attempt throughput by outcome",
+      "description": "Per-attempt, not per-job: a job that fails twice and then succeeds shows two failures and one success.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (queue, outcome) (rate(quorum_jobs_total[5m]))",
+          "legendFormat": "{{queue}} / {{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Failure rate",
+      "description": "Share of attempts being redone. QuorumJobFailureRateHigh fires above 25% sustained.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "max": 1, "min": 0 }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum by (queue) (rate(quorum_jobs_total{outcome=~\"failed|deadletter\"}[30m])) / sum by (queue) (rate(quorum_jobs_total[30m]))",
+          "legendFormat": "{{queue}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Attempt duration (p50 / p95)",
+      "description": "Successful attempts only — a failure's duration says how fast it failed, which is a different question.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le, queue) (rate(quorum_job_duration_seconds_bucket{outcome=\"succeeded\"}[30m])))",
+          "legendFormat": "{{queue}} p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, queue) (rate(quorum_job_duration_seconds_bucket{outcome=\"succeeded\"}[30m])))",
+          "legendFormat": "{{queue}} p95",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Event loop lag (p99)",
+      "description": "A process that is busy but making no progress shows up here before it shows up anywhere else.",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "quorum_nodejs_eventloop_lag_p99_seconds",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Resident memory",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "quorum_process_resident_memory_bytes",
+          "legendFormat": "{{service}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

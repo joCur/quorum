@@ -227,10 +227,93 @@ services:
     entrypoint: ["/bin/sh", "/usr/local/bin/minio-init.sh"]
     restart: "no"
 
+  # ---------------------------------------------------------------------------------------------
+  # Monitoring — OPT-IN. None of the three services below start with a plain `docker compose up`.
+  #
+  #   docker compose --profile monitoring up -d
+  #
+  # They are behind a profile because a developer running the stack to work on a feature should not
+  # pay for three extra containers, and because the pipeline must not depend on them: if Prometheus
+  # being down could stop a recording, the monitoring would be the outage.
+  # See docs/runbooks/pipeline.md for what to do when one of these alerts fires.
+  # ---------------------------------------------------------------------------------------------
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-v3.7.3}
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Long enough to look back over a bad week; short enough that the volume stays small on a
+      # single-host deployment. Metrics are operational data, not records worth keeping.
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    volumes:
+      - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      # Local inspection only — behind the reverse proxy or Tailscale in production.
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  alertmanager:
+    image: prom/alertmanager:${ALERTMANAGER_VERSION:-v0.28.1}
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    volumes:
+      - ./infra/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-12.3.1}
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Nothing here is public, and there is no sign-up flow to expose.
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      # Data sources and dashboards come from this repository, not from clicks in the UI: a
+      # dashboard edited in the browser is lost the moment the container is recreated.
+      - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 volumes:
   pg-data:
   minio-data:
   whisper-models:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:
 
 # Hinweise:
 # - Queue: pg-boss in Postgres — kein separater Redis nötig (siehe OPEN-QUESTIONS.md).
