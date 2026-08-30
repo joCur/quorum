@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { ConnectionBanner } from "@/components/recording/connection-banner";
 import { ConsentNotice } from "@/components/recording/consent-notice";
 import { LevelMeter } from "@/components/recording/level-meter";
@@ -12,6 +13,7 @@ import { RecordButton } from "@/components/recording/record-button";
 import { RecordingIndicator } from "@/components/recording/recording-indicator";
 import { SyncStatus } from "@/components/recording/sync-status";
 import { useRecording } from "@/features/recording/use-recording";
+import { useTemplates } from "@/features/templates/use-templates";
 import { formatDuration } from "@/lib/duration";
 
 /**
@@ -28,6 +30,16 @@ export function RecordRoute() {
   const [consentOpen, setConsentOpen] = React.useState(false);
   const [confirmStop, setConfirmStop] = React.useState(false);
   const [title, setTitle] = React.useState("");
+  const templates = useTemplates();
+  // `null` means "not touched yet", which is what keeps the field following the user's default
+  // while it is still loading — an explicit choice replaces it and is never overwritten again.
+  const [chosenTemplate, setChosenTemplate] = React.useState<string | null>(null);
+
+  const defaultTemplate = templates.templates.find((view) => view.isDefault)?.template.id ?? null;
+  const templateId = chosenTemplate ?? defaultTemplate ?? "";
+  // One template is no choice. Showing a select with a single option would be a control that
+  // cannot do anything — the resting state stays silent until the user has templates of their own.
+  const offerTemplates = templates.status === "ready" && templates.templates.length > 1;
 
   const active = state.phase === "recording";
   const live = active || state.phase === "paused";
@@ -53,7 +65,13 @@ export function RecordRoute() {
         onCancel={() => setConsentOpen(false)}
         onConfirm={() => {
           setConsentOpen(false);
-          void start(title.trim() === "" ? null : title.trim());
+          // The template travels as an explicit id rather than as "send nothing", the prefilled
+          // default included: what the screen showed when the recording started is what the
+          // summary is made with.
+          void start(
+            title.trim() === "" ? null : title.trim(),
+            templateId === "" ? null : templateId,
+          );
         }}
       />
 
@@ -105,6 +123,23 @@ export function RecordRoute() {
               placeholder={t("recording.titleField.placeholder")}
               onChange={(event) => setTitle(event.target.value)}
             />
+
+            {offerTemplates ? (
+              <>
+                <Label htmlFor="summary-template">{t("recording.templateField.label")}</Label>
+                <Select
+                  id="summary-template"
+                  value={templateId}
+                  onChange={(event) => setChosenTemplate(event.target.value)}
+                >
+                  {templates.templates.map((view) => (
+                    <option key={view.template.id} value={view.template.id}>
+                      {view.template.name}
+                    </option>
+                  ))}
+                </Select>
+              </>
+            ) : null}
           </div>
         ) : null}
 

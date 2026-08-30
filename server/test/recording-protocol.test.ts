@@ -54,6 +54,60 @@ describe("handshake", () => {
     expect(keys).toContain(chunkKey({ tenantId: "tenant-a", userId: "user-1", sessionId }, 0));
   });
 
+  /**
+   * The template a meeting is summarized with is chosen before recording and travels in
+   * `session.start`. Storing it with the session rather than attaching it afterwards is what
+   * keeps the choice and the recording from disagreeing: they are written in one step.
+   */
+  it("stores the summary template chosen for this meeting with the session", async () => {
+    const harness = createHarness();
+    const chosen = "9a3f2c1d-4b5e-4a77-8c91-2d6e5f4a3b21";
+    await harness.handler.handleText(
+      JSON.stringify({
+        type: "session.start",
+        meetingTitle: "Weekly sync",
+        summaryTemplateId: chosen,
+        audioFormat: WEBM_OPUS,
+        clientInfo: { platform: "web-desktop", userAgent: "vitest" },
+      }),
+    );
+    const ready = harness.connection.last("session.ready");
+    const stored = harness.storage.objects.get(
+      sessionKey({ tenantId: "tenant-a", userId: "user-1", sessionId: ready?.sessionId ?? "" }),
+    );
+
+    expect(JSON.parse(new TextDecoder().decode(stored)).summaryTemplateId).toBe(chosen);
+  });
+
+  /**
+   * A client built before the field existed — a tab left open across a deploy — has to keep
+   * recording. Its sessions carry no choice, which the summary side reads as "follow the user's
+   * default"; that is why the field is optional rather than required.
+   */
+  it("accepts a session.start without the template field and records no choice", async () => {
+    const harness = createHarness();
+    const sessionId = await startSession(harness);
+    const stored = harness.storage.objects.get(
+      sessionKey({ tenantId: "tenant-a", userId: "user-1", sessionId }),
+    );
+
+    expect(JSON.parse(new TextDecoder().decode(stored)).summaryTemplateId).toBeNull();
+  });
+
+  it("rejects a session.start whose template id is not an id at all", async () => {
+    const harness = createHarness();
+    await harness.handler.handleText(
+      JSON.stringify({
+        type: "session.start",
+        meetingTitle: null,
+        summaryTemplateId: "the short one",
+        audioFormat: WEBM_OPUS,
+        clientInfo: { platform: "web-desktop", userAgent: "vitest" },
+      }),
+    );
+    expect(harness.connection.closed?.code).toBe(CLOSE_PROTOCOL_ERROR);
+  });
+
   it("rejects a control message that does not match the protocol schema", async () => {
     const harness = createHarness();
     await harness.handler.handleText(JSON.stringify({ type: "session.start" }));

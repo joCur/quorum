@@ -212,3 +212,88 @@ test("summarizes a new recording with the template the user set as their default
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete template" }).click();
   await expect(chosen).toHaveCount(0);
 });
+
+const PREFERRED_NAME = "E2E preferred layout";
+const ONE_OFF_NAME = "E2E one-off layout";
+
+/**
+ * The top of the resolution chain: a template chosen for this one meeting before recording beats
+ * the user's default. The choice is made on the recording screen, so the capture moment stays
+ * one decision long — the select is prefilled and can simply be ignored.
+ */
+test("summarizes a recording with the template picked at the start, over the user's default", async ({
+  page,
+  signIn,
+}) => {
+  const protocol = watchRecordingProtocol(page);
+  await signIn(devUsers.alice);
+
+  // --- Two templates: one the user's default, one for this meeting only ------------------------
+  await page.goto("/templates");
+  for (const [name, section] of [
+    [PREFERRED_NAME, "Usual"],
+    [ONE_OFF_NAME, "Just this once"],
+  ] as const) {
+    await page.getByRole("button", { name: "Create a template" }).first().click();
+    await page.getByLabel("Name").fill(name);
+    await page.getByRole("button", { name: "Add a section" }).click();
+    await page.getByLabel("Heading").last().fill(section);
+    await page.getByLabel("What belongs in it").last().fill(`Whatever belongs under ${section}.`);
+    await page.getByRole("button", { name: "Save template" }).click();
+    await expect(page.getByTestId("template-card").filter({ hasText: name })).toBeVisible();
+  }
+
+  await page
+    .getByTestId("template-card")
+    .filter({ hasText: PREFERRED_NAME })
+    .getByRole("button", { name: `Use ${PREFERRED_NAME} for new recordings` })
+    .click();
+
+  const oneOffId = await waitForValue(
+    () => findUserTemplateId(ONE_OFF_NAME),
+    10_000,
+    "the stored one-off template",
+  );
+
+  // --- Choosing at the start of a recording ----------------------------------------------------
+  await page.goto("/record");
+  const picker = page.getByLabel("Summary template");
+  // Prefilled with the default, so a user who wants their usual layout touches nothing.
+  await expect(picker).toHaveValue(
+    (await findUserTemplateId(PREFERRED_NAME)) ?? "the default template",
+  );
+
+  await picker.selectOption({ label: ONE_OFF_NAME });
+
+  await startRecording(page);
+  const sessionId = await protocol.waitForSessionId();
+  await protocol.waitForAck(3);
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+
+  await waitForValue(
+    () => findTranscript(sessionId),
+    stackEnv.whisperMode === "real" ? 300_000 : 60_000,
+    "the transcript row",
+  );
+
+  // The first and only summary follows the one-off choice, not the default it overrode.
+  const summary = await waitForValue(() => findSummary(sessionId), 60_000, "the first summary row");
+  expect(summary.templateId).toBe(oneOffId);
+  expect((await findSummaries(sessionId)).length).toBe(1);
+
+  // --- Cleanup ---------------------------------------------------------------------------------
+  await page.goto("/templates");
+  await page
+    .getByTestId("template-card")
+    .filter({ hasText: PREFERRED_NAME })
+    .getByRole("button", { name: `Stop using ${PREFERRED_NAME} for new recordings` })
+    .click();
+
+  for (const name of [PREFERRED_NAME, ONE_OFF_NAME]) {
+    const doomed = page.getByTestId("template-card").filter({ hasText: name });
+    await doomed.getByRole("button", { name: `Delete ${name}` }).click();
+    await page.getByRole("alertdialog").getByRole("button", { name: "Delete template" }).click();
+    await expect(doomed).toHaveCount(0);
+  }
+});

@@ -54,6 +54,13 @@ export interface RecordingClientOptions {
   onError?: (error: RecordingClientError) => void;
 }
 
+/** What the recorder decided before the microphone opened. */
+export interface NewSession {
+  meetingTitle: string | null;
+  /** Template for this meeting's summary; `null` follows the user's default. */
+  summaryTemplateId: string | null;
+}
+
 export interface RecordingClientStatus {
   connection: ConnectionState;
   sessionId: string | null;
@@ -126,12 +133,12 @@ export class RecordingClient {
    * Opens a connection and starts a new session. Resolves with the session id
    * the server assigned in `session.ready`.
    */
-  async start(meetingTitle: string | null, audioFormat: AudioFormat): Promise<string> {
+  async start(session: NewSession, audioFormat: AudioFormat): Promise<string> {
     this.stopped = false;
     const ready = new Promise<string>((resolve) => {
       this.readyResolvers.push(resolve);
     });
-    this.pendingStart = { meetingTitle, audioFormat };
+    this.pendingStart = { ...session, audioFormat };
     this.connect();
     return ready;
   }
@@ -236,7 +243,7 @@ export class RecordingClient {
 
   // ---- connection handling ------------------------------------------------
 
-  private pendingStart: { meetingTitle: string | null; audioFormat: AudioFormat } | null = null;
+  private pendingStart: (NewSession & { audioFormat: AudioFormat }) | null = null;
   private endRequested = false;
 
   private connect(): void {
@@ -279,6 +286,7 @@ export class RecordingClient {
       this.sendControl({
         type: "session.start",
         meetingTitle: this.pendingStart.meetingTitle,
+        summaryTemplateId: this.pendingStart.summaryTemplateId,
         audioFormat: this.pendingStart.audioFormat,
         clientInfo: this.options.clientInfo ?? { platform: "web", userAgent: "" },
       });

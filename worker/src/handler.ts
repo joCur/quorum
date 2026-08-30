@@ -133,7 +133,12 @@ export async function runTranscribeJob(
     );
 
     const summaryEnqueued = await enqueueSummary(
-      { ...payload, transcriptId: saved.transcriptId, createdAt: now().toISOString() },
+      {
+        ...payload,
+        transcriptId: saved.transcriptId,
+        createdAt: now().toISOString(),
+        chosenTemplateId: session?.summaryTemplateId ?? null,
+      },
       deps,
       log,
     );
@@ -216,7 +221,12 @@ export async function runTranscribeJob(
  * same id, and the singleton key keeps that from ever producing two summaries.
  */
 async function enqueueSummary(
-  input: TranscribeJobPayload & { transcriptId: string; createdAt: string },
+  input: TranscribeJobPayload & {
+    transcriptId: string;
+    createdAt: string;
+    /** Template chosen before recording, straight from the session record. */
+    chosenTemplateId: string | null;
+  },
   deps: TranscribeHandlerDependencies,
   log: WorkerLogger,
 ): Promise<boolean> {
@@ -251,8 +261,18 @@ async function enqueueSummary(
 }
 
 /**
- * Picks the template the automatic summary is produced with: the user's own
- * default if they have set one, otherwise the system template.
+ * Picks the template the automatic summary is produced with.
+ *
+ * THE CHAIN, most specific first:
+ *   1. the choice made for this meeting before recording started,
+ *   2. the user's default template,
+ *   3. the system template.
+ *
+ * Each link is skipped when it names a template the user cannot see — deleted,
+ * or never theirs — so the chain always ends somewhere usable. A choice that has
+ * gone stale between recording and summarizing is logged rather than failing the
+ * summary: the recording happened, and a summary in the wrong layout is worth
+ * more than none.
  *
  * This is resolved here, at enqueue time, rather than in the summarize handler,
  * because the transcribe payload is where the tenant and the user are known
@@ -267,18 +287,33 @@ async function enqueueSummary(
  * usable summary the user can regenerate, which is strictly better than none.
  */
 async function resolveTemplateId(
-  input: TranscribeJobPayload,
+  input: TranscribeJobPayload & { chosenTemplateId: string | null },
   deps: TranscribeHandlerDependencies,
   fallbackTemplateId: string,
   log: WorkerLogger,
 ): Promise<string> {
   try {
-    const chosen = await deps.repository.findDefaultTemplateId(input.tenantId, input.userId);
-    return chosen ?? fallbackTemplateId;
+    const chosen = input.chosenTemplateId
+      ? await deps.repository.findVisibleTemplateId(
+          input.chosenTemplateId,
+          input.tenantId,
+          input.userId,
+        )
+      : null;
+    if (input.chosenTemplateId && !chosen) {
+      log.warn(
+        { event: "summary.chosen_template_gone", templateId: input.chosenTemplateId },
+        "the template chosen before recording is no longer available; falling back",
+      );
+    }
+    if (chosen) return chosen;
+
+    const preferred = await deps.repository.findDefaultTemplateId(input.tenantId, input.userId);
+    return preferred ?? fallbackTemplateId;
   } catch (error) {
     log.warn(
-      { event: "summary.default_template_lookup_failed", err: error },
-      "could not read the user's default template; using the system template",
+      { event: "summary.template_resolution_failed", err: error },
+      "could not resolve the summary template; using the system template",
     );
     return fallbackTemplateId;
   }

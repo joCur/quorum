@@ -205,7 +205,7 @@ export function useRecording() {
   }, []);
 
   const start = React.useCallback(
-    async (meetingTitle: string | null) => {
+    async (meetingTitle: string | null, summaryTemplateId: string | null = null) => {
       patch({ phase: "requesting", error: null });
 
       const format = selectRecordingFormat();
@@ -272,7 +272,7 @@ export function useRecording() {
       clientRef.current = client;
 
       const audioFormat = describeAudioFormat(format, track);
-      await client.start(meetingTitle, audioFormat);
+      await client.start({ meetingTitle, summaryTemplateId }, audioFormat);
 
       const context = new AudioContext();
       const analyser = context.createAnalyser();
