@@ -1,11 +1,11 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["vite/client", "node", "vitest/globals"],
+    "types": ["vite/client", "node", "vitest/globals", "@testing-library/jest-dom"],
     "tsBuildInfoFile": "../node_modules/.cache/tsconfig.client-test.tsbuildinfo"
   },
   // The app project emits nothing, so it cannot be referenced from here; the
   // test project simply checks the sources alongside the tests.
-  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "test/**/*.tsx"],
   "references": [{ "path": "../shared" }]
 }
