@@ -44,6 +44,12 @@
     "templateField": {
       "label": "Vorlage für die Zusammenfassung"
     },
+    "inputField": {
+      "label": "Mikrofon",
+      "systemDefault": "Systemstandard",
+      "forgotten": "Das zuletzt genutzte Mikrofon ist nicht angeschlossen. Diese Aufnahme nutzt den Systemstandard."
+    },
+    "inputFallback": "Dein Mikrofon wurde getrennt — die Aufnahme läuft auf dem Systemstandard weiter.",
     "confirmStop": {
       "question": "Aufnahme stoppen?",
       "confirm": "Stoppen"
@@ -62,6 +68,7 @@
       "unsupported": "Dieser Browser kann kein Audio aufnehmen. Nimm eine aktuelle Version von Chrome, Firefox oder Safari.",
       "storage": "Die Aufnahme wurde gestoppt, weil Audio nicht auf diesem Gerät gespeichert werden konnte.",
       "connection": "Die Verbindung ist fehlgeschlagen. Dein Audio liegt sicher auf diesem Gerät.",
+      "input-lost": "Die Aufnahme wurde beendet, weil kein Mikrofon mehr verfügbar ist. Alles bisher Aufgenommene liegt sicher auf diesem Gerät.",
       "unknown": "Die Aufnahme konnte nicht gestartet werden."
     },
     "limit": {
