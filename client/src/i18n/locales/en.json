@@ -127,6 +127,9 @@
     "title": "Templates",
     "create": "Create a template",
     "system": "System",
+    "default": "Default",
+    "setDefault": "Use {{template}} for new recordings",
+    "unsetDefault": "Stop using {{template}} for new recordings",
     "edit": "Edit {{template}}",
     "delete": "Delete {{template}}",
     "deleteDialog": {
