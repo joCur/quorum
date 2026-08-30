@@ -48,8 +48,12 @@ export function RecordButton({
         aria-label={label}
         aria-pressed={recording}
         className={cn(
-          "flex size-[72px] items-center justify-center bg-recording text-recording-foreground shadow-sm transition-all duration-large ease-spring hover:shadow-md active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background disabled:opacity-50 md:size-16",
-          recording ? "rounded-lg" : "rounded-full",
+          "record-button-morph flex size-[72px] items-center justify-center bg-recording text-recording-foreground shadow-sm hover:shadow-md active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background disabled:opacity-50 md:size-16",
+          // Half the button's own size rather than `rounded-full`: it renders as the same circle,
+          // but it gives the morph a real number to interpolate from instead of 9999px, so the
+          // shape travels evenly between the two states rather than snapping most of the way at
+          // the start.
+          recording ? "rounded-lg" : "rounded-[36px] md:rounded-[32px]",
         )}
       >
         {icon}

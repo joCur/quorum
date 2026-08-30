@@ -76,6 +76,8 @@
   },
   "limits": {
     "sessionDuration": "This recording reached the maximum length and was stopped. Everything up to that point is finalized and safe — transcript and summary follow as usual.",
+    "sessionLifetime": "This recording was open for a very long time and was closed for you. Everything recorded is finalized and safe — transcript and summary follow as usual.",
+    "pauseDuration": "The recording stayed paused for a long time, so it was finished for you. Everything up to the pause is finalized and safe — start a new recording to carry on.",
     "parallelSessions": "You already have as many recordings running as your account allows. Stop one of them, then start this one again.",
     "sendRate": "The connection was closed because audio arrived faster than allowed. What is still on this device can be uploaded from the meetings screen.",
     "storageQuota": "Your storage is full, so this recording could not be started. Delete a meeting you no longer need to free space.",

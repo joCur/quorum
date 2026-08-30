@@ -143,6 +143,27 @@
   animation: quorum-recording-pulse 1.6s var(--ease-enter) infinite;
 }
 
+/* Record button shape morph: circle ↔ rounded square, the "it's real now" moment.
+   The radius deliberately does NOT ride the spring. `--ease-spring` overshoots past its target
+   (control point y = 1.56) — which is what gives a press its life — but a border-radius driven
+   past its target is clamped at 0 by the browser, so the morph flashes SHARP corners on the way
+   into the square. Transform and shadow keep the spring; the shape itself glides on `--ease-enter`
+   and is therefore monotonic. One element owns the radius, so nothing competes for it. */
+.record-button-morph {
+  transition:
+    border-radius var(--duration-large) var(--ease-enter),
+    opacity var(--duration-large) var(--ease-enter),
+    transform var(--duration-large) var(--ease-spring),
+    box-shadow var(--duration-large) var(--ease-spring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No morph: the shape swaps directly, which the state label carries anyway. */
+  .record-button-morph {
+    transition: none;
+  }
+}
+
 /* Press feedback for buttons (apply via active: variant or utility) */
 @keyframes quorum-press {
   0% {

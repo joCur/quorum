@@ -107,7 +107,12 @@ export function RecordRoute() {
       </header>
 
       <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6">
-        <p className="font-mono text-timer tabular-figures" aria-live="off">
+        {/* Recorded time, not wall clock: it stands still while the recording is paused. */}
+        <p
+          data-testid="recording-timer"
+          className="font-mono text-timer tabular-figures"
+          aria-live="off"
+        >
           {formatDuration(state.elapsedSeconds)}
         </p>
 

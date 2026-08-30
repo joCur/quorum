@@ -53,6 +53,27 @@ export async function startRecording(page: Page): Promise<void> {
   await expect(stopButton(page)).toBeVisible();
 }
 
+/**
+ * Pauses a running recording and waits until the screen says so.
+ *
+ * The indicator label is the assertion on purpose: "PAUSED" is the state the user is promised,
+ * and it is what tells them the red is no longer live.
+ */
+export async function pauseRecording(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
+  await expect(page.getByText("PAUSED", { exact: true })).toBeVisible();
+}
+
+export async function resumeRecording(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Resume", exact: true }).click();
+  await expect(page.getByText("REC", { exact: true })).toBeVisible();
+}
+
+/** The recorded-time display, which counts audio and stands still through a pause. */
+export function recordingTimer(page: Page) {
+  return page.getByTestId("recording-timer");
+}
+
 /** Stopping is a two-step confirmation; the second "Stop" lives in the confirmation panel. */
 export async function stopRecording(page: Page): Promise<void> {
   await stopButton(page).click();

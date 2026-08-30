@@ -1,5 +1,8 @@
 import {
   expect,
+  pauseRecording,
+  recordingTimer,
+  resumeRecording,
   startRecording,
   stopRecording,
   test,
@@ -91,4 +94,63 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   expect(summary.tenantId).toBe(alice.tenantId);
   expect(summary.userId).toBe(alice.userId);
   expect(summary.isActive).toBe(true);
+});
+
+/**
+ * Critical path: a break in the middle of a meeting must not split it in two.
+ *
+ * Pausing is the one control that touches capture without ending the session, so the assertions
+ * are about continuity: one meeting, one gap-free chunk sequence, and a recorded time that counts
+ * audio rather than wall clock.
+ */
+test("pauses and resumes without splitting the meeting", async ({ page, signIn }) => {
+  const alice = await fetchToken(devUsers.alice);
+  const protocol = watchRecordingProtocol(page);
+
+  await signIn(devUsers.alice);
+  await page.goto("/record");
+  await startRecording(page);
+
+  const sessionId = await protocol.waitForSessionId();
+  await protocol.waitForAck(2);
+  const seqsBeforePause = protocol.persistedSeq;
+
+  await pauseRecording(page);
+  const pausedTime = await recordingTimer(page).textContent();
+
+  // Long enough that a wall-clock timer would visibly move on. Nothing may be captured here: the
+  // recorded time is audio time, and the pause spends none of it.
+  await page.waitForTimeout(3_000);
+  await expect(recordingTimer(page)).toHaveText(pausedTime ?? "");
+
+  await resumeRecording(page);
+  // The sequence picks up where it stopped rather than starting a second recording.
+  await protocol.waitForAck(seqsBeforePause + 3);
+
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+  await expect(page).toHaveURL(/\/meetings$/);
+
+  const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
+
+  // One session prefix in object storage, and no gap where the break was.
+  const seqs = await chunkSeqs(scope);
+  expect(seqs).toEqual(seqs.map((_value, index) => index));
+  expect(seqs.length).toBeGreaterThan(seqsBeforePause + 1);
+
+  // One manifest, one meeting — and the marks record where the pause was, which is what lets the
+  // pipeline map audio time back to wall clock.
+  const manifest = await readManifest(scope);
+  expect(manifest?.chunkCount).toBe(seqs.length);
+  expect(manifest?.persistedSeq).toBe(seqs.length - 1);
+  expect(manifest?.marks.map((mark) => mark.type)).toEqual(["pause", "resume"]);
+
+  // Exactly one transcribe job for the whole meeting, break included.
+  const job = await waitForValue(
+    () => findTranscribeJob(sessionId),
+    30_000,
+    "the transcribe job on the queue",
+  );
+  expect(job.sessionId).toBe(sessionId);
+  expect(job.tenantId).toBe(alice.tenantId);
 });

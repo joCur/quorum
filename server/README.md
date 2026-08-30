@@ -216,7 +216,9 @@ endpoint therefore bounds what one connection and one user can push into the pip
 
 | Limit             | Default        | What it bounds                                           |
 | ----------------- | -------------- | -------------------------------------------------------- |
-| Session duration  | 4 h            | Wall clock of a single recording.                         |
+| Recorded duration | 4 h            | Audio time of a single recording; pauses do not count.    |
+| Session lifetime  | 12 h           | Wall clock a session may stay open, pauses included.      |
+| Pause duration    | 2 h            | Wall clock a single pause may last.                       |
 | Parallel sessions | 3 per user     | Open recording sessions of one user, per server process.  |
 | Chunk rate        | 20/s sustained | Frames per second on one connection.                      |
 | Byte rate         | 4 MiB/s        | Bytes per second on one connection.                       |
@@ -238,20 +240,39 @@ rate defaults sit 20x and 1000x above live speed. The burst allowance is what ma
 work: a client that buffered audio while offline replays it as fast as the socket allows, and that
 must not look like an attack.
 
-**The duration limit does not throw the recording away.** When it is passed, the server finalizes
-the session through exactly the same path `session.end` takes — manifest written, transcription
-enqueued, `session.finalized` sent — and only then closes the socket. What was recorded stays a
-normal, playable meeting; only the audio past the limit is lost. The check runs when a frame
-arrives rather than on a timer: a session that sends nothing costs nothing, and every frame that
-would add cost is checked before it is accepted. A reconnect to a session that ran past the limit
-while it was disconnected is stopped the same way instead of being revived.
+**No duration limit throws the recording away.** When one is passed, the server finalizes the
+session through exactly the same path `session.end` takes — manifest written, transcription
+enqueued, `session.finalized` sent — and only then closes the socket with close code 1000. What was
+recorded stays a normal, playable meeting; only the audio past the limit is lost. A reconnect to a
+session that ran past a limit while it was disconnected is stopped the same way instead of being
+revived.
 
-**The session clock is wall clock from `session.start`, and it keeps running through a pause.**
-A four-hour limit means four hours between starting and being stopped, not four hours of audio.
-That is deliberate: an open session holds a slot, a socket and a growing set of objects whether or
-not audio is flowing, and a pause that stopped the clock would let one session live forever. The
-recorded-seconds side of the quota is the opposite and counts audio time, so a paused meeting does
-not spend a user's monthly hours while nothing is being recorded.
+**Three separate clocks, because they protect three different things.**
+
+- **Recorded duration** counts **audio time only**: the `timestampOffset` the client stamps on each
+  chunk, which does not advance while a recording is paused. This is the limit that tracks cost,
+  because cost follows the seconds of audio that reach the pipeline, not the seconds a socket stays
+  open. A workshop with a thirty-minute break therefore loses nothing to it. It is checked on the
+  chunk that would cross it, so a session that sends nothing costs nothing and every frame that
+  would add cost is checked before it is accepted.
+- **Session lifetime** counts wall clock from `session.start`, pauses included, and protects the
+  open session itself — the socket, the in-memory state and the parallel-session slot it holds. It
+  sits far above the recorded-duration limit on purpose: only a session that was forgotten rather
+  than used ever reaches it. It is also what bounds a client that lies about its chunk offsets.
+- **Pause duration** counts wall clock since the last `session.pause` mark. A break longer than the
+  allowance is not a break any more, so the meeting is closed as a complete, playable recording and
+  picking the work back up starts a new session. This is the one limit that cannot be checked when
+  a frame arrives — a paused session sends nothing — so a pause arms a timer, and a `session.resume`
+  that arrives too late is finalized instead of honored. Because the pause mark is persisted with
+  the session record, the deadline survives a reconnect: a client that pauses, disappears and comes
+  back hours later is judged by when it paused.
+
+After a reconnect the recorded duration is rebuilt from the offsets of the chunks that arrive next
+— chunk lengths belong to the client, not to storage — so the limit is back in force from the first
+chunk after the reconnect, with the lifetime ceiling covering the gap.
+
+A pause does not interrupt the chunk sequence: sequence numbers continue across it, and the
+`marks` in the manifest are what tells the pipeline where the audio-time gaps were.
 
 ### Quotas
 
@@ -273,8 +294,8 @@ value — a reconnecting connection counts from zero and must not make a session
 finalize the byte count is replaced by a listing of what object storage actually holds, which also
 repairs any session that was partly written by a connection that is gone.
 
-Checked at the start rather than continuously: a running session is bounded by the maximum session
-duration anyway, so the worst overshoot is one full-length session per open connection — bounded in
+Checked at the start rather than continuously: a running session is bounded by the recorded-duration
+and lifetime limits anyway, so the worst overshoot is one full-length session per open connection — bounded in
 turn by the parallel-session cap — in exchange for keeping a database query off the chunk path. If
 the usage cannot be read at all, the session is allowed: losing a recording is worse than letting
 one past a quota, and every other limit still applies.
@@ -285,7 +306,9 @@ i18n:
 
 | Close code            | Reason                             | Meaning                                      |
 | --------------------- | ---------------------------------- | -------------------------------------------- |
-| 1000 normal           | `limit.session_duration_exceeded`  | Finalized by the server; the meeting exists.  |
+| 1000 normal           | `limit.session_duration_exceeded`  | Recorded-audio allowance spent; finalized, the meeting exists. |
+| 1000 normal           | `limit.session_lifetime_exceeded`  | Open too long in wall clock; finalized the same way. |
+| 1000 normal           | `limit.pause_duration_exceeded`    | Paused too long; finalized the same way.      |
 | 1008 policy violation | `limit.parallel_sessions_exceeded` | Too many open sessions for this user.         |
 | 1008 policy violation | `limit.chunk_rate_exceeded`        | Too many frames per second.                   |
 | 1008 policy violation | `limit.byte_rate_exceeded`         | Too many bytes per second.                    |
@@ -415,7 +438,9 @@ list with defaults.
 | `OIDC_AUDIENCE`          | Audience the access token must contain. Default `quorum-api`.                   |
 | `OIDC_TENANT_CLAIM`      | Claim holding the tenant. Default `tenant_id`.                                  |
 | `RECORDING_ALLOW_HEADER_AUTH` | Development-only header scope for the recording upgrade. Default `false`.  |
-| `RECORDING_MAX_SESSION_SECONDS` | Server-side hard stop on recording length. Default `14400` (4 h).        |
+| `RECORDING_MAX_RECORDED_SECONDS` | Hard stop on recorded audio, pauses excluded. Default `14400` (4 h).     |
+| `RECORDING_MAX_SESSION_LIFETIME_SECONDS` | Wall clock a session may stay open. Default `43200` (12 h).     |
+| `RECORDING_MAX_PAUSE_SECONDS` | Wall clock a pause may last before finalizing. Default `7200` (2 h).       |
 | `RECORDING_MAX_PARALLEL_SESSIONS` | Open recording sessions per user. Default `3`.                         |
 | `RECORDING_MAX_CHUNKS_PER_SECOND` | Sustained frames per second per connection. Default `20`.              |
 | `RECORDING_MAX_BYTES_PER_SECOND` | Sustained bytes per second per connection. Default `4194304` (4 MiB).    |

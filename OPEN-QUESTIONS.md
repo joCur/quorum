@@ -33,8 +33,10 @@ that was open here is now built and documented in `server/README.md`:
 
 - Per-user quotas — total stored audio and recorded hours per calendar month — summed from the
   meetings themselves rather than from counters, and enforced when a session starts.
-- Maximum session duration, with a server-side hard stop that finalizes what exists instead of
-  discarding it, and a maximum number of parallel sessions per user.
+- Three duration ceilings, each finalizing what exists instead of discarding it: recorded audio
+  (the cost limit, which a pause does not spend), session lifetime in wall clock (which protects
+  the open session itself), and how long a single pause may last before the meeting is closed as
+  complete. Plus a maximum number of parallel sessions per user.
 - Rate limits on the WebSocket (chunks/s and bytes/s, per connection) and on the REST API (per
   user, with a much smaller allowance on the one route that costs a model call).
 - Server-side validation that incoming chunks match the announced audio format — this one was

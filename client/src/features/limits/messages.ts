@@ -13,6 +13,8 @@ import { LIMIT_ERROR_CODES, type LimitErrorCode } from "@quorum/shared";
  */
 const MESSAGE_KEYS = {
   "limit.session_duration_exceeded": "limits.sessionDuration",
+  "limit.session_lifetime_exceeded": "limits.sessionLifetime",
+  "limit.pause_duration_exceeded": "limits.pauseDuration",
   "limit.parallel_sessions_exceeded": "limits.parallelSessions",
   "limit.chunk_rate_exceeded": "limits.sendRate",
   "limit.byte_rate_exceeded": "limits.sendRate",
@@ -38,10 +40,17 @@ export type LimitMessageKey = (typeof MESSAGE_KEYS)[LimitErrorCode];
 /**
  * True when the recording survived the limit that stopped it.
  *
- * Only the duration hard stop is of this kind: the server finalizes what it already holds, so the
- * meeting is complete and playable and the pipeline runs as usual. Every other limit refuses
- * something, and saying "your recording is safe" about a refusal would be a lie.
+ * The three duration limits are of this kind — recorded audio, session lifetime and a pause that
+ * outlasted its allowance: each one finalizes what the server already holds, so the meeting is
+ * complete and playable and the pipeline runs as usual. Every other limit refuses something, and
+ * saying "your recording is safe" about a refusal would be a lie.
  */
 export function isRecordingFinalizedDespite(code: LimitErrorCode): boolean {
-  return code === "limit.session_duration_exceeded";
+  return FINALIZING_CODES.has(code);
 }
+
+const FINALIZING_CODES: ReadonlySet<LimitErrorCode> = new Set([
+  "limit.session_duration_exceeded",
+  "limit.session_lifetime_exceeded",
+  "limit.pause_duration_exceeded",
+]);

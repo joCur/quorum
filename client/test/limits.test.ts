@@ -32,13 +32,18 @@ describe("limit codes", () => {
     }
   });
 
-  it("only calls the recording safe for the limit that finalizes it", () => {
-    // The duration hard stop finalizes what the server already holds; every other limit refuses,
-    // and telling the user their recording is safe there would be a lie.
-    expect(isRecordingFinalizedDespite("limit.session_duration_exceeded")).toBe(true);
+  it("only calls the recording safe for the limits that finalize it", () => {
+    // The three duration limits finalize what the server already holds — recorded audio, session
+    // lifetime, and a pause that outlasted its allowance. Every other limit refuses, and telling
+    // the user their recording is safe there would be a lie.
+    const finalizing: readonly string[] = [
+      "limit.session_duration_exceeded",
+      "limit.session_lifetime_exceeded",
+      "limit.pause_duration_exceeded",
+    ];
     for (const code of LIMIT_ERROR_CODES) {
-      if (code === "limit.session_duration_exceeded") continue;
-      expect(isRecordingFinalizedDespite(code), code).toBe(false);
+      expect(isRecordingFinalizedDespite(code), code).toBe(finalizing.includes(code));
     }
+    expect(LIMIT_ERROR_CODES.filter((code) => finalizing.includes(code))).toHaveLength(3);
   });
 });
