@@ -20,6 +20,8 @@ Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, gepl
   metrics they expose (queue depth, job throughput, failure rate)
 - `docs/runbooks/pipeline.md` — what to do when the pipeline misbehaves: retry and dead-letter
   semantics per job type, the dead-letter redrive procedure, and a response for every alert
+- `docs/runbooks/backup-restore.md` — what to back up and how to restore it, the deletion window
+  that backups have to honor, and how the MinIO KMS master key is kept and rotated
 - `infra/monitoring/` — Prometheus, Alertmanager and Grafana as code, behind the opt-in
   `monitoring` compose profile
 - `docker-compose.yml` + `docker-compose.gpu.yml` + `.env.example` — Self-Hosting-Skeleton, Hardware-Wechsel rein per Env
