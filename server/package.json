@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Quorum API server \u2014 Keycloak JWT auth with tenant-scoped request context and the WebSocket recording endpoint (ADR-002).",
+  "description": "Quorum API server — Keycloak JWT auth with tenant-scoped request context and the WebSocket recording endpoint (ADR-002).",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -22,6 +22,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
     "@fastify/websocket": "^11.3.0",
+    "@prometheus-io/client": "^0.16.1",
     "@quorum/shared": "workspace:*",
     "fastify": "^5.12.1",
     "fastify-plugin": "^6.0.0",

@@ -102,7 +102,7 @@ const authPluginImpl: FastifyPluginAsync<AuthPluginOptions> = async (app, option
           ? error
           : new AuthError("invalid_token", "The access token could not be verified.");
       request.log.info(
-        { code: authError.code, url: request.url },
+        { event: "auth.rejected", code: authError.code, url: request.url },
         "rejected request without a valid access token",
       );
       return unauthorized(request, reply, authError);
