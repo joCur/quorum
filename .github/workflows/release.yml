@@ -51,6 +51,11 @@ jobs:
             dockerfile: server/Dockerfile
           - image: worker
             dockerfile: worker/Dockerfile
+          # Keycloak's own optimized build. It is published alongside the application images
+          # because `start --optimized` refuses to run against the stock upstream image, and
+          # the production compose file needs a pinned tag rather than a build context.
+          - image: keycloak
+            dockerfile: infra/keycloak/Dockerfile
     steps:
       # Explicitly the tagged commit, not the branch head: another merge to main between the
       # release commit and this job would otherwise be built under the release's version number.
