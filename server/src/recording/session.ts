@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { ClientMessageSchema, type ClientMessage, type ServerMessage } from "@quorum/shared";
+import {
+  ClientMessageSchema,
+  type ClientMessage,
+  type LimitErrorCode,
+  type ServerMessage,
+} from "@quorum/shared";
 import {
   MAX_CHUNK_PAYLOAD_BYTES,
   checkAudioFormat,
@@ -8,6 +13,12 @@ import {
 } from "./audio-format.js";
 import { parseChunkFrame } from "./frame.js";
 import { chunkKey } from "./keys.js";
+import {
+  ConnectionRateMeter,
+  DEFAULT_RECORDING_LIMITS,
+  type RecordingLimits,
+  type SessionRegistry,
+} from "./limits.js";
 import type {
   JobQueue,
   MeetingRegistry,
@@ -52,6 +63,16 @@ export interface SessionDeps {
    * still records, it just produces nothing to list.
    */
   meetings?: MeetingRegistry | undefined;
+  /**
+   * Abuse and cost limits. Defaults to `DEFAULT_RECORDING_LIMITS`, which sits far above any real
+   * recording — an instance that passes nothing is protected, not unprotected.
+   */
+  limits?: RecordingLimits | undefined;
+  /**
+   * Shared across every connection of one server process; this is what makes the parallel-session
+   * cap mean anything. Without it the cap is not enforced.
+   */
+  registry?: SessionRegistry | undefined;
   now?: () => Date;
   newId?: () => string;
   logger?: SessionLogger | undefined;
@@ -94,12 +115,20 @@ export class RecordingSessionHandler {
   private context: RecordingContext | null;
   /** Rebound to a session-scoped child as soon as there is a session to name. */
   private log: SessionLogger | undefined;
+  private readonly limits: RecordingLimits;
+  private readonly rateMeter: ConnectionRateMeter;
+  /** Scope and session this connection holds a slot for, so it can be released exactly once. */
+  private registered: { scope: RecordingContext; sessionId: string } | null = null;
 
   constructor(connection: Connection, deps: SessionDeps) {
     this.connection = connection;
     this.deps = deps;
     this.context = deps.context ?? null;
     this.log = deps.logger;
+    this.limits = deps.limits ?? DEFAULT_RECORDING_LIMITS;
+    this.rateMeter = new ConnectionRateMeter(this.limits, () =>
+      (deps.now?.() ?? new Date()).getTime(),
+    );
   }
 
   /** Binds session and meeting id onto every subsequent line from this connection. */
@@ -191,6 +220,7 @@ export class RecordingSessionHandler {
       createdAt: this.timestamp(),
       marks: [],
     };
+    if (!this.claimSessionSlot(context, record.sessionId)) return;
     try {
       await this.deps.storage.putSession(record);
     } catch (error) {
@@ -269,6 +299,7 @@ export class RecordingSessionHandler {
       this.fail("failed to list persisted chunks", error);
       return false;
     }
+    if (!this.claimSessionSlot(context, record.sessionId)) return false;
     const session: ActiveSession = {
       record,
       format: check.format,
@@ -277,7 +308,12 @@ export class RecordingSessionHandler {
       finalized: false,
     };
     this.session = session;
+    // Bound before the deadline check, so a recording that is finalized on reconnect still logs
+    // under its session and meeting id.
     this.bindSessionLog(record);
+    // A recording that ran past the duration limit while it was disconnected must not be revived
+    // by a reconnect; it is finalized here instead of continuing.
+    if (await this.stopIfPastDeadline(session)) return false;
     this.advance(session);
     this.log?.info(
       { event: "session.reattached", persistedSeq: session.persistedSeq },
@@ -286,7 +322,85 @@ export class RecordingSessionHandler {
     return true;
   }
 
+  /**
+   * Takes a slot in the per-user parallel-session cap, or refuses the session.
+   *
+   * A connection that already holds a slot for this session keeps it: `acquire` is keyed by
+   * session id, so a reconnect for the user's own recording is never counted twice.
+   */
+  private claimSessionSlot(scope: RecordingContext, sessionId: string): boolean {
+    const registry = this.deps.registry;
+    if (!registry) return true;
+    if (!registry.acquire(scope, sessionId)) {
+      this.closeWithLimit("limit.parallel_sessions_exceeded");
+      return false;
+    }
+    this.registered = { scope, sessionId };
+    return true;
+  }
+
+  /**
+   * Releases the parallel-session slot this connection holds. Called when the socket closes,
+   * whatever the reason — a slot that leaked would lock a user out of recording.
+   */
+  dispose(): void {
+    if (!this.registered) return;
+    this.deps.registry?.release(this.registered.scope, this.registered.sessionId);
+    this.registered = null;
+  }
+
+  /** Seconds of wall clock since the session started. */
+  private elapsedSeconds(session: ActiveSession): number {
+    const started = Date.parse(session.record.createdAt);
+    if (Number.isNaN(started)) return 0;
+    return Math.max(0, ((this.deps.now?.() ?? new Date()).getTime() - started) / 1000);
+  }
+
+  /**
+   * Server-side hard stop on session length.
+   *
+   * Enforced when a frame arrives rather than on a timer: a session that sends nothing costs
+   * nothing, and every frame that would add cost is checked before it is accepted. What already
+   * exists is finalized normally — the recording survives as a valid, playable meeting and its
+   * transcription job is enqueued — so a user who forgot to press stop loses nothing but the
+   * audio past the limit.
+   */
+  private async stopIfPastDeadline(session: ActiveSession): Promise<boolean> {
+    if (this.elapsedSeconds(session) <= this.limits.maxSessionSeconds) return false;
+    if (!session.finalized) {
+      const finalized = await this.finalize(session);
+      if (!finalized) return true;
+    }
+    this.log?.info(
+      { event: "limit.session_duration_exceeded", elapsedSeconds: this.elapsedSeconds(session) },
+      "recording reached the session duration limit and was finalized",
+    );
+    this.connection.close(CLOSE_NORMAL, "limit.session_duration_exceeded");
+    return true;
+  }
+
+  /**
+   * The single funnel for a limit refusal, which is why the log line lives here.
+   *
+   * Without it a refused recording is invisible on the server: the user sees a connection that
+   * closes and the operator sees nothing at all. `info`, not `warn` — a limit doing its job is
+   * normal operation, and the connection-scoped logger supplies the tenant and user behind it.
+   */
+  private closeWithLimit(code: LimitErrorCode): void {
+    this.log?.info({ event: code }, "recording refused by a limit");
+    this.connection.close(CLOSE_POLICY_VIOLATION, code);
+  }
+
   async handleBinary(frame: Uint8Array): Promise<void> {
+    // Metered before anything else, on the whole frame: a frame costs bandwidth and a storage
+    // round trip whether or not it turns out to be well formed or a duplicate.
+    const exceeded = this.rateMeter.admit(frame.byteLength);
+    if (exceeded !== null) {
+      this.closeWithLimit(
+        exceeded === "chunks" ? "limit.chunk_rate_exceeded" : "limit.byte_rate_exceeded",
+      );
+      return;
+    }
     const session = this.session;
     if (!session) {
       this.connection.close(CLOSE_PROTOCOL_ERROR, "chunk received before session.start");
@@ -296,6 +410,7 @@ export class RecordingSessionHandler {
       this.connection.close(CLOSE_PROTOCOL_ERROR, "chunk received after session.end");
       return;
     }
+    if (await this.stopIfPastDeadline(session)) return;
     const parsed = parseChunkFrame(frame);
     if (!parsed.ok) {
       this.connection.close(CLOSE_PROTOCOL_ERROR, parsed.reason);
@@ -370,6 +485,18 @@ export class RecordingSessionHandler {
       this.ack();
       return;
     }
+    if (!(await this.finalize(session))) return;
+    this.connection.close(CLOSE_NORMAL, "session finalized");
+  }
+
+  /**
+   * Writes the manifest, enqueues transcription and answers `session.finalized`.
+   *
+   * Shared by the client's own `session.end` and by the server-side duration stop, so a recording
+   * the server had to cut short goes through exactly the same path and ends up as exactly the same
+   * kind of meeting. Returns `false` when the connection was closed with a failure instead.
+   */
+  private async finalize(session: ActiveSession): Promise<boolean> {
     const scope = {
       tenantId: session.record.tenantId,
       userId: session.record.userId,
@@ -403,7 +530,7 @@ export class RecordingSessionHandler {
       });
     } catch (error) {
       this.fail("failed to finalize session", error);
-      return;
+      return false;
     }
     // The audio and the job are safe at this point, so indexing failures must not fail the
     // recording. `recordSession` runs again first: it is idempotent on the session id and
@@ -439,7 +566,7 @@ export class RecordingSessionHandler {
       meetingId: session.record.meetingId,
       jobId,
     });
-    this.connection.close(CLOSE_NORMAL, "session finalized");
+    return true;
   }
 
   /**

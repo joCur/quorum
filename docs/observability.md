@@ -76,7 +76,16 @@ Server (`quorum-server`):
 | `meeting.index_failed`           | warn  | The meeting row could not be written; recording continued         |
 | `meeting.finalize_index_failed`  | warn  | The meeting could not be marked finalized; audio and job are safe |
 | `meeting.deleted`                | info  | A meeting and everything derived from it were removed             |
+| `limit.session_duration_exceeded` | info | A recording hit the duration cap and was finalized server-side     |
+| `limit.parallel_sessions_exceeded` | info | A recording was refused: the user is already at the session cap   |
+| `limit.chunk_rate_exceeded`      | info  | A connection was closed for sending chunks too fast               |
+| `limit.byte_rate_exceeded`       | info  | A connection was closed for sending bytes too fast                |
 | `summary.regenerate_queued`      | info  | A user asked for a new summary of an existing transcript          |
+
+The `limit.*` events are logged at `info`, not `warn`: a limit doing its job is normal operation,
+not an incident. They matter because without them a refused recording is invisible on the server —
+the user sees a connection that closes and the operator sees nothing. The event name is the same
+string the client receives as the close reason, so one search matches both sides.
 
 Worker (`quorum-worker`):
 

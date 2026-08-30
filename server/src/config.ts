@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RecordingLimits } from "./recording/limits.js";
 
 /** Environment configuration — names match `docker-compose.yml` / `.env.example`. */
 export const ServerConfigSchema = z.object({
@@ -22,6 +23,25 @@ export const ServerConfigSchema = z.object({
     .default("false")
     .transform((value) => value === "true"),
 
+  // --- Abuse and cost protection for the recording endpoint (see `recording/limits.ts`) ---
+  /** Wall-clock seconds after which the server finalizes a recording itself. Default 4 h. */
+  RECORDING_MAX_SESSION_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(4 * 60 * 60),
+  /** Recording sessions one user may have open at the same time. */
+  RECORDING_MAX_PARALLEL_SESSIONS: z.coerce.number().int().positive().default(3),
+  /** Sustained chunk frames per second per connection. A live recording sends 0.5–1. */
+  RECORDING_MAX_CHUNKS_PER_SECOND: z.coerce.number().positive().default(20),
+  /** Sustained bytes per second per connection. Live Opus is around 4 KiB/s. */
+  RECORDING_MAX_BYTES_PER_SECOND: z.coerce
+    .number()
+    .positive()
+    .default(4 * 1024 * 1024),
+  /** Seconds' worth of both rates a connection may spend at once — the reconnect replay. */
+  RECORDING_RATE_BURST_SECONDS: z.coerce.number().positive().default(10),
+
   /** Issuer used for discovery and JWKS retrieval; inside compose the container-internal URL. */
   OIDC_ISSUER_URL: z.string().url(),
   /** Issuer that browser-obtained tokens actually carry, when it differs from the internal one. */
@@ -36,6 +56,17 @@ export type ServerConfig = z.infer<typeof ServerConfigSchema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return ServerConfigSchema.parse(env);
+}
+
+/** Recording limits as the endpoint wants them, derived from the flat environment configuration. */
+export function resolveRecordingLimits(config: ServerConfig): RecordingLimits {
+  return {
+    maxSessionSeconds: config.RECORDING_MAX_SESSION_SECONDS,
+    maxParallelSessions: config.RECORDING_MAX_PARALLEL_SESSIONS,
+    maxChunksPerSecond: config.RECORDING_MAX_CHUNKS_PER_SECOND,
+    maxBytesPerSecond: config.RECORDING_MAX_BYTES_PER_SECOND,
+    burstSeconds: config.RECORDING_RATE_BURST_SECONDS,
+  };
 }
 
 /** Everything the token verifier needs, derived from the flat environment configuration. */
