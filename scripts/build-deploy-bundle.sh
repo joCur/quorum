@@ -52,6 +52,8 @@ scripts/secrets-preflight.sh
 scripts/kms-preflight.sh
 scripts/minio-init.sh
 infra/keycloak/realm-production.json
+infra/edge/nginx.conf.template
+infra/edge/proxy-headers.conf
 infra/postgres/init
 infra/monitoring/prometheus.yml
 infra/monitoring/alertmanager.yml
@@ -72,17 +74,6 @@ for path in $FILES; do
   mkdir -p "$BUNDLE/$(dirname "$path")"
   cp -R "$path" "$BUNDLE/$(dirname "$path")/"
 done
-
-# The built PWA. It has to be in here: the browser app is static files served by the reverse
-# proxy, and without them the guide would still be telling a production host to install pnpm and
-# build from source — the exact thing the bundle exists to avoid.
-if [ ! -d client/dist ]; then
-  echo "error: client/dist not found — build the PWA before packaging the bundle:" >&2
-  echo "  pnpm install --frozen-lockfile && pnpm --filter @quorum/client run build" >&2
-  exit 1
-fi
-mkdir -p "$BUNDLE/client"
-cp -R client/dist/. "$BUNDLE/client/"
 
 # The deployment guide travels with the bundle, so the instructions on the host are the ones for
 # the version on the host.

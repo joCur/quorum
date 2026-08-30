@@ -51,6 +51,8 @@ jobs:
             dockerfile: server/Dockerfile
           - image: worker
             dockerfile: worker/Dockerfile
+          - image: client
+            dockerfile: client/Dockerfile
           # Keycloak's own optimized build. It is published alongside the application images
           # because `start --optimized` refuses to run against the stock upstream image, and
           # the production compose file needs a pinned tag rather than a build context.
@@ -111,17 +113,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
-
-      # The bundle carries the built PWA, so a deploy host never needs a toolchain.
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - name: Install
-        run: pnpm install --frozen-lockfile
-      - name: Build the PWA
-        run: pnpm --filter @quorum/client run build
 
       - name: Build the bundle
         run: ./scripts/build-deploy-bundle.sh "${{ needs.release-please.outputs.version }}" dist

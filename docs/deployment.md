@@ -14,11 +14,12 @@ Everything Quorum needs runs in one Compose project on one host: the API, the tr
 worker, Whisper, Keycloak, Postgres and MinIO. Two things stay outside it and are your
 responsibility:
 
-- **A TLS-terminating reverse proxy.** Nothing in the stack speaks HTTPS. The API and Keycloak
-  listen on plain HTTP bound to `127.0.0.1`, so without a proxy in front they are unreachable from
-  anywhere but the host itself. That is deliberate.
-- **The PWA's static files.** The browser app is a static build, not a container. The reverse
-  proxy serves it.
+- **A TLS-terminating reverse proxy.** Nothing in the stack speaks HTTPS. The stack publishes one
+  plain-HTTP port bound to `127.0.0.1`, so without a proxy in front it is unreachable from
+  anywhere but the host itself. That is deliberate — and because the stack's own edge proxy has
+  already done the routing, yours only terminates TLS and forwards to that one port.
+
+Everything else, the browser app included, is a service in the compose file.
 
 ## Prerequisites
 
@@ -32,8 +33,9 @@ responsibility:
 ## 1. Download the deployment bundle
 
 Every release carries a `quorum-deploy-<version>.tar.gz` asset: the compose file, the preflight
-scripts, the production realm, the monitoring configuration and a copy of this guide. It is about
-30 KB and it is everything a deployment needs.
+scripts, the production realm, the edge proxy and monitoring configuration, the runbooks and a
+copy of this guide. It is a few tens of kilobytes and it is everything a deployment needs — the
+application itself, the browser app included, comes from the published images.
 
 ```bash
 VERSION=1.0.0
@@ -64,7 +66,7 @@ missing or still holds a placeholder:
 | ------------------------- | ------------------------------------------------------------------- |
 | `QUORUM_VERSION`          | Already set by the bundle to the version you downloaded. Leave it.   |
 | `QUORUM_PUBLIC_URL`       | The app origin browsers use. Must be `https://`, not loopback.       |
-| `KEYCLOAK_PUBLIC_URL`     | The Keycloak origin. Must be `https://`, not loopback.               |
+| `KEYCLOAK_PUBLIC_URL`     | Same origin as `QUORUM_PUBLIC_URL` — Keycloak is served under `/realms` on the app's host. |
 | `POSTGRES_USER` / `_DB`   | Database role and database name.                                     |
 | `POSTGRES_PASSWORD`       | See the warning below about URL-safe characters.                     |
 | `KEYCLOAK_DB_PASSWORD`    | Keycloak's own database role on the same Postgres instance.          |
@@ -114,31 +116,76 @@ The preflights run first. If anything is missing or still a placeholder, the sta
 list of exactly which values and why, and nothing else starts. Once Keycloak is healthy, the
 `keycloak-config` service applies the production realm (step 5) and the API waits for it.
 
-When it comes up, the API is on `127.0.0.1:8080` and Keycloak on `127.0.0.1:8081`. Postgres, the
-MinIO S3 API and the MinIO console are not published at all — the only way to them is the Compose
-network. Change `BIND_ADDRESS` only if your proxy runs somewhere other than this host, and
-understand that it publishes plain HTTP when you do.
+When it comes up, **one port is published**: the edge proxy on `127.0.0.1:8080`. The app, the API
+and Keycloak are all reachable through it, and nothing else — the API, Keycloak, Postgres, the
+MinIO S3 API and the MinIO console have no host port at all, and the only way to them is the
+Compose network. Change `BIND_ADDRESS` only if your proxy runs on another machine, and understand
+that it publishes plain HTTP when you do.
 
-## 4. Put the reverse proxy in front
+## 4. Put your reverse proxy in front
 
-Two virtual hosts, both terminating TLS:
+**The stack publishes exactly one port**, and the edge proxy inside it has already done the
+routing. Your proxy therefore has one job: terminate TLS and forward everything to that port, on
+one hostname. There is no path-routing table for you to reproduce.
 
-| Public name                        | Proxies to                | Also needs                                    |
-| ---------------------------------- | ------------------------- | --------------------------------------------- |
-| `QUORUM_PUBLIC_URL`, e.g. `quorum.example.com` | `127.0.0.1:8080` for `/api` and the recording WebSocket; the built PWA files for everything else | WebSocket upgrade headers passed through |
-| `KEYCLOAK_PUBLIC_URL`, e.g. `auth.example.com` | `127.0.0.1:8081`      | `X-Forwarded-Proto` and `X-Forwarded-For` set  |
+One virtual host, `QUORUM_PUBLIC_URL`, forwarding to `127.0.0.1:8080`.
 
-The forwarded headers are not optional. Keycloak runs with `KC_PROXY_HEADERS=xforwarded`, and the
-realm requires HTTPS (`sslRequired: external`). Without those headers Keycloak sees plain HTTP,
-decides the request is insecure, and every login fails.
+Caddy, complete:
 
-The recording endpoint is a long-lived WebSocket that streams audio for the length of a meeting.
-Raise your proxy's read timeout accordingly — an hour-long recording behind a 60-second idle
-timeout reconnects constantly.
+```caddyfile
+quorum.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
 
-The PWA's static files are in the bundle, in `client/`. Serve that directory from the app virtual
-host — nothing to build, no toolchain on this machine. It is a single-page app, so unknown paths
-fall back to `client/index.html`.
+That is the whole file. Caddy obtains the certificate, sets `X-Forwarded-Proto` and
+`X-Forwarded-For`, and proxies WebSockets, all by default.
+
+Nginx, complete:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name quorum.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/quorum.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/quorum.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # The recording endpoint is a WebSocket held open for the length of a meeting.
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400s;
+    }
+}
+```
+
+Two details in there are not optional, and both fail in ways that do not point at the proxy:
+
+- **`X-Forwarded-Proto`.** Keycloak runs with `KC_PROXY_HEADERS=xforwarded` behind a realm that
+  requires HTTPS, and it only ever sees plain HTTP. Without this header it decides every request
+  is insecure and every login fails.
+- **The WebSocket upgrade and a long read timeout.** Recording streams audio for the length of a
+  meeting. Behind a 60-second idle timeout it reconnects constantly.
+
+Caddy does both without being asked, which is why its configuration is one line.
+
+### Both public URLs are the same host
+
+Set `KEYCLOAK_PUBLIC_URL` to the *same* origin as `QUORUM_PUBLIC_URL`. The edge serves Keycloak
+under `/realms` on the app's own origin, so the issuer in every token is
+`https://quorum.example.com/realms/quorum`. That is what lets the browser treat the app, the API
+and the identity provider as one site — no CORS, no third-party cookies — and it is the shape the
+published client image is built for.
+
+The admin console is on that host too, at `/admin`.
 
 ## 5. The realm is applied for you
 
@@ -197,7 +244,15 @@ docker compose -f docker-compose.release.yml ps
 ```
 
 Every long-running service should read `healthy`; `preflight`, `kms-preflight`, `minio-init` and
-`keycloak-config` should have exited 0. If `keycloak-config` exited non-zero, its log names the
+`keycloak-config` should have exited 0. A quick end-to-end check through the front door:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/            # the app
+curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/healthz     # the API
+curl -sS http://127.0.0.1:8080/realms/quorum/.well-known/openid-configuration | head -c 80
+```
+
+All three go through the edge, which is how the browser will reach them. If `keycloak-config` exited non-zero, its log names the
 realm setting it could not apply, and the API will not have started. Then sign in through the PWA and record a short meeting: that exercises the
 whole critical path — chunk streaming, persistence, transcription and summary — and is the only
 check that covers all of it at once.
@@ -251,11 +306,38 @@ applied automatically, because `keycloak-config` runs on every `up`.
 > `KEYCLOAK_CONFIG_CLI_VERSION` to a build made for it pairs the tool with an API it was not built
 > against, and the realm apply is where you find out. Bump both tags in the same change.
 
+## Configuring the client image
+
+The browser app is built by Vite, which bakes `VITE_*` values into the bundle at build time. A
+published image therefore cannot carry your API origin or your issuer URL, and the image is built
+for the shape everything else here assumes: **one origin**. `VITE_API_BASE_URL` is empty, so API
+calls go to the origin the app was served from, and the OIDC issuer defaults to
+`<that origin>/realms/quorum`. The edge proxy makes both true.
+
+This was chosen over injecting a config file at container start, which would mean an app that
+reads its configuration from a global written by an entrypoint, plus a window during startup when
+that global is not there yet.
+
+**If your deployment needs a different shape** — Keycloak on a separate public host, or the realm
+under a different path — the published image will not do, and you build your own. It is one
+command:
+
+```bash
+docker build -f client/Dockerfile \
+  --build-arg VITE_OIDC_ISSUER_URL=https://auth.example.com/realms/quorum \
+  -t my-registry/quorum-client:1.0.0 .
+```
+
+Then point `QUORUM_IMAGE_REGISTRY` at your registry, or override the `client` service's `image`.
+The same applies to `VITE_API_BASE_URL` if the API is not on the app's origin, and to
+`VITE_OIDC_ISSUER_PATH` if the realm is served under a different path on it.
+
 ## Security: what this stack does and does not do
 
 The compose file is hardened where the images allow: every service runs with all Linux
 capabilities dropped and `no-new-privileges`, and all of them but Keycloak run on a read-only root
-filesystem. Keycloak is the exception — a read-only root filesystem leaves its transaction
+filesystem — the edge proxy and the client included, both of which are unprivileged nginx serving
+on a high port, so nothing had to be relaxed to make them start. Keycloak is the exception — a read-only root filesystem leaves its transaction
 recovery store uncreatable, and it then runs degraded — so the flag is off there and the reason is
 written next to it in the compose file. Whisper is a third-party image and gets resource limits
 only; it holds no credentials and has no route to the database or the object store. Every service

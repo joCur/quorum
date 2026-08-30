@@ -49,6 +49,8 @@ jobs:
             dockerfile: server/Dockerfile
           - image: worker
             dockerfile: worker/Dockerfile
+          - image: client
+            dockerfile: client/Dockerfile
           - image: keycloak
             dockerfile: infra/keycloak/Dockerfile
     steps:

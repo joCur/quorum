@@ -119,10 +119,8 @@ services:
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-quorum-pwa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-quorum-api}
       OIDC_TENANT_CLAIM: ${OIDC_TENANT_CLAIM:-tenant_id}
-    ports:
-      # Loopback by default: the reverse proxy on the host is the only thing that should reach
-      # this. Setting BIND_ADDRESS to 0.0.0.0 publishes the plain-HTTP API to the network.
-      - "${BIND_ADDRESS:-127.0.0.1}:${API_PORT:-8080}:8080"
+    # No host port. The client container is the single entry point and reaches the API over the
+    # Compose network; publishing a second door would only be a way around the one front door.
     depends_on:
       postgres:
         condition: service_healthy
@@ -225,6 +223,100 @@ services:
     logging: *logging
 
   # ---------------------------------------------------------------------------------------------
+  # The edge proxy — the single front door, and the ONLY service published to the host.
+  #
+  # It puts the app, the API and Keycloak on one origin: / to the client, /api, /ws and /healthz
+  # to the API, /realms and the other browser-facing Keycloak paths to Keycloak. That is the shape
+  # the app is built for (empty API base URL, same-origin issuer), and it reduces the operator's
+  # reverse proxy to TLS plus one upstream, with no routing table to reproduce.
+  #
+  # A stock nginx image with a mounted config rather than an image of our own: there is nothing to
+  # compile, so there is no reason to publish a fourth artifact. The config is versioned in this
+  # repository and ships in the deployment bundle alongside this file.
+  #
+  # TLS is NOT here. Certificates and their renewal are the operator's concern, terminated in
+  # front of this. docs/deployment.md gives the one-liner for nginx and for Caddy.
+  # ---------------------------------------------------------------------------------------------
+  edge:
+    image: nginxinc/nginx-unprivileged:${NGINX_VERSION:-1.29-alpine}
+    restart: unless-stopped
+    environment:
+      QUORUM_CLIENT_UPSTREAM: client:8080
+      QUORUM_API_UPSTREAM: api:8080
+      QUORUM_KEYCLOAK_UPSTREAM: keycloak:8080
+      NGINX_ENVSUBST_OUTPUT_DIR: /etc/nginx/conf.d
+    volumes:
+      - ./infra/edge/nginx.conf.template:/etc/nginx/templates/quorum.conf.template:ro
+      - ./infra/edge/proxy-headers.conf:/etc/nginx/quorum-proxy-headers.conf:ro
+    ports:
+      # The one published port in the whole stack. Loopback by default, because the operator's
+      # TLS-terminating proxy runs on the host; BIND_ADDRESS=0.0.0.0 publishes plain HTTP to the
+      # network, which is only correct when the TLS proxy is on a different machine.
+      - "${BIND_ADDRESS:-127.0.0.1}:${EDGE_PORT:-8080}:8080"
+    depends_on:
+      client:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/healthz/edge || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      # nginx's pid file and proxy buffers, plus the directory the base image renders the config
+      # template into at start. All per-container runtime state.
+      #
+      # mode=1777 on all three is load-bearing: a tmpfs is created root-owned, this container runs
+      # unprivileged, and the entrypoint's envsubst step FAILS SOFTLY when it cannot write to
+      # conf.d — nginx then starts on the image's stock default config and serves the wrong site
+      # while still looking healthy to Docker.
+      - /tmp:size=32m,mode=1777
+      - /var/cache/nginx:size=32m,mode=1777
+      - /etc/nginx/conf.d:size=1m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          cpus: "${EDGE_CPU_LIMIT:-1}"
+          memory: ${EDGE_MEMORY_LIMIT:-128m}
+    logging: *logging
+
+  # ---------------------------------------------------------------------------------------------
+  # The browser app. Static files behind an unprivileged nginx, and nothing else: this image names
+  # no other service and runs standalone. The stack's routing lives in the edge proxy above.
+  # ---------------------------------------------------------------------------------------------
+  client:
+    image: ${QUORUM_IMAGE_REGISTRY:-ghcr.io/jocur}/quorum-client:${QUORUM_VERSION}
+    restart: unless-stopped
+    # No host port: the edge is the only way in.
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:8080/healthz/client || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      # nginx writes its pid and its request temp files here. mode=1777 because a tmpfs is created
+      # root-owned, and this container runs unprivileged — without it nginx cannot write at all.
+      - /tmp:size=32m,mode=1777
+      - /var/cache/nginx:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    deploy:
+      resources:
+        limits:
+          cpus: "${CLIENT_CPU_LIMIT:-1}"
+          memory: ${CLIENT_MEMORY_LIMIT:-128m}
+    logging: *logging
+
+  # ---------------------------------------------------------------------------------------------
   # Auth — Keycloak, production configuration.
   #
   # Differences from the development service, all of them deliberate:
@@ -262,9 +354,9 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
-    ports:
-      # Loopback: the admin console and the login pages belong behind the reverse proxy.
-      - "${BIND_ADDRESS:-127.0.0.1}:${KEYCLOAK_PORT:-8081}:8080"
+    # No host port either: the login pages and the admin console are reached through the client
+    # container, on the same origin as the app, which is what lets the browser treat the issuer
+    # as same-origin and what keeps the operator's proxy down to one upstream.
     healthcheck:
       # The image ships neither curl nor wget, but /bin/sh is bash, so /dev/tcp works. Since
       # Keycloak 25 the health endpoints live on the management port 9000.
