@@ -210,6 +210,11 @@ services:
       # (ADR-001). Format: <key-name>:<base64 32 bytes>. SSE-KMS via KES is an
       # infra ticket; losing this key makes the stored audio unreadable.
       MINIO_KMS_SECRET_KEY: ${MINIO_KMS_SECRET_KEY}
+    depends_on:
+      # A malformed key kills MinIO with a message that never names the variable, and everything
+      # else waits on a healthy MinIO — so the whole stack fails behind one unreadable error.
+      kms-preflight:
+        condition: service_completed_successfully
     volumes:
       - minio-data:/data
     ports:
@@ -222,6 +227,18 @@ services:
       timeout: 3s
       retries: 20
       start_period: 5s
+
+  # One-shot format check on the KMS master key, before MinIO gets a chance to die of it.
+  # Validates the shape only — nothing at startup can tell a well-formed WRONG key from the right
+  # one, which is why the key backup procedure in docs/runbooks/backup-restore.md is not optional.
+  kms-preflight:
+    image: alpine:3.22
+    environment:
+      MINIO_KMS_SECRET_KEY: ${MINIO_KMS_SECRET_KEY}
+    volumes:
+      - ./scripts/kms-preflight.sh:/usr/local/bin/kms-preflight.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/kms-preflight.sh"]
+    restart: "no"
 
   # One-shot bucket bootstrap: creates the recordings bucket and turns on default
   # server-side encryption so nothing can be stored unencrypted (ADR-001).
@@ -333,3 +350,5 @@ volumes:
 # - Reverse Proxy (Caddy/Traefik) mit TLS davor schalten, sobald von außen erreichbar;
 #   für die private Phase reicht Tailscale.
 # - Backups: pg_dump + MinIO-Bucket-Sync regelmäßig auf externes Ziel (ADR-001-Pflicht).
+#   Schedule, retention, the deletion window and the KMS key handling are written up in
+#   docs/runbooks/backup-restore.md.
