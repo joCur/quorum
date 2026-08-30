@@ -35,7 +35,7 @@ describe.skipIf(!enabled)("MinIO storage", () => {
     const tenantId = `tenant-${Date.now()}`;
     const handler = new RecordingSessionHandler(connection, {
       storage,
-      queue: { async enqueueTranscribe() {} },
+      queue: { async enqueueTranscribe() {}, async enqueueSummarize() {} },
       context: { tenantId, userId: "user-1" },
       newId: idSequence("a"),
     });
@@ -84,7 +84,7 @@ describe.skipIf(!enabled)("MinIO storage", () => {
     const tenantId = `tenant-${Date.now()}-delete`;
     const handler = new RecordingSessionHandler(connection, {
       storage,
-      queue: { async enqueueTranscribe() {} },
+      queue: { async enqueueTranscribe() {}, async enqueueSummarize() {} },
       context: { tenantId, userId: "user-1" },
       newId: idSequence("c"),
     });

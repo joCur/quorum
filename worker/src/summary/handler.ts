@@ -1,4 +1,11 @@
-import type { Job, SummarySection, Transcript } from "@quorum/shared";
+import {
+  resolveOutputLanguage,
+  type Job,
+  type SummaryOptions,
+  type SummarySection,
+  type SummaryTemplate,
+  type Transcript,
+} from "@quorum/shared";
 import type { SummaryRepository } from "../db/repository.js";
 import { logMeetingGone, type WorkerLogger } from "../logger.js";
 import { JobError, MeetingGoneError, toJobError } from "../errors.js";
@@ -83,7 +90,23 @@ export async function runSummarizeJob(
       );
     }
 
-    const resolvedSections = resolveTemplateSections(template);
+    // A user template inherits its sections from the template it is based on, and
+    // it inherits them *as they are now* — that is the point of storing overrides
+    // instead of a copy (ADR-004 §1). The base is loaded under the same tenant
+    // predicate, so an inherited template can never pull in another tenant's rows.
+    const base = await loadBaseTemplate(template, payload.tenantId, deps);
+    const resolvedSections = resolveTemplateSections(template, base);
+    const options = resolveOptions(template.options, transcript.language);
+    if (options.outputLanguage !== template.options.outputLanguage) {
+      log.info(
+        {
+          event: "summary.language.resolved",
+          requested: template.options.outputLanguage,
+          resolved: options.outputLanguage,
+        },
+        "output language followed the transcript",
+      );
+    }
     const window = windowTranscript(transcript, deps.maxInputTokens);
     if (window.includedSegments === 0) {
       throw new JobError(
@@ -108,7 +131,7 @@ export async function runSummarizeJob(
 
     const messages = buildSummaryMessages({
       sections: resolvedSections,
-      options: template.options,
+      options,
       window,
       recordedAt: transcript.recordedAt,
     });
@@ -127,7 +150,7 @@ export async function runSummarizeJob(
       templateId: template.id,
       templateVersion: template.version,
       resolvedSections,
-      options: template.options,
+      options,
       sections,
       model,
       promptVersion: PROMPT_VERSION,
@@ -199,6 +222,45 @@ export async function runSummarizeJob(
     );
     throw jobError;
   }
+}
+
+/**
+ * The template `basedOn` points at, or `null` when this template inherits from
+ * nothing. Missing base is terminal: the sections it would contribute are not
+ * going to appear on a retry, and producing a summary from the overrides alone
+ * would silently drop everything the user expected to inherit.
+ */
+async function loadBaseTemplate(
+  template: SummaryTemplate,
+  tenantId: string,
+  deps: SummarizeHandlerDependencies,
+): Promise<SummaryTemplate | null> {
+  if (template.basedOn === null) return null;
+  const base = await deps.repository.loadTemplate(template.basedOn, tenantId);
+  if (!base) {
+    throw new JobError(
+      "SUMMARY_TEMPLATE_NOT_FOUND",
+      `template ${template.id} inherits from ${template.basedOn}, which is not available to tenant ${tenantId}`,
+      { retryable: false },
+    );
+  }
+  return base;
+}
+
+/**
+ * The options the summary is actually produced with.
+ *
+ * Only `outputLanguage` is derived, and only when it is still `auto`: the stored
+ * default means "follow the recording", and the transcript is the only place
+ * that knows what the recording was in. Resolving it here rather than in the
+ * prompt puts the concrete language into the snapshot, so an existing summary
+ * can say which language it was asked for.
+ */
+function resolveOptions(options: SummaryOptions, transcriptLanguage: string): SummaryOptions {
+  return {
+    ...options,
+    outputLanguage: resolveOutputLanguage(options.outputLanguage, transcriptLanguage),
+  };
 }
 
 async function loadTranscript(

@@ -126,4 +126,21 @@ export interface JobQueue {
     userId: string;
     sessionId: string;
   }): Promise<void>;
+  /**
+   * Asks for a summary of an existing transcript — the "Regenerate" action.
+   *
+   * The pipeline enqueues the first summary itself once a transcript is stored; this covers the
+   * second and later ones, with a template the user picked (ADR-004 §3: a meeting may have many
+   * summaries, one active per template).
+   */
+  enqueueSummarize(input: {
+    jobId: string;
+    meetingId: string;
+    tenantId: string;
+    userId: string;
+    sessionId: string;
+    transcriptId: string;
+    templateId: string;
+    createdAt: string;
+  }): Promise<void>;
 }
