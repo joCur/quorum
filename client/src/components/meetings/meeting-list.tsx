@@ -11,6 +11,7 @@ import { DeleteMeetingDialog } from "@/components/meetings/delete-meeting-dialog
 import { MeetingListItem } from "@/components/meetings/meeting-list-item";
 import { meetingLabel } from "@/features/meetings/format";
 import type { MeetingsList } from "@/features/meetings/use-meetings";
+import { notify } from "@/lib/toast";
 
 export function MeetingList({
   list,
@@ -50,8 +51,15 @@ export function MeetingList({
   const confirmDelete = (): void => {
     if (!pending) return;
     const meetingId = pending.id;
+    const label = meetingLabel(pending, i18n.language, t("meetings.untitled"));
     setPending(null);
-    void list.remove(meetingId);
+    // The row is only removed once the server confirms the cascade, so the outcome arrives well
+    // after the dialog closes. Until now the list expressed it by the row quietly disappearing,
+    // which reads the same as a row scrolling away; the toast says which meeting is gone.
+    void list
+      .remove(meetingId)
+      .then(() => notify.success(t("meetings.deleted", { meeting: label })))
+      .catch(() => notify.failure(t("meetings.deleteFailed", { meeting: label })));
   };
 
   return (
