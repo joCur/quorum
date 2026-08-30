@@ -110,9 +110,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [manager],
   );
 
+  /**
+   * Ends the session at the provider and here.
+   *
+   * The end-session request is what makes this a real sign-out: without it Keycloak keeps its own
+   * session cookie, and the next sign-in would wave the user straight back in. The redirect leaves
+   * the app, so the local cleanup below only runs when the provider could not be reached — in that
+   * case the session still ends here, which is what the user asked for.
+   */
   const signOut = React.useCallback(async () => {
-    await manager.signoutRedirect();
-  }, [manager]);
+    try {
+      await manager.signoutRedirect();
+    } catch {
+      await manager.removeUser().catch(() => undefined);
+      adopt(null);
+    }
+  }, [manager, adopt]);
 
   const completeSignIn = React.useCallback(async (): Promise<string | null> => {
     try {
