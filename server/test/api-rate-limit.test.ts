@@ -93,6 +93,30 @@ describe("per-user REST rate limit", () => {
     }
   });
 
+  it("does not let ordinary browsing spend the regenerate allowance", async () => {
+    // The bug this pins: with one shared counter per user, a smaller `max` on the expensive route
+    // means "refused as soon as the user has made that many requests of any kind". Browsing a
+    // meeting list for a minute then pressing Regenerate must still work.
+    const instance = await build({
+      ...DEFAULT_USER_LIMITS,
+      apiRequestsPerWindow: 100,
+      apiSummaryRequestsPerWindow: 2,
+    });
+    const token = await signedToken("11111111-1111-4111-8111-111111111111");
+
+    for (let request = 0; request < 20; request += 1) {
+      expect((await get(instance, token)).statusCode).toBe(200);
+    }
+
+    // The meeting does not exist, so a 404 is the handler being reached — which is the assertion.
+    const regenerate = await instance.inject({
+      method: "POST",
+      url: "/api/meetings/1a3b8c5d-0000-4000-8000-000000000001/summaries",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(regenerate.statusCode).toBe(404);
+  });
+
   it("meters the regenerate route against the smaller summary allowance", async () => {
     const instance = await build({
       ...DEFAULT_USER_LIMITS,
