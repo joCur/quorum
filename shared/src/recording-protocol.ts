@@ -16,10 +16,30 @@ export const AudioFormatSchema = z.object({
 
 // ---- Client → Server ----
 
+/**
+ * Opens a recording session.
+ *
+ * ADDITIVE EVOLUTION: every field added here is optional with a default, so a
+ * client built before the field existed keeps starting sessions unchanged. That
+ * is the versioning contract for this message — an older client is not a client
+ * to reject, it is a tab that was open across a deploy. A field whose absence
+ * could not be given a meaning would need a new message type instead.
+ */
 export const SessionStartSchema = z.object({
   type: z.literal("session.start"),
   meetingTitle: z.string().nullable().default(null),
   audioFormat: AudioFormatSchema,
+  /**
+   * Template this meeting's first summary is made with. `null` — and an absent
+   * field, which parses to `null` — means "no per-meeting choice", which falls
+   * back to the user's default and then to the system template.
+   *
+   * Only the shape is checked here. Whether the template exists and belongs to
+   * the caller is decided where the summary is enqueued, because a template can
+   * be deleted between starting a recording and summarizing it; a check here
+   * would go stale rather than make the value trustworthy.
+   */
+  summaryTemplateId: z.string().uuid().nullable().default(null),
   clientInfo: z.object({
     platform: z.string(), // z. B. "web-desktop" | "web-mobile"
     userAgent: z.string(),

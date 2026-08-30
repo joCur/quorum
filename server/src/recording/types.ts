@@ -33,6 +33,12 @@ export interface SessionRecord {
   tenantId: string;
   userId: string;
   meetingTitle: string | null;
+  /**
+   * Template chosen for this meeting before recording started, or `null` when
+   * the recorder made no choice. Written once at `session.start` and never
+   * updated: it describes what was asked for at capture time.
+   */
+  summaryTemplateId: string | null;
   audioFormat: AudioFormat;
   createdAt: string;
   /** Wall-clock marks for pause/resume (ADR-002/ADR-003 audio-time mapping). */

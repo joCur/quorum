@@ -154,6 +154,9 @@ export class FakeAudioSource implements AudioSource {
     return this.value;
   }
 
+  /** Template the recorder chose before starting; `null` is "they chose none". */
+  sessionTemplateId: string | null = null;
+
   async loadSession() {
     if (this.sessionCreatedAt === null) return null;
     return {
@@ -162,6 +165,7 @@ export class FakeAudioSource implements AudioSource {
       tenantId: SCOPE.tenantId,
       userId: SCOPE.userId,
       meetingTitle: null,
+      summaryTemplateId: this.sessionTemplateId,
       audioFormat: this.value.audioFormat,
       createdAt: this.sessionCreatedAt,
       marks: [],
@@ -254,6 +258,23 @@ export class InMemoryRepository implements TranscriptRepository {
   async findDefaultTemplateId(tenantId: string, userId: string): Promise<string | null> {
     if (this.defaultTemplateLookupError) throw this.defaultTemplateLookupError;
     return this.defaultTemplates.get(`${tenantId} ${userId}`) ?? null;
+  }
+
+  /**
+   * Templates that exist and are visible, standing in for the `summary_templates`
+   * rows a chosen id is checked against. `defaultTemplates` is deliberately not
+   * filtered through this set: the real query resolves the default through a
+   * join, so a default it returns is one that exists by construction.
+   */
+  readonly visibleTemplates = new Set<string>();
+
+  async findVisibleTemplateId(
+    templateId: string,
+    _tenantId: string,
+    _userId: string,
+  ): Promise<string | null> {
+    if (this.defaultTemplateLookupError) throw this.defaultTemplateLookupError;
+    return this.visibleTemplates.has(templateId) ? templateId : null;
   }
 
   async close(): Promise<void> {}

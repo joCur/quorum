@@ -192,6 +192,7 @@ export class RecordingSessionHandler {
       tenantId: context.tenantId,
       userId: context.userId,
       meetingTitle: message.meetingTitle,
+      summaryTemplateId: message.summaryTemplateId,
       audioFormat: message.audioFormat,
       createdAt: this.timestamp(),
       marks: [],
