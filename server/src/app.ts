@@ -5,6 +5,10 @@ import type { TokenVerifier } from "./auth/token-verifier.js";
 import recordingPlugin from "./recording/plugin.js";
 import { meetingRoutes } from "./meetings/routes.js";
 import type { MeetingStore } from "./meetings/repository.js";
+import { templateRoutes } from "./templates/routes.js";
+import { summaryRoutes } from "./summaries/routes.js";
+import { InMemorySummaryTemplateStore } from "./templates/memory.js";
+import type { SummaryTemplateStore } from "./templates/repository.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./recording/types.js";
 
@@ -24,6 +28,12 @@ export interface BuildServerOptions {
    * Omitting it builds an unauthenticated instance — only for tests and for the header-based
    * development path, which then has to supply an explicit `contextProvider`.
    */
+  /**
+   * Summary template store behind the template API and the regenerate action (ADR-004). Defaults
+   * to an in-memory store, which is what the recording-only tests and the development instance
+   * want; production passes the PostgreSQL one.
+   */
+  templates?: SummaryTemplateStore;
   auth?: { verifyAccessToken: TokenVerifier };
   /**
    * Source of the recording tenant/user scope. Defaults to the validated access token; pass the
@@ -75,6 +85,16 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     // instance: without one there is no scope to query under, and an unscoped meeting query is
     // exactly what ADR-001 rules out.
     await app.register(meetingRoutes, { store: options.meetings, storage: options.storage });
+
+    // Summary templates and the regenerate action share the same scoping rule and the same
+    // reason for existing only on an authenticated instance: a template belongs to a user.
+    const templates = options.templates ?? new InMemorySummaryTemplateStore();
+    await app.register(templateRoutes, { store: templates });
+    await app.register(summaryRoutes, {
+      meetings: options.meetings,
+      templates,
+      queue: options.queue,
+    });
   }
 
   await app.register(recordingPlugin, {

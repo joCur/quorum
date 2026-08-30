@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SummaryTemplateSchema, type SummaryTemplate } from "@quorum/shared";
 import { JobError } from "../src/errors.js";
 import { runSummarizeJob } from "../src/summary/handler.js";
 import { summarizeJobIdFor, summaryIdForJob } from "../src/ids.js";
@@ -68,7 +69,112 @@ describe("summarize job", () => {
 
     expect(summary.templateSnapshot.templateId).toBe(SYSTEM_SUMMARY_TEMPLATE.id);
     expect(summary.templateSnapshot.resolvedSections).toHaveLength(5);
-    expect(summary.templateSnapshot.options).toEqual(SYSTEM_SUMMARY_TEMPLATE.options);
+    expect(summary.templateSnapshot.options).toEqual({
+      ...SYSTEM_SUMMARY_TEMPLATE.options,
+      // `auto` is resolved against the transcript before it is snapshotted, so the
+      // summary can always say which language it was asked for.
+      outputLanguage: "en",
+    });
+  });
+
+  describe("output language", () => {
+    it("follows the transcript when the template says `auto`", async () => {
+      const dependencies = deps({
+        repository: new InMemorySummaryRepository([transcriptFixture({ language: "de" })]),
+      });
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+      const repository = dependencies.repository as InMemorySummaryRepository;
+
+      expect(
+        repository.summaries.get(outcome.summaryId)!.summary.templateSnapshot.options,
+      ).toMatchObject({ outputLanguage: "de" });
+      const prompt = (dependencies.chat as FakeChatClient).calls[0]![1]!.content;
+      expect(prompt).toContain("Write the summary in de");
+    });
+
+    it("keeps an explicitly chosen language even when the transcript differs", async () => {
+      const template = SummaryTemplateSchema.parse({
+        ...SYSTEM_SUMMARY_TEMPLATE,
+        options: { ...SYSTEM_SUMMARY_TEMPLATE.options, outputLanguage: "fr" },
+      });
+      const dependencies = deps({
+        repository: new InMemorySummaryRepository(
+          [transcriptFixture({ language: "de" })],
+          [template],
+        ),
+      });
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+      const repository = dependencies.repository as InMemorySummaryRepository;
+
+      expect(
+        repository.summaries.get(outcome.summaryId)!.summary.templateSnapshot.options,
+      ).toMatchObject({ outputLanguage: "fr" });
+    });
+
+    it("stays on `auto` when the transcript could not name a language", async () => {
+      const dependencies = deps({
+        repository: new InMemorySummaryRepository([transcriptFixture({ language: "auto" })]),
+      });
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+      const repository = dependencies.repository as InMemorySummaryRepository;
+
+      expect(
+        repository.summaries.get(outcome.summaryId)!.summary.templateSnapshot.options,
+      ).toMatchObject({ outputLanguage: "auto" });
+    });
+  });
+
+  describe("user templates", () => {
+    const USER_TEMPLATE_ID = "7c3f0e21-1a55-4d0a-9f2b-6e8c1d4a9b33";
+
+    /** A user template with no sections of its own — everything is an override on the base. */
+    function userTemplate(overrides: SummaryTemplate["overrides"]): SummaryTemplate {
+      return SummaryTemplateSchema.parse({
+        ...SYSTEM_SUMMARY_TEMPLATE,
+        id: USER_TEMPLATE_ID,
+        name: "My layout",
+        scope: "user",
+        sections: [],
+        basedOn: SYSTEM_SUMMARY_TEMPLATE.id,
+        overrides,
+      });
+    }
+
+    it("snapshots the sections inherited from the base plus its own overrides", async () => {
+      const dependencies = deps({
+        repository: new InMemorySummaryRepository(
+          [transcriptFixture()],
+          [
+            SYSTEM_SUMMARY_TEMPLATE,
+            userTemplate([{ sectionId: "key-points", action: "hide", section: null }]),
+          ],
+        ),
+      });
+      const outcome = await runSummarizeJob(
+        summarizePayload({ templateId: USER_TEMPLATE_ID }),
+        0,
+        dependencies,
+      );
+      const repository = dependencies.repository as InMemorySummaryRepository;
+      const snapshot = repository.summaries.get(outcome.summaryId)!.summary.templateSnapshot;
+
+      expect(snapshot.templateId).toBe(USER_TEMPLATE_ID);
+      expect(snapshot.resolvedSections.map((section) => section.id)).toEqual([
+        "overview",
+        "decisions",
+        "action-items",
+        "open-questions",
+      ]);
+    });
+
+    it("fails terminally when the base template it inherits from is gone", async () => {
+      const dependencies = deps({
+        repository: new InMemorySummaryRepository([transcriptFixture()], [userTemplate([])]),
+      });
+      await expect(
+        runSummarizeJob(summarizePayload({ templateId: USER_TEMPLATE_ID }), 0, dependencies),
+      ).rejects.toMatchObject({ code: "SUMMARY_TEMPLATE_NOT_FOUND", retryable: false });
+    });
   });
 
   it("prefers the model the backend reports over the configured name", async () => {

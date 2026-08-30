@@ -35,18 +35,36 @@ describe("system default template", () => {
 });
 
 describe("template resolution", () => {
+  /**
+   * A user template as the API stores it: no sections of its own, everything it
+   * wants to say expressed as overrides on the system template it inherits from
+   * (ADR-004 section 1).
+   */
   const base = SummaryTemplateSchema.parse({
     ...SYSTEM_SUMMARY_TEMPLATE,
     id: "7c3f0e21-1a55-4d0a-9f2b-6e8c1d4a9b33",
     scope: "user",
+    sections: [],
     basedOn: SYSTEM_SUMMARY_TEMPLATE.id,
   });
 
+  it("inherits the base template's sections as they are now", () => {
+    const resolved = resolveTemplateSections(base, SYSTEM_SUMMARY_TEMPLATE);
+    expect(resolved).toEqual(SECTIONS);
+  });
+
+  it("refuses to resolve an inheriting template without its base", () => {
+    expect(() => resolveTemplateSections(base)).toThrow(/was not supplied/);
+  });
+
   it("hides a section without disturbing the others", () => {
-    const resolved = resolveTemplateSections({
-      ...base,
-      overrides: [{ sectionId: "key-points", action: "hide", section: null }],
-    });
+    const resolved = resolveTemplateSections(
+      {
+        ...base,
+        overrides: [{ sectionId: "key-points", action: "hide", section: null }],
+      },
+      SYSTEM_SUMMARY_TEMPLATE,
+    );
     expect(resolved.map((section) => section.id)).toEqual([
       "overview",
       "decisions",
@@ -62,10 +80,13 @@ describe("template resolution", () => {
       instruction: "Only the binding ones.",
       format: "bullets" as const,
     };
-    const resolved = resolveTemplateSections({
-      ...base,
-      overrides: [{ sectionId: "decisions", action: "replace", section: replacement }],
-    });
+    const resolved = resolveTemplateSections(
+      {
+        ...base,
+        overrides: [{ sectionId: "decisions", action: "replace", section: replacement }],
+      },
+      SYSTEM_SUMMARY_TEMPLATE,
+    );
     expect(resolved[2]).toEqual(replacement);
     expect(resolved).toHaveLength(SECTIONS.length);
   });
@@ -77,23 +98,29 @@ describe("template resolution", () => {
       instruction: "Named risks only.",
       format: "bullets" as const,
     };
-    const resolved = resolveTemplateSections({
-      ...base,
-      overrides: [{ sectionId: "risks", action: "add", section: extra }],
-    });
+    const resolved = resolveTemplateSections(
+      {
+        ...base,
+        overrides: [{ sectionId: "risks", action: "add", section: extra }],
+      },
+      SYSTEM_SUMMARY_TEMPLATE,
+    );
     expect(resolved.at(-1)).toEqual(extra);
   });
 
   it("refuses a template that resolves to nothing at all", () => {
     expect(() =>
-      resolveTemplateSections({
-        ...base,
-        overrides: SECTIONS.map((section) => ({
-          sectionId: section.id,
-          action: "hide" as const,
-          section: null,
-        })),
-      }),
+      resolveTemplateSections(
+        {
+          ...base,
+          overrides: SECTIONS.map((section) => ({
+            sectionId: section.id,
+            action: "hide" as const,
+            section: null,
+          })),
+        },
+        SYSTEM_SUMMARY_TEMPLATE,
+      ),
     ).toThrow(/resolves to no sections/);
   });
 });

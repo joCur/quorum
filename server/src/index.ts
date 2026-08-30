@@ -6,6 +6,7 @@ import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js
 import { PgBossJobQueue } from "./recording/queue/pg-boss.js";
 import { S3RecordingStorage } from "./recording/storage/s3.js";
 import { PostgresMeetingStore } from "./meetings/repository.js";
+import { PostgresSummaryTemplateStore } from "./templates/repository.js";
 
 export { buildServer } from "./app.js";
 export type { BuildServerOptions } from "./app.js";
@@ -53,8 +54,17 @@ export type {
 export { InMemoryMeetingStore } from "./meetings/memory.js";
 export { MEETING_MIGRATIONS } from "./meetings/schema.js";
 export { meetingRoutes } from "./meetings/routes.js";
+export { templateRoutes } from "./templates/routes.js";
+export { summaryRoutes } from "./summaries/routes.js";
+export {
+  PostgresSummaryTemplateStore,
+  TemplatesUnavailableError,
+  templateFromDraft,
+} from "./templates/repository.js";
+export type { SummaryTemplateStore, TemplateScope } from "./templates/repository.js";
+export { InMemorySummaryTemplateStore } from "./templates/memory.js";
 export { InMemoryRecordingStorage } from "./recording/storage/memory.js";
-export { PgBossJobQueue, TRANSCRIBE_QUEUE } from "./recording/queue/pg-boss.js";
+export { PgBossJobQueue, TRANSCRIBE_QUEUE, SUMMARIZE_QUEUE } from "./recording/queue/pg-boss.js";
 export { InMemoryJobQueue } from "./recording/queue/memory.js";
 export { HeaderRecordingContextProvider, UnauthorizedError } from "./recording/context-provider.js";
 export { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
@@ -78,10 +88,16 @@ async function main(): Promise<void> {
   const meetings = new PostgresMeetingStore(config.DATABASE_URL);
   await meetings.migrate();
 
+  // No migration call: `summary_templates` is created and seeded by the worker, which needs the
+  // system template before it can summarize anything. The API reads and writes rows in it but is
+  // not its migration owner — see the note in `templates/repository.ts`.
+  const templates = new PostgresSummaryTemplateStore(config.DATABASE_URL);
+
   const app = await buildServer({
     storage,
     queue,
     meetings,
+    templates,
     auth: {
       verifyAccessToken: createTokenVerifier({
         issuers: oidc.acceptedIssuers,
@@ -105,6 +121,7 @@ async function main(): Promise<void> {
         await app.close();
         await queue.stop();
         await meetings.close();
+        await templates.close();
       })();
     });
   }
