@@ -13,7 +13,8 @@
   "auth": {
     "signIn": "Anmelden",
     "completing": "Anmeldung läuft…",
-    "error": "Die Anmeldung wurde nicht abgeschlossen."
+    "error": "Die Anmeldung wurde nicht abgeschlossen.",
+    "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dort weiterzumachen, wo du warst."
   },
   "consent": {
     "title": "Bevor du aufnimmst",
@@ -87,6 +88,8 @@
     },
     "untitled": "Meeting ohne Titel",
     "loadError": "Deine Meetings konnten nicht geladen werden.",
+    "deleted": "„{{meeting}}“ wurde gelöscht.",
+    "deleteFailed": "„{{meeting}}“ konnte nicht gelöscht werden.",
     "search": {
       "label": "Meetings durchsuchen",
       "placeholder": "Meetings durchsuchen",
@@ -145,6 +148,7 @@
     "sectionCount_other": "{{count}} Abschnitte",
     "loadError": "Deine Vorlagen konnten nicht geladen werden.",
     "saveFailed": "Diese Vorlage konnte nicht gespeichert werden.",
+    "saved": "Vorlage gespeichert.",
     "empty": {
       "title": "Zusammenfassungen nach deinem Kopf",
       "body": "Starte mit der Systemvorlage und forme die Abschnitte, die du wirklich brauchst."

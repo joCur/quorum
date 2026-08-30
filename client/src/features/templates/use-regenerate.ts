@@ -78,6 +78,9 @@ export function useSummaryRegeneration(
         .then(() => reloadRef.current())
         .catch((failure: unknown) => {
           setAwaitedFrom(null);
+          // Same reason as the loading screens: an expired session is handled once, centrally, and
+          // saying "this failed" here would name the wrong problem.
+          if (failure instanceof MeetingApiError && failure.isUnauthorized) return;
           setError(
             failure instanceof MeetingApiError
               ? failure

@@ -9,9 +9,19 @@ export const THEME_STORAGE_KEY = "quorum.theme";
 export const THEME_PREFERENCES = ["system", "light", "dark"] as const;
 export type ThemePreference = (typeof THEME_PREFERENCES)[number];
 
+/** The scheme actually on screen, once "system" has been resolved against the OS setting. */
+export type ResolvedTheme = "light" | "dark";
+
 interface ThemeContextValue {
   preference: ThemePreference;
   setPreference: (preference: ThemePreference) => void;
+  /**
+   * The scheme currently in effect. Components styled with the design tokens never need this —
+   * the `dark` class on the document element switches the tokens underneath them. It exists for
+   * third-party components that ship their own light and dark styling and have to be told which
+   * one applies.
+   */
+  resolved: ResolvedTheme;
 }
 
 const ThemeContext = React.createContext<ThemeContextValue | null>(null);
@@ -30,12 +40,14 @@ function readStoredPreference(): ThemePreference {
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [preference, setPreferenceState] = React.useState<ThemePreference>(readStoredPreference);
+  const [resolved, setResolved] = React.useState<ResolvedTheme>("light");
 
   React.useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
       const dark = preference === "dark" || (preference === "system" && media.matches);
       document.documentElement.classList.toggle("dark", dark);
+      setResolved(dark ? "dark" : "light");
     };
     apply();
     media.addEventListener("change", apply);
@@ -51,7 +63,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const value = React.useMemo(() => ({ preference, setPreference }), [preference, setPreference]);
+  const value = React.useMemo(
+    () => ({ preference, setPreference, resolved }),
+    [preference, setPreference, resolved],
+  );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

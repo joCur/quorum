@@ -62,7 +62,8 @@ Workspaces:
 - `worker/` — package `@quorum/worker`, the job worker turning recorded audio into transcripts.
   See `worker/README.md` for the transcription backends, the idempotency rules and the retry
   and dead-letter behavior.
-- `client/` — package `@quorum/client`, the React + Vite PWA
+- `client/` — package `@quorum/client`, the React + Vite PWA. See `client/README.md` for the
+  local development flow and the dev proxy that keeps the app same-origin.
 - `e2e/` — package `@quorum/e2e`, the Playwright suite covering the critical paths. `pnpm run e2e`
   from the repository root brings the stack up, runs the tests and tears it down again. See
   `e2e/README.md` for the options, the mocked-versus-real transcription trade-off, and the rule
@@ -72,8 +73,10 @@ Workspaces:
 
 The PWA reads its configuration from `VITE_*` variables; copy `client/.env.example` to
 `client/.env.local` and point `VITE_OIDC_ISSUER_URL` at the Keycloak realm before running
-`pnpm run dev:client`. Fonts and icons are bundled — the app makes no requests to any CDN at
-runtime, which a self-hosted deployment depends on.
+`pnpm run dev:client`. Leave `VITE_API_BASE_URL` empty: the dev server proxies `/api`, `/ws` and
+`/healthz` to the API on port 8080, so the app is same-origin in development just as it is in a
+deployment. Fonts and icons are bundled — the app makes no requests to any CDN at runtime, which
+a self-hosted deployment depends on. `client/README.md` has the full flow.
 
 Infrastructure configuration:
 

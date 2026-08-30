@@ -52,6 +52,51 @@ test.describe("auth", () => {
     expect(response.status()).toBe(401);
   });
 
+  test("routes an expired session into sign-in and returns to where it ended", async ({
+    page,
+    signIn,
+  }) => {
+    await signIn(devUsers.alice);
+    await page.goto("/templates");
+    await expect(page.getByRole("heading", { name: "Templates" })).toBeVisible();
+
+    // The token the app holds is replaced with one the API cannot accept, refresh token included,
+    // so the silent renewal has nothing to renew from. This is what a session that outlived its
+    // anchor looks like from the app's side: every request comes back 401.
+    await page.evaluate(() => {
+      for (let index = 0; index < window.sessionStorage.length; index += 1) {
+        const key = window.sessionStorage.key(index);
+        if (key === null || !key.startsWith("oidc.user:")) continue;
+        const raw = window.sessionStorage.getItem(key);
+        if (raw === null) continue;
+        const stored = JSON.parse(raw) as Record<string, unknown>;
+        stored["access_token"] = "not-a-valid-token";
+        stored["refresh_token"] = "not-a-valid-refresh-token";
+        window.sessionStorage.setItem(key, JSON.stringify(stored));
+      }
+    });
+
+    await page.reload();
+
+    // Not "your templates could not be loaded": a 401 is an authentication problem, and the app
+    // says so and asks the user to sign in again.
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByText("Your session ended.", { exact: false })).toBeVisible();
+    await expect(page.getByText("could not be loaded")).toHaveCount(0);
+
+    // Signing in again continues where the session ended. Keycloak's own session usually survives,
+    // so its login form may not appear at all; when it does, it is filled like anywhere else.
+    await page.getByRole("button", { name: "Sign in" }).click();
+    const username = page.locator("#username");
+    if (await username.isVisible().catch(() => false)) {
+      await username.fill(devUsers.alice.username);
+      await page.locator("#password").fill(devUsers.alice.password);
+      await page.locator("#kc-login").click();
+    }
+    await page.waitForURL(/\/templates$/);
+    await expect(page.getByRole("heading", { name: "Templates" })).toBeVisible();
+  });
+
   test("keeps tenants apart", async ({ page, signIn }) => {
     // Carol belongs to a second tenant. The meeting list is still the first-run state today, so
     // the UI half of this assertion is deliberately modest: she sees her own empty workspace,
