@@ -16,7 +16,9 @@ const SESSION_START = Date.parse("2026-08-29T10:00:00.000Z");
 /** Limits small enough to reach in a test, with the same shape production uses. */
 const TEST_LIMITS: UserLimits = {
   ...DEFAULT_USER_LIMITS,
-  maxSessionSeconds: 60,
+  maxRecordedSeconds: 60,
+  maxSessionLifetimeSeconds: 600,
+  maxPauseSeconds: 120,
   maxParallelSessions: 2,
   maxChunksPerSecond: 2,
   maxBytesPerSecond: 1_000,
@@ -26,13 +28,48 @@ const TEST_LIMITS: UserLimits = {
   usageFlushChunks: 64,
 };
 
+/**
+ * Sequence number whose audio offset lands exactly on the recorded-duration limit.
+ *
+ * The test chunk helper stamps `seq * 2` seconds of audio offset, which is what the recorded
+ * duration is counted from — this is the boundary case, and `+ 1` is the first one past it.
+ */
+const LAST_SEQ_WITHIN_RECORDED_LIMIT = TEST_LIMITS.maxRecordedSeconds / 2;
+
 /** A clock the test moves by hand, so no limit test depends on wall-clock timing. */
 function clock(startMs = SESSION_START) {
   let current = startMs;
   return {
     now: () => new Date(current),
+    /** The current time as a protocol timestamp, for the `at` of a pause or resume mark. */
+    at: () => new Date(current).toISOString(),
     advanceSeconds(seconds: number) {
       current += seconds * 1000;
+    },
+  };
+}
+
+/**
+ * The scheduler the handler arms its pause deadline on, under the test's control.
+ *
+ * A pause limit measured in hours cannot be waited out, and the handler takes its timer as a
+ * dependency for exactly this reason: the test fires the deadline itself and asserts what the
+ * handler does with it.
+ */
+function fakeTimers() {
+  const armed = new Set<() => void>();
+  return {
+    schedule(callback: () => void): () => void {
+      armed.add(callback);
+      return () => armed.delete(callback);
+    },
+    pending: () => armed.size,
+    async runPending(): Promise<void> {
+      const callbacks = [...armed];
+      armed.clear();
+      for (const callback of callbacks) callback();
+      // The deadline finalizes asynchronously; let those promises settle before asserting.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     },
   };
 }
@@ -49,6 +86,7 @@ function createFixture(
     limits?: UserLimits;
     registry?: SessionRegistry;
     now?: () => Date;
+    schedule?: (callback: () => void, delayMs: number) => () => void;
     userId?: string;
     storage?: InMemoryRecordingStorage;
     queue?: InMemoryJobQueue;
@@ -66,8 +104,17 @@ function createFixture(
     registry: options.registry,
     newId: idSequence(options.idPrefix ?? "0"),
     now: options.now ?? (() => new Date(SESSION_START)),
+    ...(options.schedule ? { schedule: options.schedule } : {}),
   });
   return { connection, handler, storage, queue };
+}
+
+async function pause(fixture: Fixture, sessionId: string, at: string): Promise<void> {
+  await fixture.handler.handleText(JSON.stringify({ type: "session.pause", sessionId, at }));
+}
+
+async function resume(fixture: Fixture, sessionId: string, at: string): Promise<void> {
+  await fixture.handler.handleText(JSON.stringify({ type: "session.resume", sessionId, at }));
 }
 
 async function start(fixture: Fixture): Promise<string> {
@@ -183,17 +230,19 @@ describe("WebSocket rate limits", () => {
   });
 });
 
-describe("maximum session duration", () => {
+describe("maximum recorded duration", () => {
   it("keeps recording right up to the limit", async () => {
     const time = clock();
     const fixture = createFixture({ now: time.now });
     const sessionId = await start(fixture);
 
-    time.advanceSeconds(TEST_LIMITS.maxSessionSeconds);
-    await fixture.handler.handleBinary(chunk(sessionId, 0));
+    // The last chunk that still fits: its audio offset is exactly the limit.
+    await fixture.handler.handleBinary(chunk(sessionId, LAST_SEQ_WITHIN_RECORDED_LIMIT));
 
     expect(fixture.connection.closed).toBeNull();
-    expect(fixture.connection.last("chunk.ack")?.persistedSeq).toBe(0);
+    // Persisted, not acknowledged: it is the only chunk so far, so the contiguous run still
+    // starts at nothing. What matters here is that the limit let it through.
+    expect(fixture.storage.objects.size).toBeGreaterThan(1);
   });
 
   it("finalizes the recording itself once the limit is passed", async () => {
@@ -203,8 +252,9 @@ describe("maximum session duration", () => {
     await fixture.handler.handleBinary(chunk(sessionId, 0));
     await fixture.handler.handleBinary(chunk(sessionId, 1));
 
-    time.advanceSeconds(TEST_LIMITS.maxSessionSeconds + 1);
-    await fixture.handler.handleBinary(chunk(sessionId, 2));
+    // A second of wall clock so the third frame is not refused by the chunk rate instead.
+    time.advanceSeconds(1);
+    await fixture.handler.handleBinary(chunk(sessionId, LAST_SEQ_WITHIN_RECORDED_LIMIT + 1));
 
     // The recording survives as a valid meeting: manifest written, transcription enqueued, and
     // the client is told the session is finalized before the socket closes.
@@ -223,13 +273,30 @@ describe("maximum session duration", () => {
     });
   });
 
+  it("counts audio, so time spent paused does not consume the allowance", async () => {
+    const time = clock();
+    const fixture = createFixture({ now: time.now });
+    const sessionId = await start(fixture);
+    await fixture.handler.handleBinary(chunk(sessionId, 0));
+
+    await pause(fixture, sessionId, time.at());
+    // Longer than the whole recorded-duration allowance, and still a legal pause.
+    time.advanceSeconds(TEST_LIMITS.maxPauseSeconds);
+    await resume(fixture, sessionId, time.at());
+
+    await fixture.handler.handleBinary(chunk(sessionId, 1));
+
+    expect(fixture.connection.closed).toBeNull();
+    expect(fixture.connection.last("chunk.ack")?.persistedSeq).toBe(1);
+  });
+
   it("does not revive a session that ran past the limit while it was disconnected", async () => {
     const time = clock();
     const first = createFixture({ now: time.now });
     const sessionId = await start(first);
     await first.handler.handleBinary(chunk(sessionId, 0));
 
-    time.advanceSeconds(TEST_LIMITS.maxSessionSeconds + 1);
+    time.advanceSeconds(TEST_LIMITS.maxSessionLifetimeSeconds + 1);
     const resumed = createFixture({
       now: time.now,
       storage: first.storage,
@@ -246,8 +313,137 @@ describe("maximum session duration", () => {
 
     expect(resumed.connection.closed).toEqual({
       code: CLOSE_NORMAL,
-      reason: "limit.session_duration_exceeded",
+      reason: "limit.session_lifetime_exceeded",
     });
+  });
+});
+
+describe("maximum session lifetime", () => {
+  it("keeps recording right up to the ceiling", async () => {
+    const time = clock();
+    const fixture = createFixture({ now: time.now });
+    const sessionId = await start(fixture);
+
+    time.advanceSeconds(TEST_LIMITS.maxSessionLifetimeSeconds);
+    await fixture.handler.handleBinary(chunk(sessionId, 0));
+
+    expect(fixture.connection.closed).toBeNull();
+    expect(fixture.connection.last("chunk.ack")?.persistedSeq).toBe(0);
+  });
+
+  it("finalizes a session that stayed open past the ceiling", async () => {
+    const time = clock();
+    const fixture = createFixture({ now: time.now });
+    const sessionId = await start(fixture);
+    await fixture.handler.handleBinary(chunk(sessionId, 0));
+
+    time.advanceSeconds(TEST_LIMITS.maxSessionLifetimeSeconds + 1);
+    await fixture.handler.handleBinary(chunk(sessionId, 1));
+
+    expect(fixture.connection.last("session.finalized")?.sessionId).toBe(sessionId);
+    expect(fixture.queue.enqueued).toHaveLength(1);
+    expect(fixture.connection.closed).toEqual({
+      code: CLOSE_NORMAL,
+      reason: "limit.session_lifetime_exceeded",
+    });
+  });
+});
+
+describe("maximum pause duration", () => {
+  it("resumes normally right up to the allowance", async () => {
+    const time = clock();
+    const timers = fakeTimers();
+    const fixture = createFixture({ now: time.now, schedule: timers.schedule });
+    const sessionId = await start(fixture);
+    await fixture.handler.handleBinary(chunk(sessionId, 0));
+
+    await pause(fixture, sessionId, time.at());
+    time.advanceSeconds(TEST_LIMITS.maxPauseSeconds);
+    await resume(fixture, sessionId, time.at());
+    await fixture.handler.handleBinary(chunk(sessionId, 1));
+
+    expect(fixture.connection.closed).toBeNull();
+    expect(fixture.connection.last("chunk.ack")?.persistedSeq).toBe(1);
+    // The deadline is disarmed by the resume, not left to fire into a running recording.
+    expect(timers.pending()).toBe(0);
+  });
+
+  it("finalizes cleanly when the pause outlasts the allowance", async () => {
+    const time = clock();
+    const timers = fakeTimers();
+    const fixture = createFixture({ now: time.now, schedule: timers.schedule });
+    const sessionId = await start(fixture);
+    await fixture.handler.handleBinary(chunk(sessionId, 0));
+    await fixture.handler.handleBinary(chunk(sessionId, 1));
+
+    await pause(fixture, sessionId, time.at());
+    time.advanceSeconds(TEST_LIMITS.maxPauseSeconds + 1);
+    await timers.runPending();
+
+    // Finalized, never killed: the meeting is complete and playable, and the job is queued.
+    expect(fixture.connection.last("session.finalized")?.sessionId).toBe(sessionId);
+    const scope = { tenantId: "tenant-a", userId: "user-1", sessionId };
+    const manifest = JSON.parse(
+      new TextDecoder().decode(fixture.storage.objects.get(manifestKey(scope))),
+    ) as { persistedSeq: number; chunkCount: number };
+    expect(manifest.chunkCount).toBe(2);
+    expect(fixture.queue.enqueued).toHaveLength(1);
+    expect(fixture.connection.closed).toEqual({
+      code: CLOSE_NORMAL,
+      reason: "limit.pause_duration_exceeded",
+    });
+  });
+
+  it("finalizes a resume that arrives after the pause allowance ran out", async () => {
+    const time = clock();
+    const fixture = createFixture({ now: time.now });
+    const sessionId = await start(fixture);
+    await fixture.handler.handleBinary(chunk(sessionId, 0));
+
+    await pause(fixture, sessionId, time.at());
+    time.advanceSeconds(TEST_LIMITS.maxPauseSeconds + 1);
+    await resume(fixture, sessionId, time.at());
+
+    expect(fixture.connection.closed).toEqual({
+      code: CLOSE_NORMAL,
+      reason: "limit.pause_duration_exceeded",
+    });
+  });
+
+  it("holds across a reconnect, because the pause mark is what is judged", async () => {
+    const time = clock();
+    const first = createFixture({ now: time.now });
+    const sessionId = await start(first);
+    await first.handler.handleBinary(chunk(sessionId, 0));
+    await pause(first, sessionId, time.at());
+
+    time.advanceSeconds(TEST_LIMITS.maxPauseSeconds + 1);
+    const resumed = createFixture({
+      now: time.now,
+      storage: first.storage,
+      queue: first.queue,
+      idPrefix: "1",
+    });
+    await resume(resumed, sessionId, time.at());
+
+    expect(resumed.connection.closed).toEqual({
+      code: CLOSE_NORMAL,
+      reason: "limit.pause_duration_exceeded",
+    });
+    expect(resumed.queue.enqueued).toHaveLength(1);
+  });
+
+  it("drops the armed deadline when the connection goes away", async () => {
+    const time = clock();
+    const timers = fakeTimers();
+    const fixture = createFixture({ now: time.now, schedule: timers.schedule });
+    const sessionId = await start(fixture);
+    await pause(fixture, sessionId, time.at());
+    expect(timers.pending()).toBe(1);
+
+    fixture.handler.dispose();
+
+    expect(timers.pending()).toBe(0);
   });
 });
 
@@ -345,7 +541,14 @@ describe("default limits", () => {
     // The e2e suite records for seconds, so the defaults must never be in its way.
     expect(DEFAULT_USER_LIMITS.maxChunksPerSecond).toBeGreaterThanOrEqual(10);
     expect(DEFAULT_USER_LIMITS.maxBytesPerSecond).toBeGreaterThanOrEqual(1024 * 1024);
-    expect(DEFAULT_USER_LIMITS.maxSessionSeconds).toBeGreaterThanOrEqual(60 * 60);
+    expect(DEFAULT_USER_LIMITS.maxRecordedSeconds).toBeGreaterThanOrEqual(60 * 60);
+    // The wall-clock ceiling only exists to catch a forgotten session, so it has to sit well
+    // above a full recording plus the breaks inside it.
+    expect(DEFAULT_USER_LIMITS.maxSessionLifetimeSeconds).toBeGreaterThan(
+      DEFAULT_USER_LIMITS.maxRecordedSeconds,
+    );
+    // Longer than a lunch break, or an honest user comes back to a closed meeting.
+    expect(DEFAULT_USER_LIMITS.maxPauseSeconds).toBeGreaterThanOrEqual(60 * 60);
     expect(DEFAULT_USER_LIMITS.maxParallelSessions).toBeGreaterThanOrEqual(2);
   });
 });

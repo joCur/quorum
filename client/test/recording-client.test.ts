@@ -303,3 +303,51 @@ describe("recording client — resuming a buffered session", () => {
     expect(factory.latest().sentSeqs()).toEqual([1, 2, 3]);
   });
 });
+
+describe("recording client — pause and resume", () => {
+  it("marks the pause and the resume with wall-clock timestamps", async () => {
+    const context = await harness();
+    await startSession(context);
+    await context.client.pushChunk(payload(0), 0, 1);
+
+    context.client.pause();
+    context.client.resumeMark();
+
+    const marks = context.factory
+      .latest()
+      .controlMessages()
+      .filter((message) => message["type"] !== "session.start");
+    expect(marks).toEqual([
+      { type: "session.pause", sessionId: SESSION_ID, at: "2026-08-29T10:00:00.000Z" },
+      { type: "session.resume", sessionId: SESSION_ID, at: "2026-08-29T10:00:00.000Z" },
+    ]);
+  });
+
+  it("continues the chunk sequence across a pause instead of restarting it", async () => {
+    const context = await harness();
+    await startSession(context);
+    await context.client.pushChunk(payload(0), 0, 1);
+    await context.client.pushChunk(payload(1), 1, 1);
+
+    // Nothing is captured while paused, so no chunk is pushed between the two marks — the
+    // sequence simply carries on where the break interrupted it.
+    context.client.pause();
+    context.client.resumeMark();
+
+    await context.client.pushChunk(payload(2), 2, 1);
+    await context.client.pushChunk(payload(3), 3, 1);
+
+    expect(context.factory.latest().sentSeqs()).toEqual([0, 1, 2, 3]);
+    // One session in the buffer, not two: a pause never splits a recording.
+    expect(await context.buffer.listUnfinishedSessions()).toHaveLength(1);
+  });
+
+  it("ignores a mark when no session is open, rather than inventing one", async () => {
+    const context = await harness();
+
+    context.client.pause();
+    context.client.resumeMark();
+
+    expect(context.factory.sockets).toHaveLength(0);
+  });
+});

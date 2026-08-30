@@ -453,4 +453,36 @@ describe("pause and resume marks", () => {
       { type: "resume", at: "2026-08-29T10:02:00.000Z" },
     ]);
   });
+
+  it("keeps the chunk sequence continuous across a pause", async () => {
+    const harness = createHarness();
+    const sessionId = await startSession(harness);
+    await harness.handler.handleBinary(chunk(sessionId, 0));
+    await harness.handler.handleBinary(chunk(sessionId, 1));
+
+    await harness.handler.handleText(
+      JSON.stringify({ type: "session.pause", sessionId, at: "2026-08-29T10:01:00.000Z" }),
+    );
+    await harness.handler.handleText(
+      JSON.stringify({ type: "session.resume", sessionId, at: "2026-08-29T10:02:00.000Z" }),
+    );
+
+    // A pause is a mark, not a new recording: the sequence continues where it stopped.
+    await harness.handler.handleBinary(chunk(sessionId, 2));
+    await harness.handler.handleBinary(chunk(sessionId, 3));
+    await harness.handler.handleText(
+      JSON.stringify({ type: "session.end", sessionId, lastSeq: 3 }),
+    );
+
+    expect(harness.handler.persistedSeq).toBe(3);
+    const scope = { tenantId: "tenant-a", userId: "user-1", sessionId };
+    const manifest = JSON.parse(
+      new TextDecoder().decode(harness.storage.objects.get(manifestKey(scope))),
+    ) as { chunkCount: number; chunkKeys: string[]; marks: unknown[] };
+    // One meeting, four chunks, no gap where the break was — and the marks travel with the
+    // manifest, so the audio-time mapping downstream still knows about the pause.
+    expect(manifest.chunkCount).toBe(4);
+    expect(manifest.chunkKeys).toEqual([0, 1, 2, 3].map((seq) => chunkKey(scope, seq)));
+    expect(manifest.marks).toHaveLength(2);
+  });
 });

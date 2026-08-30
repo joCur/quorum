@@ -13,10 +13,31 @@
 /** Everything one user is allowed to do. Resolved per tenant and user, never read as a constant. */
 export interface UserLimits {
   /**
-   * Wall-clock length after which the server finalizes the recording itself. The session is not
-   * discarded: what has been persisted becomes a normal, playable meeting.
+   * Seconds of RECORDED AUDIO after which the server finalizes the recording itself.
+   *
+   * Audio time, not wall clock: a meeting that is paused over a lunch break spends none of this
+   * allowance while it is paused. This is the limit that tracks cost, because cost follows the
+   * seconds of audio that reach the pipeline, not the seconds a socket stays open.
+   *
+   * The session is not discarded: what has been persisted becomes a normal, playable meeting.
    */
-  readonly maxSessionSeconds: number;
+  readonly maxRecordedSeconds: number;
+  /**
+   * Wall-clock seconds a session may stay open, pauses included.
+   *
+   * Pure resource protection for the open session — the socket, the in-memory state and the
+   * parallel-session slot it holds. Deliberately far above `maxRecordedSeconds`, so only a session
+   * that was forgotten rather than used ever reaches it. It finalizes the same way.
+   */
+  readonly maxSessionLifetimeSeconds: number;
+  /**
+   * Wall-clock seconds a single pause may last before the session is finalized.
+   *
+   * A break longer than this is not a break any more: the meeting is closed as a complete, playable
+   * recording, and picking work up again starts a new session. Finalized, never killed — the
+   * difference between a user coming back to a finished meeting and coming back to nothing.
+   */
+  readonly maxPauseSeconds: number;
   /** How many recording sessions one user may have open at the same time. */
   readonly maxParallelSessions: number;
   /** Sustained chunk frames per second a single connection may send. */
@@ -57,8 +78,13 @@ export interface UserLimits {
 /**
  * Defaults chosen against what a real recording does, not against what feels round.
  *
- * - Four hours is longer than any meeting this product is for, and it caps a single runaway
- *   session at roughly 0.40 € of marginal cost.
+ * - Four hours of audio is longer than any meeting this product is for, and it caps a single
+ *   runaway session at roughly 0.40 € of marginal cost. Because it counts audio, a day of
+ *   workshop with breaks in it still fits.
+ * - Twelve hours of session lifetime is longer than any working day of meetings and costs nothing
+ *   by itself; it exists so a forgotten session cannot hold a socket and a session slot forever.
+ * - Two hours of pause is longer than a lunch break and shorter than "tomorrow": past it, closing
+ *   the meeting is what the user would have wanted anyway.
  * - Three parallel sessions covers a laptop plus a phone plus one stale connection that has not
  *   timed out yet.
  * - Chunks are 1–2 s of audio (ADR-002), so a live recording sends 0.5–1 chunk/s and about
@@ -74,7 +100,9 @@ export interface UserLimits {
  *   that actually costs money.
  */
 export const DEFAULT_USER_LIMITS: UserLimits = {
-  maxSessionSeconds: 4 * 60 * 60,
+  maxRecordedSeconds: 4 * 60 * 60,
+  maxSessionLifetimeSeconds: 12 * 60 * 60,
+  maxPauseSeconds: 2 * 60 * 60,
   maxParallelSessions: 3,
   maxChunksPerSecond: 20,
   maxBytesPerSecond: 4 * 1024 * 1024,

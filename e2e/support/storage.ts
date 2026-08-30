@@ -80,6 +80,8 @@ export interface RecordingManifest {
   chunkCount: number;
   persistedSeq: number;
   chunkKeys: string[];
+  /** Wall-clock pause and resume marks — where the audio-time gaps in the recording are. */
+  marks: Array<{ type: "pause" | "resume"; at: string }>;
   finalizedAt: string;
 }
 
