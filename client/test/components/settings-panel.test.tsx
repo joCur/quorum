@@ -44,15 +44,28 @@ describe("settings panel", () => {
   it("names every setting, so nothing is lost with the card headings", () => {
     renderSettings();
 
-    // The uppercase row labels are the panel's structure now: four headings, one per setting.
+    // The uppercase row labels are the panel's structure now: four headings, one per setting,
+    // with what a user came here to change first and the account last.
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
-      "Account",
       "Appearance",
       "Language",
       "About",
+      "Account",
     ]);
     expect(screen.getByText("Maria Winter")).toBeInTheDocument();
     expect(screen.getByText(/Your recordings, transcripts and summaries/)).toBeInTheDocument();
+  });
+
+  it("closes the panel with the account, under the settings it would interrupt", () => {
+    renderSettings();
+
+    const rows = document.querySelectorAll("section");
+    const last = rows[rows.length - 1] as HTMLElement;
+    // Who is signed in is a fact to check and signing out ends the session — neither is what a
+    // user opened this screen to change, so both come after the preferences.
+    expect(within(last).getByRole("heading", { level: 2 })).toHaveTextContent("Account");
+    expect(within(last).getByText("Maria Winter")).toBeVisible();
+    expect(within(last).getByRole("button", { name: "Sign out" })).toBeVisible();
   });
 
   it("offers theme and language as one choice each, not as loose toggles", () => {

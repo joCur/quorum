@@ -44,26 +44,6 @@ export function SettingsRoute() {
       <h1 className="text-xl font-bold md:text-2xl">{t("settings.title")}</h1>
 
       <Card className="divide-y divide-border overflow-hidden">
-        <Row label={t("settings.account.title")}>
-          {identity ? (
-            <span className="text-sm text-muted-foreground">
-              {t("settings.account.signedInAs")} <span className="font-medium">{identity}</span>
-            </span>
-          ) : null}
-          <Button
-            variant="outline"
-            className="self-start rounded-full"
-            disabled={signingOut}
-            onClick={() => {
-              setSigningOut(true);
-              void signOut().finally(() => setSigningOut(false));
-            }}
-          >
-            <LogOut aria-hidden="true" />
-            {signingOut ? t("settings.account.signingOut") : t("settings.account.signOut")}
-          </Button>
-        </Row>
-
         <Row label={t("settings.appearance.title")}>
           <Pills
             groupLabel={t("settings.appearance.theme")}
@@ -91,12 +71,35 @@ export function SettingsRoute() {
           </span>
           <span className="text-sm text-muted-foreground">{t("settings.about.privacy")}</span>
         </Row>
+
+        {/* The account, last. Nothing here is what a user came to this screen to change: who is
+            signed in is a fact to check, and signing out ends the session — neither belongs above
+            the preferences it would interrupt. */}
+        <Row label={t("settings.account.title")}>
+          {identity ? (
+            <span className="text-sm text-muted-foreground">
+              {t("settings.account.signedInAs")} <span className="font-medium">{identity}</span>
+            </span>
+          ) : null}
+          <Button
+            variant="outline"
+            className="self-start rounded-full"
+            disabled={signingOut}
+            onClick={() => {
+              setSigningOut(true);
+              void signOut().finally(() => setSigningOut(false));
+            }}
+          >
+            <LogOut aria-hidden="true" />
+            {signingOut ? t("settings.account.signingOut") : t("settings.account.signOut")}
+          </Button>
+        </Row>
       </Card>
     </div>
   );
 }
 
-/** One setting in the panel, under the uppercase label that names it. */
+/** One row of the panel, under the uppercase label that names it. */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-2.5 p-4 md:px-5">
