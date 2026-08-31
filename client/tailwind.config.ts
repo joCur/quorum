@@ -62,6 +62,7 @@ export default {
         // selection, never status.
         honey: {
           DEFAULT: "hsl(var(--honey))",
+          foreground: "hsl(var(--honey-foreground))",
           strong: "hsl(var(--honey-strong))",
           subtle: "hsl(var(--honey-subtle))",
         },
@@ -75,11 +76,6 @@ export default {
         },
         // Brand mark dot — honey on the espresso mark, inverted in dark mode.
         "brand-dot": "hsl(var(--brand-dot))",
-        // The recording screen is a fixed dark room in both themes.
-        "on-air": {
-          DEFAULT: "hsl(var(--on-air))",
-          foreground: "hsl(var(--on-air-foreground))",
-        },
         // Status colors — state, and only state.
         recording: {
           DEFAULT: "hsl(var(--recording))",

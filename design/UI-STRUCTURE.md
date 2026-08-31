@@ -41,11 +41,10 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
 
 ### 2.2 Recording flow (`/record`)
 
-> v2: superseded — rewritten by the **recording** redesign.
-1. Tap Record → **Consent notice** (STATES.md §1).
-2. Confirm → mic permission (browser prompt; denial shows an inline explainer with retry, not an error toast).
-3. **Recording screen**: timer, level meter, `RecordingIndicator`, sync status, pause/resume, stop (with confirm popover), optional title field. Wake lock held.
-4. Stop → brief finalizing state → navigate to the new meeting's detail (processing states take over).
+1. Tap Record → the recording screen opens on its **start stage**: optional title, summary template, microphone, and the **consent card** with one button that carries the acknowledgement (STATES.md §1).
+2. Press that button → mic permission (browser prompt; denial shows an inline explainer with retry, not an error toast).
+3. **Recording screen**: timer, level bars, `RecordingIndicator`, sync status, pause/resume, hold-to-stop. Wake lock held.
+4. Hold to stop → brief finalizing state → navigate to the new meeting's detail (processing states take over).
 
 ### 2.3 Meeting detail (`/meetings/:id`)
 
@@ -107,11 +106,11 @@ flowchart TD
       Settings[Settings]
     end
 
-    List -- "Record (top-bar pill)" --> Consent[Consent notice]
-    Consent -- cancel --> List
-    Consent -- confirm --> Mic[Mic permission] --> Rec[Recording screen]
+    List -- "Record (top-bar pill)" --> Stage[Start stage with consent card]
+    Stage -- close --> List
+    Stage -- "I have informed the participants" --> Mic[Mic permission] --> Rec[Recording screen]
     Rec -- "pause / resume" --> Rec
-    Rec -- "stop + confirm" --> Finalize[Uploading / finalizing]
+    Rec -- "hold to stop" --> Finalize[Uploading / finalizing]
     Finalize --> Detail
 
     List -- open meeting --> Detail[Meeting detail]

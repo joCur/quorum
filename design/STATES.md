@@ -34,10 +34,10 @@ acknowledged per recording) with one action instead of three.
 - Screen readers: the card is a labelled region preceding the button in reading order, so the
   obligation is read before the control that acts on it.
 
-**Visual**: calm, not alarming — a `honey`-outlined card on the on-air ground, honey heading, body
-text in the muted on-air ink. No red (red belongs to live capture), no illustration, no icon
-theatrics. The start button is honey with espresso text — the one warm, deliberate thing on a dark
-screen.
+**Visual**: calm, not alarming — a `honey`-outlined card on the screen's own ground, honey heading,
+body text in `muted-foreground`. No red (red belongs to live capture), no illustration, no icon
+theatrics. The start button is honey with espresso text — the one warm, deliberate thing on the
+stage, in either theme.
 
 **Copy direction**
 > **Before you record**
@@ -47,9 +47,11 @@ screen.
 ## 2. Recording (active)
 
 **Visual**
-- Dedicated recording screen, and in v2 it is a **fixed dark "on air" room** (`on-air` /
-  `on-air-foreground`) in both light and dark themes — stepping into capture should feel like
-  stepping into a different space. It holds: a large mono timer (`text-timer`, tabular), the `REC`
+- Dedicated recording screen. It **follows the app theme** like every other screen — a light-theme
+  user gets a light recording screen; there is no forced darkness. Stepping into capture still
+  feels like stepping into a different space, and that comes from the screen's own furniture: a
+  full-screen stage with nothing else on it, the `REC` pill, the level bars and the hold-to-stop
+  ring. `recording` red keeps full prominence on the light surface. It holds: a large mono timer (`text-timer`, tabular), the `REC`
   pill with the breathing dot (COMPONENTS.md — pulse modulated by live mic level: the app visibly
   listens), the level meter, a Pause button, and the hold-to-stop button.
 - Live input-level meter (a row of thin rounded bars under the timer) reinforces trust that the mic is picking up audio. The bars are `recording` red **only while capture is live**; paused, they hold their last position in neutral gray — frozen bars for a frozen timer. If input is silent for > 10s while recording: inline hint "No audio detected — check your microphone" (`warning`).
