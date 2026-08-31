@@ -197,9 +197,15 @@ export const AudioPlayer = React.forwardRef<
             backgroundImage: `linear-gradient(to right, hsl(var(--honey-strong)) ${String(elapsed * 100)}%, transparent ${String(elapsed * 100)}%)`,
           }}
           className={cn(
-            "h-2 w-full cursor-pointer appearance-none rounded-[4px] border border-border bg-background bg-no-repeat",
-            "[&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-honey-strong",
-            "[&::-moz-range-thumb]:size-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-honey-strong",
+            // 10px of box for an 8px groove: the border sits outside the fill, as the design
+            // draws it, and `border-box` sizing would otherwise eat two of the eight pixels and
+            // leave the bar visibly thin.
+            "h-2.5 w-full cursor-pointer appearance-none rounded-[5px] border border-border bg-background bg-no-repeat",
+            // The thumb is the width of the groove and the color of the fill, so at rest it is
+            // the end of the bar rather than a dot riding on top of it — the design has no
+            // separate handle, and a larger one broke the bar's line.
+            "[&::-webkit-slider-thumb]:size-2 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-honey-strong",
+            "[&::-moz-range-thumb]:size-2 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-honey-strong",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           )}
         />

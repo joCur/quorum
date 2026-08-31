@@ -49,7 +49,10 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
 
 ### 2.3 Meeting detail (`/meetings/:id`)
 
-- Header: title, date, duration, `StatusBadge`, delete control.
+- Header: back link (13.5px/600, muted), title, date and duration. No status chip — see STATES.md
+  §4. The delete control is a bordered pill (`bg-card`, 1px border, `rounded-pill`, 9px/12px) rather
+  than a bare icon: it is the only destructive thing on the screen and has to read differently from
+  the quiet copy icons inside the summary.
 - **`AudioPlayer` as a pill bar, sticky directly under the top bar** (COMPONENTS.md §9), available as
   soon as audio is finalized and independent of transcript state. It sits above the content rather
   than on the bottom edge, so the control that moves the playhead stays next to the words it moves

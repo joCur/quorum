@@ -2,7 +2,6 @@ import * as React from "react";
 import { Check, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Summary, SummarySection } from "@quorum/shared";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatRelativeTime } from "@/features/meetings/format";
 import { sectionToMarkdown, summaryToMarkdown } from "@/features/meetings/summary-markdown";
@@ -140,9 +139,12 @@ function CopyButton({ text, label }: { text: () => string; label: string }) {
   }, [copied]);
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
+    // The design has no copy control to copy, so this borrows the shape of the nearest one it
+    // does have — the list's icon-only trash: no border, no fill, muted ink, a soft-cornered
+    // 44px target around a 17px glyph. Quiet enough to sit inside a section without competing
+    // with its title.
+    <button
+      type="button"
       aria-label={label}
       onClick={() => {
         void navigator.clipboard
@@ -152,12 +154,13 @@ function CopyButton({ text, label }: { text: () => string; label: string }) {
           // never appears, and the user can still select the text.
           .catch(() => setCopied(false));
       }}
+      className="-my-1 -mr-1 flex size-11 shrink-0 items-center justify-center rounded-field-sm text-muted-foreground transition-colors duration-micro ease-enter hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {copied ? (
-        <Check aria-hidden="true" className="animate-pop-in text-success" />
+        <Check aria-hidden="true" className="size-[17px] animate-pop-in text-success" />
       ) : (
-        <Copy aria-hidden="true" />
+        <Copy aria-hidden="true" className="size-[17px]" />
       )}
-    </Button>
+    </button>
   );
 }

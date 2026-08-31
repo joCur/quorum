@@ -88,8 +88,8 @@ function SegmentBlock({
       )}
       style={index < 8 ? { animationDelay: `${index * 30}ms` } : undefined}
     >
-      <div className="flex items-baseline gap-2">
-        {speaker ? <span className="text-sm font-semibold">{speaker}</span> : null}
+      <div className="flex items-baseline gap-2.5">
+        {speaker ? <span className="text-[13px] font-bold">{speaker}</span> : null}
         <button
           type="button"
           onClick={() => onSeek(segment.start)}

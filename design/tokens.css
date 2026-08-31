@@ -92,7 +92,7 @@
      offsets below it are computed from the same numbers, so the two can never
      drift into an overlap. */
   --top-bar-height: 66px;
-  --player-bar-height: 62px;
+  --player-bar-height: 64px;
 
   /* ---- Elevation (warm, diffuse) ---- */
   --shadow-sm: 0 1px 3px hsl(26 30% 12% / 0.07), 0 1px 2px hsl(26 30% 12% / 0.05);

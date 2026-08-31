@@ -11,7 +11,6 @@ import { AudioPlayer, type PlayerHandle } from "@/components/meetings/audio-play
 import { DeleteMeetingDialog } from "@/components/meetings/delete-meeting-dialog";
 import { PipelineStepper } from "@/components/meetings/pipeline-stepper";
 import { RegenerateSummary } from "@/components/meetings/regenerate-summary";
-import { StatusBadge } from "@/components/meetings/status-badge";
 import { SummaryAttribution, SummaryView } from "@/components/meetings/summary-view";
 import { TranscriptView } from "@/components/meetings/transcript-view";
 import { formatMeetingDate, formatMeetingDuration, meetingLabel } from "@/features/meetings/format";
@@ -91,7 +90,7 @@ function MeetingDetailScreen({
       <div className="flex flex-col gap-2">
         <Link
           to="/meetings"
-          className="flex w-fit items-center gap-1 rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex w-fit items-center gap-1 rounded-sm py-1 text-[13.5px] font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <ArrowLeft aria-hidden="true" className="size-4" />
           {t("meeting.back")}
@@ -110,18 +109,24 @@ function MeetingDetailScreen({
               ) : null}
             </p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <StatusBadge status={meeting.status} />
-            <Button
-              variant="ghost"
-              size="icon"
-              disabled={deleting}
-              onClick={() => setConfirming(true)}
-              aria-label={t("meetings.delete.action", { meeting: title })}
-            >
-              <Trash2 aria-hidden="true" />
-            </Button>
-          </div>
+          {/*
+            No status chip here. While there is work to report the stepper below reports it, in
+            more detail than a chip could; once everything is done there is nothing to say, and a
+            standing green "Ready" would be the screen talking about itself (STATES.md §9).
+
+            The delete control is a bordered pill rather than a bare icon: it is the only
+            destructive thing on the screen, and an outline is what tells it apart from the copy
+            icons inside the summary.
+          */}
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => setConfirming(true)}
+            aria-label={t("meetings.delete.action", { meeting: title })}
+            className="flex shrink-0 items-center rounded-pill border border-border bg-card px-3 py-[9px] text-muted-foreground transition-colors duration-micro ease-enter hover:border-destructive/40 hover:text-destructive disabled:pointer-events-none disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Trash2 aria-hidden="true" className="size-4" />
+          </button>
         </div>
       </div>
 
@@ -231,7 +236,10 @@ function ViewSwitch({
           aria-pressed={value === key}
           onClick={() => onValueChange(key)}
           className={cn(
-            "rounded-pill px-[18px] py-2 text-[13.5px] font-bold transition-colors duration-micro ease-enter focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            // `leading-tight` rather than the inherited body leading: the design sizes these pills
+            // from their text, and 1.5 line-height would quietly make them 4px taller than the
+            // switch they sit in was drawn to be.
+            "rounded-pill px-[18px] py-2 text-[13.5px] font-bold leading-tight transition-colors duration-micro ease-enter focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             value === key
               ? "bg-primary text-primary-foreground"
               : "text-muted-foreground hover:text-foreground",
@@ -255,7 +263,7 @@ function ColumnHeading({ id, children }: { id: string; children: React.ReactNode
   return (
     <h2
       id={id}
-      className="sr-only text-xs font-extrabold uppercase tracking-[0.08em] text-muted-foreground shell:not-sr-only"
+      className="sr-only font-sans text-xs font-extrabold uppercase tracking-[0.08em] text-muted-foreground shell:not-sr-only"
     >
       {children}
     </h2>

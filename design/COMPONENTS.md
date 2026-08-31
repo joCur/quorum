@@ -115,13 +115,20 @@ Used in: meeting rename, template editor, settings.
 Playback of finished recordings, synced with the transcript. One pill bar, round controls.
 
 - **Anatomy:** a `rounded-pill` bar on `card` with a hairline border and `shadow-sm`, at the
-  `--player-bar-height` token. In it: a 42px round play/pause button in the action color (springs on
-  press), then the progress column — an 8px honey track (`honey-strong` fill on a `background`
-  groove) with the elapsed and total times under it in `font-mono text-[11px] tabular-nums` — then
-  −10s / +10s as bare mono-weight labels (≥ sm), and the playback rate as an outlined mono pill
-  that steps through 0.75× 1× 1.25× 1.5× 2× and wraps.
+  `--player-bar-height` token (64px = 10px + a 42px control + 10px + the hairline). In it: a 42px
+  round play/pause button in the action color (springs on press), then the progress column — an 8px
+  honey groove inside a 1px border, so 10px of box, with the elapsed and total times under it in
+  `font-mono text-[11px] tabular-nums`, 5px below — then −10s / +10s as bare 12.5px/700 labels
+  (≥ sm), and the playback rate as an outlined 12px/700 mono pill that steps through
+  0.75× 1× 1.25× 1.5× 2× and wraps.
+- **Vertical rhythm:** the play button and the track-plus-times column are each centred in the bar,
+  which puts the track above the bar's centre line and the times below it. The column is the taller
+  reference, not the track: centring the *track* on the play button instead is what makes the bar
+  read as tilted.
 - The track stays a real `input[type=range]`: the honey fill is painted onto it as a gradient, which
-  keeps keyboard seeking and the announced position that a decorative bar would throw away.
+  keeps keyboard seeking and the announced position that a decorative bar would throw away. Its
+  thumb is the width of the groove and the color of the fill, so it reads as the end of the bar
+  rather than as a handle riding on top of it.
 - **Placement:** sticky under the top bar in meeting detail, offset from `--top-bar-height`, so the
   control that moves the playhead stays beside the words it moves through. Nothing sits on the
   bottom edge of the app.

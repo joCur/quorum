@@ -36,11 +36,13 @@ function Step({ step, label }: { step: PipelineStep; label: string }) {
   return (
     <span
       className={cn(
-        "relative flex items-center gap-1.5 overflow-hidden rounded-full px-3 py-1 text-xs font-medium",
+        // Every chip carries the border, transparent where the design does not want one: a chip
+        // that gained one only while upcoming would stand 2px taller than the ones beside it.
+        "relative flex items-center gap-1.5 overflow-hidden rounded-pill border border-transparent px-3 py-[5px] text-[12.5px] font-semibold",
         step.state === "done" && "bg-success-subtle text-success",
         step.state === "active" && "bg-info-subtle text-info",
         step.state === "failed" && "bg-destructive/10 text-destructive",
-        step.state === "upcoming" && "border border-border text-muted-foreground",
+        step.state === "upcoming" && "border-border text-muted-foreground",
       )}
     >
       {step.state === "done" ? (
@@ -53,10 +55,13 @@ function Step({ step, label }: { step: PipelineStep; label: string }) {
           className="absolute inset-0 animate-shimmer bg-[linear-gradient(90deg,transparent,hsl(var(--info)/0.15),transparent)] bg-[length:200%_100%] motion-reduce:animate-none"
         />
       ) : null}
-      <span className="relative">{label}</span>
-      {step.state === "active" && step.progress !== null ? (
-        <span className="relative font-mono tabular-nums">{Math.round(step.progress * 100)}%</span>
-      ) : null}
+      {/* The number belongs to the label rather than sitting beside it in another face — one
+          phrase, "Transcribing · 64%". Tabular figures keep it from twitching as it counts. */}
+      <span className="relative tabular-nums">
+        {step.state === "active" && step.progress !== null
+          ? `${label} · ${String(Math.round(step.progress * 100))}%`
+          : label}
+      </span>
     </span>
   );
 }

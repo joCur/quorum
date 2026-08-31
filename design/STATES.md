@@ -111,6 +111,9 @@ Done steps: `success` check that pops in. Active step: `info` pill with a gentle
 **Behavior**
 - Waiting is non-blocking: user can leave, list badge reflects state (poll/SSE). No screen ever forces the user to watch a spinner.
 - Audio player is available as soon as audio is finalized, independent of transcript state.
+- The meeting detail carries no status chip. While there is work the stepper reports it in more
+  detail than a chip could, and a finished meeting says nothing at all — the same silence §9 asks
+  of the list.
 - Partial readiness is normal: transcript `Ready` while summary still running — the two panels carry independent state, whether they are shown side by side (desktop) or behind a pill switcher (mobile).
 - **Arrival moment:** when a stage the user is looking at completes, play the celebration beat (DESIGN-SYSTEM.md §5): the ready marker pops in honey, content rises in staggered, the badge springs to `success`, and a one-line toast if the user is elsewhere in the app: "Transcript's ready." Celebrations are strictly visual on every platform — no sound, no haptics (PO decision; the user may still be sitting in a meeting).
 

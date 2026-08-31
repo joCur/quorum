@@ -237,6 +237,14 @@ describe("meeting detail layout", () => {
     expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument();
   });
 
+  it("says nothing about a state that has nothing left to report", () => {
+    // A finished meeting carries no status chip: the stepper reports the work while there is any,
+    // and a standing "Ready" would be the screen talking about itself (STATES.md §9).
+    renderDetail();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Delete/ })).toBeInTheDocument();
+  });
+
   it("says where the summary came from in one line, right above the picker", () => {
     // Template, version and freshness are one fact about one thing, so they are one sentence —
     // and it sits directly above the control that can replace what it describes.
