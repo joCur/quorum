@@ -18,43 +18,31 @@
   },
   "landing": {
     "hero": {
-      "line1": "Du führst das Gespräch.",
-      "line2": "Quorum schreibt mit.",
-      "body": "Nimm den Raum auf — Transkript und Zusammenfassung erscheinen von selbst. Ein geschlossener Tab oder eine abgerissene Verbindung kostet dich keine Minute.",
-      "reach": "Läuft im Browser — Handy oder Desktop."
+      "before": "Nie wieder",
+      "highlighted": "Protokoll",
+      "after": "schreiben.",
+      "lead": "Quorum nimmt dein Meeting im Browser auf. Kurz danach liegen das komplette Transkript und ein Protokoll in deiner Gliederung bereit. Du hörst zu, statt mitzuschreiben.",
+      "reach": "Keine Installation, läuft auf Handy und Desktop."
     },
-    "tiles": {
-      "onAir": {
-        "badge": "REC",
-        "body": "Während du sprichst, ist jede Sekunde schon gesichert — auch offline."
+    "steps": {
+      "record": {
+        "title": "Aufnahme starten",
+        "body": "Zu Beginn des Meetings auf Aufnehmen tippen und das Handy in die Mitte legen oder den Laptop offen lassen. Mehr ist nicht zu tun."
       },
-      "transcript": {
-        "label": "Danach — von selbst",
-        "title": "Transkript, Wort für Wort",
-        "quoteBefore": "„…die Navigation vereinfachen wir ",
-        "quoteHighlight": "auf zwei Ebenen",
-        "quoteAfter": ". Beim Formular schlage ich vor, nur Name und E-Mail als Pflicht zu behalten…“"
+      "read": {
+        "title": "Alles nachlesen",
+        "body": "Kurz nach dem Meeting steht das komplette Transkript bereit. Du kannst es durchsuchen, jede Stelle anspringen und beim Abspielen läuft der Text Wort für Wort mit."
       },
-      "template": {
-        "label": "Nach deiner Vorlage",
-        "title": "Zusammenfassung in deinen Abschnitten",
-        "sections": ["Überblick", "Entscheidungen", "Aufgaben"]
+      "share": {
+        "title": "Protokoll weitergeben",
+        "body": "Quorum fasst das Meeting in den Abschnitten zusammen, die du brauchst: etwa Überblick, Entscheidungen und Aufgaben. Die Gliederung legst du einmal als Vorlage fest."
       }
     },
     "privacy": {
-      "title": "Deine Meetings. Deine Daten.",
-      "nothingLost": {
-        "title": "Nichts geht verloren",
-        "body": "Dein Audio wird schon während der Aufnahme gesichert — ein geschlossener Tab kostet dich nichts."
-      },
-      "yours": {
-        "title": "Gehört dir",
-        "body": "Deine Aufnahmen, Transkripte und Zusammenfassungen bleiben in deinem Konto. Niemand sonst liest mit."
-      },
-      "deletion": {
-        "title": "Löschen heißt löschen",
-        "body": "Ein gelöschtes Meeting ist endgültig weg — Audio, Transkripte, Zusammenfassungen. Kein Papierkorb."
-      }
+      "eyebrow": "Privatsache",
+      "title": "Was hier gesagt wird, geht niemanden sonst etwas an.",
+      "ownership": "Alles, was Quorum aufnimmt und schreibt, gehört in dein Konto und sonst nirgendwohin. Es gibt keine Auswertung für Dritte und keine stille Kopie.",
+      "deletion": "Und wenn du ein Meeting löschst, ist es wirklich weg, samt Audio, Transkript und Protokoll. Einen Papierkorb, aus dem es zurückkommt, gibt es absichtlich nicht."
     }
   },
   "consent": {

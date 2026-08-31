@@ -1,28 +1,29 @@
+import * as React from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { cn } from "@/lib/utils";
 
 /**
  * The signed-out landing page.
  *
- * This is the whole public face of the product: an editorial hero, three tiles that show what the
- * app does rather than describe it, and the privacy promises as plain text columns. There is
- * exactly one action on the page — sign in — repeated in the header and under the hero, because a
- * visitor who has scrolled past the fold should not have to scroll back up.
+ * One promise in the headline, three steps that say what using Quorum actually looks like, and a
+ * plain statement about who the recordings belong to. There is exactly one action on the page —
+ * sign in — offered in the header and again under the headline, so a visitor who has scrolled past
+ * the fold does not have to scroll back.
  *
- * The page is not a marketing site: it says what happens to a recording and to the data, and then
- * gets out of the way. Everything else lives behind the sign-in.
+ * The page has a hand-made streak: the highlighter behind the marked word sits at a slight angle,
+ * the step cards are pinned down slightly crooked and straighten when pointed at, and the lead
+ * sentence types itself out. None of it carries meaning — under `prefers-reduced-motion` the
+ * sentence is simply there and the bars stand at their heights.
  */
 
 /** The Q tile with its honey dot — the app icon's letterform, as decoration. */
-function BrandMark({ className }: { className?: string }) {
+function BrandMark() {
   return (
     <span
       aria-hidden="true"
-      className={cn(
-        "relative grid size-[34px] place-items-center rounded-[10px] bg-primary font-display text-[19px] font-extrabold leading-none text-primary-foreground",
-        className,
-      )}
+      className="relative grid size-[34px] place-items-center rounded-[10px] bg-primary font-display text-[19px] font-extrabold leading-none text-primary-foreground"
     >
       Q
       <span className="absolute bottom-[5px] right-[5px] size-1.5 rounded-full bg-brand-dot" />
@@ -35,12 +36,10 @@ function SignInButton({
   onSignIn,
   disabled,
   size,
-  className,
 }: {
   onSignIn: () => void;
   disabled?: boolean;
   size: "sm" | "lg";
-  className?: string;
 }) {
   const { t } = useTranslation();
   return (
@@ -54,7 +53,6 @@ function SignInButton({
         size === "sm"
           ? "min-h-[44px] px-[22px] text-sm"
           : "min-h-[56px] px-[34px] text-[16.5px] shadow-md",
-        className,
       )}
     >
       {t("auth.signIn")}
@@ -62,102 +60,171 @@ function SignInButton({
   );
 }
 
-/** An uppercase label over a tile — the "what happens here" line. */
-function TileLabel({ children }: { children: string }) {
+/**
+ * The lead sentence, typing itself out.
+ *
+ * The whole sentence is the paragraph's accessible name from the first frame, so a screen reader
+ * reads it once and completely instead of following the animation character by character. The
+ * visible half is decoration, and the reserved height keeps the page from jumping as it fills.
+ */
+function TypedLead({ text }: { text: string }) {
+  const reducedMotion = usePrefersReducedMotion();
+  const [typed, setTyped] = React.useState(0);
+
+  React.useEffect(() => {
+    if (reducedMotion) return;
+    const timer = window.setInterval(() => {
+      setTyped((count) => {
+        if (count >= text.length) {
+          window.clearInterval(timer);
+          return count;
+        }
+        return Math.min(text.length, count + 3);
+      });
+    }, 30);
+    return () => window.clearInterval(timer);
+  }, [text.length, reducedMotion]);
+
+  // With reduced motion the sentence is simply there; nothing waits on the timer that never ran.
+  const shown = reducedMotion ? text : text.slice(0, typed);
+
   return (
-    <span className="text-xs font-extrabold uppercase tracking-[0.08em] text-honey-strong">
-      {children}
-    </span>
+    <p
+      aria-label={text}
+      className="min-h-[4.6em] max-w-[50ch] text-[19px] text-muted-foreground [text-wrap:pretty]"
+    >
+      <span aria-hidden="true">{shown}</span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          "ml-px inline-block h-[1em] w-0.5 bg-honey-strong align-[-0.12em]",
+          shown.length >= text.length && "opacity-0",
+        )}
+      />
+    </p>
   );
 }
 
 /**
- * The three tiles.
+ * The bars beside the headline: a recording, drawn as a level meter rather than photographed.
  *
- * They wrap rather than sit in a fixed grid: at a wide viewport they read as a row, and each one
- * keeps a floor of 300px so a tile never collapses into a column of broken lines.
+ * Purely decorative, so it is hidden from assistive technology. The heights are fixed rather than
+ * random — this is a picture, not a live signal, and a picture should look the same every time.
  */
-function ProductTiles() {
-  const { t } = useTranslation();
-  const tileBase =
-    "flex flex-1 basis-[300px] flex-col justify-center gap-3 rounded-card-lg border border-border bg-card p-7";
+const WAVE_BARS = [
+  { height: 36, tone: "line" },
+  { height: 88, tone: "honey" },
+  { height: 150, tone: "ink" },
+  { height: 64, tone: "line" },
+  { height: 196, tone: "honey" },
+  { height: 120, tone: "ink" },
+  { height: 220, tone: "ink" },
+  { height: 76, tone: "honey" },
+  { height: 160, tone: "line" },
+  { height: 104, tone: "ink" },
+  { height: 48, tone: "honey" },
+  { height: 132, tone: "line" },
+  { height: 30, tone: "ink" },
+] as const;
+
+const WAVE_TONE = {
+  line: "bg-border",
+  honey: "bg-honey",
+  ink: "bg-primary",
+} as const;
+
+function Wave() {
+  const reducedMotion = usePrefersReducedMotion();
 
   return (
-    <div className="flex flex-wrap items-stretch gap-5">
-      {/* The on-air tile keeps its own darkness in both themes: it is a picture of a recording in
-          progress, not a surface the user is standing on. */}
-      <div className="flex flex-1 basis-[300px] flex-col justify-center gap-4 rounded-card-lg bg-on-air p-7 text-on-air-foreground shadow-lg">
-        <span className="inline-flex select-none items-center gap-2 self-start rounded-pill bg-recording px-3.5 py-1.5 text-xs font-extrabold tracking-[0.08em] text-recording-foreground">
-          <span
-            aria-hidden="true"
-            className="size-2 animate-recording-pulse rounded-full bg-current"
-          />
-          {t("landing.tiles.onAir.badge")}
-        </span>
-        <span className="tabular-figures font-mono text-[44px] leading-none" aria-hidden="true">
-          27:14
-        </span>
-        <span className="text-sm text-on-air-muted [text-wrap:pretty]">
-          {t("landing.tiles.onAir.body")}
-        </span>
-      </div>
-
-      <div className={tileBase}>
-        <TileLabel>{t("landing.tiles.transcript.label")}</TileLabel>
-        <span className="font-display text-[19px] font-bold">
-          {t("landing.tiles.transcript.title")}
-        </span>
-        <p className="text-sm leading-[1.7] text-muted-foreground [text-wrap:pretty]">
-          {t("landing.tiles.transcript.quoteBefore")}
-          <span className="rounded-[4px] bg-honey-subtle px-1 py-px text-foreground">
-            {t("landing.tiles.transcript.quoteHighlight")}
-          </span>
-          {t("landing.tiles.transcript.quoteAfter")}
-        </p>
-      </div>
-
-      <div className={tileBase}>
-        <TileLabel>{t("landing.tiles.template.label")}</TileLabel>
-        <span className="font-display text-[19px] font-bold">
-          {t("landing.tiles.template.title")}
-        </span>
-        <ul className="flex flex-col gap-1.5 text-[13.5px] text-muted-foreground">
-          {(
-            t("landing.tiles.template.sections", { returnObjects: true }) as unknown as string[]
-          ).map((section) => (
-            <li key={section}>— {section}</li>
-          ))}
-        </ul>
-      </div>
+    <div
+      aria-hidden="true"
+      className="flex min-h-[230px] flex-1 basis-[320px] items-end justify-center gap-1.5"
+    >
+      {WAVE_BARS.map((bar, index) => (
+        <span
+          key={`${bar.tone}-${bar.height}-${index}`}
+          className={cn(
+            "w-3.5 origin-bottom rounded-pill",
+            WAVE_TONE[bar.tone],
+            !reducedMotion && "animate-bar-grow",
+          )}
+          style={{
+            height: `${bar.height}px`,
+            animationDelay: reducedMotion ? undefined : `${0.15 + index * 0.05}s`,
+          }}
+        />
+      ))}
     </div>
   );
 }
 
+const STEP_NUMBERS = { record: "1", read: "2", share: "3" } as const;
+
 /**
- * The privacy promises, as text columns.
+ * One of the three steps.
  *
- * Deliberately not icon cards: these are commitments about the user's data, and dressing them up
- * as feature bullets would make them read as marketing rather than as the plain statements they
- * are (STATES.md: serious moments are rendered straight).
+ * The cards are pinned down at slightly different angles and straighten when pointed at. The tilt
+ * is a resting state rather than movement, so it survives reduced motion; what reduced motion
+ * drops is the transition between the two.
+ */
+function StepCard({
+  step,
+  tilt,
+  numberTilt,
+}: {
+  step: keyof typeof STEP_NUMBERS;
+  tilt: string;
+  numberTilt: string;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <li
+      className={cn(
+        "flex flex-1 basis-[280px] flex-col gap-3.5 rounded-card-lg border border-border bg-card px-7 py-[30px] shadow-sm",
+        "transition-[transform,box-shadow] duration-large ease-spring motion-reduce:transition-none",
+        "hover:rotate-0 hover:shadow-md sm:hover:-translate-y-1.5",
+        tilt,
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "grid size-[52px] place-items-center rounded-full bg-honey font-display text-[26px] font-black text-honey-foreground",
+          numberTilt,
+        )}
+      >
+        {STEP_NUMBERS[step]}
+      </span>
+      <h2 className="font-display text-xl font-bold">{t(`landing.steps.${step}.title`)}</h2>
+      <p className="text-[15px] leading-[1.65] text-muted-foreground [text-wrap:pretty]">
+        {t(`landing.steps.${step}.body`)}
+      </p>
+    </li>
+  );
+}
+
+/**
+ * The privacy block.
+ *
+ * One honey panel with a headline and two paragraphs — deliberately not a row of feature cards
+ * with icons. These are commitments about someone's recordings, and dressing them up as features
+ * would make them read as marketing (STATES.md — serious moments rendered straight).
  */
 function PrivacySection() {
   const { t } = useTranslation();
-  const promises = ["nothingLost", "yours", "deletion"] as const;
-
   return (
-    <section className="flex flex-col gap-5 border-t border-border pt-11">
-      <h2 className="font-display text-3xl font-extrabold tracking-[-0.02em]">
+    <section className="flex flex-col items-start gap-6 rounded-[28px] bg-honey-subtle p-8 sm:p-11 lg:px-11 lg:py-14">
+      <span className="text-xs font-extrabold uppercase tracking-[0.1em] text-honey-strong">
+        {t("landing.privacy.eyebrow")}
+      </span>
+      <h2 className="max-w-[22ch] font-display text-[clamp(1.875rem,4.5vw,3rem)] font-black leading-[1.06] tracking-[-0.03em] [text-wrap:balance]">
         {t("landing.privacy.title")}
       </h2>
-      <div className="flex flex-wrap gap-10 text-[15px]">
-        {promises.map((promise) => (
-          <div key={promise} className="flex flex-1 basis-[240px] flex-col gap-1.5">
-            <span className="font-bold">{t(`landing.privacy.${promise}.title`)}</span>
-            <span className="text-muted-foreground [text-wrap:pretty]">
-              {t(`landing.privacy.${promise}.body`)}
-            </span>
-          </div>
-        ))}
+      <div className="flex flex-wrap gap-8 text-[15.5px] leading-[1.7] text-muted-foreground">
+        <p className="flex-1 basis-[300px] [text-wrap:pretty]">{t("landing.privacy.ownership")}</p>
+        <p className="flex-1 basis-[300px] [text-wrap:pretty]">{t("landing.privacy.deletion")}</p>
       </div>
     </section>
   );
@@ -187,34 +254,42 @@ export function Landing({
         <SignInButton onSignIn={onSignIn} disabled={signInDisabled} size="sm" />
       </header>
 
-      <main className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col gap-14 px-5 pb-16 pt-10 sm:gap-20 sm:px-7 sm:pb-[72px] sm:pt-14">
-        <section className="flex max-w-[820px] flex-col gap-7">
-          <h1 className="font-display text-[clamp(2.5rem,6.5vw,4.5rem)] font-black leading-[1.02] tracking-[-0.03em] [text-wrap:pretty]">
-            {t("landing.hero.line1")}
-            <br />
-            {/* The honey underline is a band behind the words, not a text-decoration: it sits
-                under the baseline and the descenders sit on top of it. */}
-            <span className="[box-shadow:inset_0_-0.28em_hsl(var(--honey)/0.55)]">
-              {t("landing.hero.line2")}
-            </span>
-          </h1>
-          <p className="max-w-[52ch] text-[19px] text-muted-foreground [text-wrap:pretty]">
-            {t("landing.hero.body")}
-          </p>
-          {notice}
-          <div className="flex flex-wrap items-center gap-4 sm:gap-[18px]">
-            <SignInButton onSignIn={onSignIn} disabled={signInDisabled} size="lg" />
-            <span className="text-sm text-muted-foreground">{t("landing.hero.reach")}</span>
+      <main className="mx-auto flex w-full max-w-[1120px] flex-1 flex-col gap-16 px-5 pb-16 pt-10 sm:gap-24 sm:px-7 sm:pb-[72px] sm:pt-16">
+        <section className="flex flex-wrap items-center gap-12">
+          <div className="flex flex-1 basis-[420px] flex-col gap-7">
+            <h1 className="font-display text-[clamp(2.75rem,7vw,5.25rem)] font-black leading-none tracking-[-0.035em] [text-wrap:balance]">
+              {t("landing.hero.before")}{" "}
+              {/* The highlighter: a honey field behind the word, set down slightly askew, the way
+                  someone marking up a printout would. */}
+              <span className="inline-block -rotate-2 rounded-[0.22em] bg-honey px-[0.18em] pb-[0.04em] text-honey-foreground">
+                {t("landing.hero.highlighted")}
+              </span>{" "}
+              {t("landing.hero.after")}
+            </h1>
+            {/* Keyed on the sentence: switching language starts the typing over rather than
+                continuing a count into a different string. */}
+            <TypedLead key={t("landing.hero.lead")} text={t("landing.hero.lead")} />
+            {notice}
+            <div className="flex flex-wrap items-center gap-4 sm:gap-[18px]">
+              <SignInButton onSignIn={onSignIn} disabled={signInDisabled} size="lg" />
+              <span className="text-sm text-muted-foreground">{t("landing.hero.reach")}</span>
+            </div>
           </div>
+          <Wave />
         </section>
 
-        <ProductTiles />
+        <ul className="flex list-none flex-wrap items-stretch gap-[22px]">
+          <StepCard step="record" tilt="-rotate-[1.2deg]" numberTilt="rotate-6" />
+          <StepCard step="read" tilt="rotate-1" numberTilt="-rotate-6" />
+          <StepCard step="share" tilt="-rotate-[0.8deg]" numberTilt="rotate-6" />
+        </ul>
+
         <PrivacySection />
       </main>
 
       <footer className="flex justify-center border-t border-border px-7 py-5 text-[13px] text-muted-foreground">
         <span>
-          {t("app.name")} — {t("app.tagline")}
+          {t("app.name")} · {t("app.tagline")}
         </span>
       </footer>
     </div>

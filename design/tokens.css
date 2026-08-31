@@ -60,14 +60,6 @@
   /* Brand mark dot: honey on the espresso mark (inverts in dark mode). */
   --brand-dot: 42 92% 55%;
 
-  /* ---- On-air tile (the landing's picture of a live recording) ----
-     The recording screen itself follows the theme and owns no surface color. These three are for
-     the landing tile that *depicts* a running capture: it stays dark in both themes because it is
-     an image of the product, not a surface the user is standing on. */
-  --on-air: 26 25% 10%;
-  --on-air-foreground: 40 45% 94%;
-  --on-air-muted: 38 20% 70%;
-
   /* ---- Product status colors (state — and only state) ---- */
   --recording: 4 78% 46%;
   --recording-foreground: 0 0% 100%;

@@ -9,9 +9,9 @@ import { renderWithProviders, useLanguage } from "./render";
  * What a signed-out visitor is given.
  *
  * The gate that sends them here is covered by the expired-session tests; what only a rendered test
- * can check is that the gate lands on the landing page rather than on a bare button — the hero,
- * the three tiles and the privacy promises — and that every route into the app from this page is
- * the same single sign-in action.
+ * can check is that the gate lands on the landing page rather than on a bare button — the promise,
+ * the three steps, the privacy statement — and that every route into the app from this page is the
+ * same single sign-in action.
  */
 const auth = vi.hoisted(() => ({ current: null as AuthContextValue | null }));
 const signInSpy = vi.hoisted(() => vi.fn());
@@ -73,39 +73,50 @@ describe("the signed-out gate", () => {
 
     expect(screen.queryByText("the meeting list")).toBeNull();
     expect(
-      screen.getByRole("heading", {
-        level: 1,
-        name: /You lead the conversation\.\s*Quorum takes the notes\./,
-      }),
+      screen.getByRole("heading", { level: 1, name: /Never take\s*minutes\s*again\./ }),
     ).toBeInTheDocument();
   });
 
-  it("says what the product does before asking anyone to sign in", () => {
+  it("says what using Quorum looks like, in three steps", () => {
     renderSignedOut();
 
-    // The three tiles: capture that is already safe, the transcript, the summary in the user's own
-    // template. A visitor who has never heard of Quorum should be able to tell what it does.
-    expect(screen.getByText(/every second is already safe/)).toBeInTheDocument();
-    expect(screen.getByText("Transcript, word for word")).toBeInTheDocument();
-    expect(screen.getByText("A summary in your own sections")).toBeInTheDocument();
-    // The template tile shows the user's own section names, which is the whole point of it.
-    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "— Overview",
-      "— Decisions",
-      "— Action items",
+    // A visitor who has never heard of Quorum should be able to tell what happens: they record,
+    // they read it back, they hand the minutes on.
+    const steps = screen.getAllByRole("listitem");
+    expect(steps.map((step) => within(step).getByRole("heading").textContent)).toEqual([
+      "Start recording",
+      "Read every word",
+      "Pass the minutes on",
     ]);
+    expect(within(steps[1]!).getByText(/full transcript is ready/)).toBeInTheDocument();
   });
 
-  it("states the privacy promises in plain words", () => {
+  it("reads the whole promise out at once, however it is animated", () => {
     renderSignedOut();
 
-    const privacy = screen.getByRole("heading", { level: 2, name: "Your meetings. Your data." })
-      .parentElement as HTMLElement;
-    expect(within(privacy).getByText("Nothing gets lost")).toBeInTheDocument();
-    expect(within(privacy).getByText("Yours alone")).toBeInTheDocument();
+    // The lead types itself out on screen. A screen reader must get the finished sentence from the
+    // first frame rather than following it character by character, so the sentence is the
+    // paragraph's accessible name and the animated copy is hidden.
+    expect(
+      screen.getByLabelText(
+        "Quorum records your meeting in the browser. Shortly afterwards the full transcript and a set of minutes in your own outline are waiting for you. You listen instead of writing.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("states plainly who the recordings belong to", () => {
+    renderSignedOut();
+
+    const privacy = screen.getByRole("heading", {
+      level: 2,
+      name: "What is said here is nobody else's business.",
+    }).parentElement as HTMLElement;
+    expect(
+      within(privacy).getByText(/belongs in your account and nowhere else/),
+    ).toBeInTheDocument();
     // Deletion is irreversible by design, and the landing is where a visitor should learn that —
     // not the confirmation dialog.
-    expect(within(privacy).getByText("Deleted means deleted")).toBeInTheDocument();
+    expect(within(privacy).getByText(/no trash it comes back from/)).toBeInTheDocument();
   });
 
   it("offers sign-in as the only action, and every one of them signs in", async () => {
@@ -134,8 +145,8 @@ describe("the signed-out gate", () => {
     setAuth({ error: "invalid_grant", sessionExpired: true });
     renderSignedOut();
 
-    // The message belongs in the hero: a visitor sent back by a failed callback should still see
-    // the page they were on, not a bare error screen.
+    // The message belongs in the hero, between the promise and the button: a visitor sent back by
+    // a failed callback should still see the page they were on, not a bare error screen.
     expect(screen.getByRole("alert")).toHaveTextContent("Sign-in did not complete. invalid_grant");
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
     // One message at a time — the failed callback is what just happened.

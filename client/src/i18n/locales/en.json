@@ -18,43 +18,31 @@
   },
   "landing": {
     "hero": {
-      "line1": "You lead the conversation.",
-      "line2": "Quorum takes the notes.",
-      "body": "Record the room — the transcript and the summary show up on their own. A closed tab or a dropped connection costs you nothing.",
-      "reach": "Runs in the browser — phone or desktop."
+      "before": "Never take",
+      "highlighted": "minutes",
+      "after": "again.",
+      "lead": "Quorum records your meeting in the browser. Shortly afterwards the full transcript and a set of minutes in your own outline are waiting for you. You listen instead of writing.",
+      "reach": "Nothing to install, runs on phone and desktop."
     },
-    "tiles": {
-      "onAir": {
-        "badge": "REC",
-        "body": "While you are still talking, every second is already safe — offline too."
+    "steps": {
+      "record": {
+        "title": "Start recording",
+        "body": "Tap record as the meeting begins and put your phone in the middle of the table, or leave the laptop open. There is nothing else to do."
       },
-      "transcript": {
-        "label": "Afterwards — on its own",
-        "title": "Transcript, word for word",
-        "quoteBefore": "“…let's simplify the navigation ",
-        "quoteHighlight": "down to two levels",
-        "quoteAfter": ". On the form, I suggest we keep only name and email as required…”"
+      "read": {
+        "title": "Read every word",
+        "body": "The full transcript is ready shortly after the meeting. You can search it, jump to any moment, and the text follows along word by word as it plays."
       },
-      "template": {
-        "label": "In your template",
-        "title": "A summary in your own sections",
-        "sections": ["Overview", "Decisions", "Action items"]
+      "share": {
+        "title": "Pass the minutes on",
+        "body": "Quorum sums the meeting up in the sections you need — an overview, the decisions, the action items. You set that outline once, as a template."
       }
     },
     "privacy": {
-      "title": "Your meetings. Your data.",
-      "nothingLost": {
-        "title": "Nothing gets lost",
-        "body": "Your audio is stored while the recording is still running — a closed tab costs you nothing."
-      },
-      "yours": {
-        "title": "Yours alone",
-        "body": "Your recordings, transcripts and summaries stay in your account. Nobody else reads along."
-      },
-      "deletion": {
-        "title": "Deleted means deleted",
-        "body": "A deleted meeting is gone for good — audio, transcripts, summaries. There is no trash."
-      }
+      "eyebrow": "Private matter",
+      "title": "What is said here is nobody else's business.",
+      "ownership": "Everything Quorum records and writes belongs in your account and nowhere else. There is no analysis for third parties and no quiet copy.",
+      "deletion": "And when you delete a meeting it is really gone, audio, transcript and minutes with it. There is deliberately no trash it comes back from."
     }
   },
   "consent": {
