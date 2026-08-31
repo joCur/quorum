@@ -9,7 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/layout/empty-state";
 import { DeleteMeetingDialog } from "@/components/meetings/delete-meeting-dialog";
 import { MeetingListItem } from "@/components/meetings/meeting-list-item";
-import { meetingLabel } from "@/features/meetings/format";
+import { formatGroupRange, meetingLabel } from "@/features/meetings/format";
+import { groupMeetingsByDay } from "@/features/meetings/grouping";
+import { useJustFinished } from "@/features/meetings/use-just-finished";
 import type { MeetingsList } from "@/features/meetings/use-meetings";
 import { notify } from "@/lib/toast";
 
@@ -28,6 +30,10 @@ export function MeetingList({
 }) {
   const { t, i18n } = useTranslation();
   const [pending, setPending] = React.useState<Meeting | null>(null);
+  const justFinished = useJustFinished(list.meetings);
+  // Grouped once per render against a single "now", so two rows on opposite sides of midnight
+  // cannot be measured against two different clocks within the same list.
+  const groups = React.useMemo(() => groupMeetingsByDay(list.meetings), [list.meetings]);
 
   if (list.status === "loading") return <MeetingListSkeleton />;
   if (list.status === "error") return <LoadError code={list.errorCode} onRetry={list.reload} />;
@@ -64,18 +70,40 @@ export function MeetingList({
 
   return (
     <>
-      <ul className="flex flex-col gap-2">
-        {list.meetings.map((meeting, index) => (
-          <li key={meeting.id}>
-            <MeetingListItem
-              meeting={meeting}
-              index={index}
-              deleting={list.deleting.has(meeting.id)}
-              onDelete={() => setPending(meeting)}
-            />
-          </li>
+      <div className="flex flex-col gap-[22px]">
+        {groups.map((bucket) => (
+          <section key={bucket.id} className="flex flex-col gap-2" aria-labelledby={bucket.id}>
+            <h2
+              id={bucket.id}
+              // `font-sans` on purpose: this is a heading element for the sake of the document
+              // outline, not a display line. At 12px, letter-spaced and uppercase, the display
+              // face reads as a wordmark rather than as a quiet label.
+              className="px-0.5 pt-1.5 font-sans text-xs font-extrabold uppercase tracking-[0.08em] text-muted-foreground"
+            >
+              {bucket.group.kind === "week" || bucket.group.kind === "month"
+                ? formatGroupRange(bucket.group, i18n.language)
+                : t(`meetings.groups.${bucket.group.kind}`)}
+            </h2>
+            {/* One panel per bucket with hairlines between the rows, instead of a card per
+                meeting: the stretch of time is the object with an edge, the meetings are its
+                lines. */}
+            <ul className="overflow-hidden rounded-card border border-border bg-card">
+              {bucket.meetings.map((meeting, index) => (
+                <li key={meeting.id} className="border-b border-border last:border-b-0">
+                  <MeetingListItem
+                    meeting={meeting}
+                    groupKind={bucket.group.kind}
+                    index={index}
+                    deleting={list.deleting.has(meeting.id)}
+                    justFinished={justFinished.has(meeting.id)}
+                    onDelete={() => setPending(meeting)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </section>
         ))}
-      </ul>
+      </div>
 
       <DeleteMeetingDialog
         open={pending !== null}
@@ -94,15 +122,21 @@ function MeetingListSkeleton() {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-2" role="status" aria-label={t("common.loading")}>
-      {[0, 1, 2, 3].map((row) => (
-        <Card key={row} className="flex items-center gap-3 p-3 md:p-4">
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-3 w-28" />
+      <Skeleton className="h-3 w-20" />
+      <div className="overflow-hidden rounded-card border border-border bg-card">
+        {[0, 1, 2, 3].map((row) => (
+          <div
+            key={row}
+            className="flex items-center gap-3.5 border-b border-border px-4 py-[15px] last:border-b-0 md:px-[18px]"
+          >
+            <Skeleton className="h-3 w-[74px] shrink-0" />
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <Skeleton className="h-4 w-40" />
+              <Skeleton className="h-3 w-28" />
+            </div>
           </div>
-          <Skeleton className="h-6 w-24 rounded-full" />
-        </Card>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

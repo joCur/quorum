@@ -112,6 +112,11 @@
       "howItWorks": "How Quorum works"
     },
     "untitled": "Untitled meeting",
+    "groups": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "thisWeek": "This week"
+    },
     "loadError": "Your meetings could not be loaded.",
     "deleted": "“{{meeting}}” was deleted.",
     "deleteFailed": "“{{meeting}}” could not be deleted.",
@@ -127,6 +132,7 @@
       "transcribing": "Transcribing",
       "summarizing": "Summarizing",
       "ready": "Ready",
+      "done": "Done",
       "failed": "Failed"
     },
     "delete": {
@@ -160,9 +166,10 @@
     "create": "Create a template",
     "system": "System",
     "default": "Default",
-    "setDefault": "Use {{template}} for new recordings",
-    "unsetDefault": "Stop using {{template}} for new recordings",
+    "setDefault": "Default — use {{template}} for new recordings",
+    "unsetDefault": "Default — stop using {{template}} for new recordings",
     "edit": "Edit {{template}}",
+    "editShort": "Edit",
     "delete": "Delete {{template}}",
     "deleteDialog": {
       "title": "Delete this template?",
@@ -179,7 +186,9 @@
       "body": "Start from the system template and shape the sections you actually need."
     },
     "editor": {
+      "back": "Templates",
       "name": "Name",
+      "namePlaceholder": "e.g. Weekly team update",
       "nameHelp": "Give this template a name you'll recognize later.",
       "nameRequired": "A template needs a name.",
       "style": "Style",
@@ -188,13 +197,14 @@
       "language": "Summary language",
       "languageHelp": "Following the recording keeps a meeting's summary in the language it was held in.",
       "sections": "Sections",
+      "sectionsHelp": "Each section becomes a heading in the summary, written from what you ask for under it.",
       "sectionsRequired": "Keep at least one section — a summary with none has nothing to say.",
       "addSection": "Add a section",
       "newSectionTitle": "New section",
       "untitledSection": "Untitled section",
       "sectionTitle": "Heading",
       "instruction": "What belongs in it",
-      "instructionHelp": "Describe what this section should cover. This text is what the summary is written from.",
+      "instructionPlaceholder": "What belongs in it",
       "format": "Format",
       "moveUp": "Move {{section}} up",
       "moveDown": "Move {{section}} down",

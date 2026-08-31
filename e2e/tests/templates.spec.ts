@@ -60,7 +60,9 @@ test("shapes a template and summarizes an existing recording again with it", asy
 
   const card = page.getByTestId("template-card").filter({ hasText: TEMPLATE_NAME });
   await expect(card).toBeVisible();
-  await expect(card).toContainText("Risks");
+  // The card previews the sections as an ordered list, so what the summary will contain is
+  // visible in the order it will arrive in.
+  await expect(card.getByRole("listitem").last()).toHaveText("Risks");
 
   // --- A meeting to summarize --------------------------------------------------------------
   await page.goto("/record");
@@ -162,13 +164,13 @@ test("summarizes a new recording with the template the user set as their default
   const system = page.getByTestId("template-card").filter({ hasText: "Standard meeting summary" });
   // Until a choice is made the system template is the one recordings land on, and the list says so
   // rather than leaving the question open.
-  await expect(system.getByText("Default", { exact: true })).toBeVisible();
+  await expect(system.getByTestId("template-default-badge")).toBeVisible();
 
   await card
-    .getByRole("button", { name: `Use ${DEFAULT_TEMPLATE_NAME} for new recordings` })
+    .getByRole("button", { name: `Default — use ${DEFAULT_TEMPLATE_NAME} for new recordings` })
     .click();
-  await expect(card.getByText("Default", { exact: true })).toBeVisible();
-  await expect(system.getByText("Default", { exact: true })).toHaveCount(0);
+  await expect(card.getByTestId("template-default-badge")).toBeVisible();
+  await expect(system.getByTestId("template-default-badge")).toHaveCount(0);
 
   const templateId = await waitForValue(
     () => findUserTemplateId(DEFAULT_TEMPLATE_NAME),
@@ -201,13 +203,15 @@ test("summarizes a new recording with the template the user set as their default
   await page.goto("/templates");
   const chosen = page.getByTestId("template-card").filter({ hasText: DEFAULT_TEMPLATE_NAME });
   await chosen
-    .getByRole("button", { name: `Stop using ${DEFAULT_TEMPLATE_NAME} for new recordings` })
+    .getByRole("button", {
+      name: `Default — stop using ${DEFAULT_TEMPLATE_NAME} for new recordings`,
+    })
     .click();
   await expect(
     page
       .getByTestId("template-card")
       .filter({ hasText: "Standard meeting summary" })
-      .getByText("Default", { exact: true }),
+      .getByTestId("template-default-badge"),
   ).toBeVisible();
 
   await chosen.getByRole("button", { name: `Delete ${DEFAULT_TEMPLATE_NAME}` }).click();
@@ -248,7 +252,7 @@ test("summarizes a recording with the template picked at the start, over the use
   await page
     .getByTestId("template-card")
     .filter({ hasText: PREFERRED_NAME })
-    .getByRole("button", { name: `Use ${PREFERRED_NAME} for new recordings` })
+    .getByRole("button", { name: `Default — use ${PREFERRED_NAME} for new recordings` })
     .click();
 
   const oneOffId = await waitForValue(
@@ -289,7 +293,7 @@ test("summarizes a recording with the template picked at the start, over the use
   await page
     .getByTestId("template-card")
     .filter({ hasText: PREFERRED_NAME })
-    .getByRole("button", { name: `Stop using ${PREFERRED_NAME} for new recordings` })
+    .getByRole("button", { name: `Default — stop using ${PREFERRED_NAME} for new recordings` })
     .click();
 
   for (const name of [PREFERRED_NAME, ONE_OFF_NAME]) {

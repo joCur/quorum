@@ -112,6 +112,11 @@
       "howItWorks": "So funktioniert Quorum"
     },
     "untitled": "Meeting ohne Titel",
+    "groups": {
+      "today": "Heute",
+      "yesterday": "Gestern",
+      "thisWeek": "Diese Woche"
+    },
     "loadError": "Deine Meetings konnten nicht geladen werden.",
     "deleted": "„{{meeting}}“ wurde gelöscht.",
     "deleteFailed": "„{{meeting}}“ konnte nicht gelöscht werden.",
@@ -127,6 +132,7 @@
       "transcribing": "Transkribiert",
       "summarizing": "Fasst zusammen",
       "ready": "Fertig",
+      "done": "Fertig",
       "failed": "Fehlgeschlagen"
     },
     "delete": {
@@ -160,9 +166,10 @@
     "create": "Vorlage erstellen",
     "system": "System",
     "default": "Standard",
-    "setDefault": "{{template}} für neue Aufnahmen verwenden",
-    "unsetDefault": "{{template}} nicht mehr für neue Aufnahmen verwenden",
-    "edit": "{{template}} bearbeiten",
+    "setDefault": "Standard — {{template}} für neue Aufnahmen verwenden",
+    "unsetDefault": "Standard — {{template}} nicht mehr für neue Aufnahmen verwenden",
+    "edit": "Bearbeiten — {{template}}",
+    "editShort": "Bearbeiten",
     "delete": "{{template}} löschen",
     "deleteDialog": {
       "title": "Diese Vorlage löschen?",
@@ -179,7 +186,9 @@
       "body": "Starte mit der Systemvorlage und forme die Abschnitte, die du wirklich brauchst."
     },
     "editor": {
+      "back": "Vorlagen",
       "name": "Name",
+      "namePlaceholder": "z. B. Wöchentliches Team-Update",
       "nameHelp": "Gib der Vorlage einen Namen, den du später wiedererkennst.",
       "nameRequired": "Eine Vorlage braucht einen Namen.",
       "style": "Stil",
@@ -188,13 +197,14 @@
       "language": "Sprache der Zusammenfassung",
       "languageHelp": "Der Aufnahme zu folgen hält die Zusammenfassung in der Sprache des Meetings.",
       "sections": "Abschnitte",
+      "sectionsHelp": "Jeder Abschnitt wird zu einer Überschrift in der Zusammenfassung — geschrieben aus dem, was du darunter verlangst.",
       "sectionsRequired": "Behalte mindestens einen Abschnitt — ohne hat die Zusammenfassung nichts zu sagen.",
       "addSection": "Abschnitt hinzufügen",
       "newSectionTitle": "Neuer Abschnitt",
       "untitledSection": "Abschnitt ohne Titel",
       "sectionTitle": "Überschrift",
       "instruction": "Was hineingehört",
-      "instructionHelp": "Beschreibe, was dieser Abschnitt abdecken soll. Aus diesem Text entsteht die Zusammenfassung.",
+      "instructionPlaceholder": "Was hineingehört",
       "format": "Format",
       "moveUp": "{{section}} nach oben",
       "moveDown": "{{section}} nach unten",
