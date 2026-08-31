@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/meetings/status-badge";
 import { formatMeetingDuration, formatMeetingTime } from "@/features/meetings/format";
-import type { DayGroup } from "@/features/meetings/grouping";
+import type { MeetingGroupKind } from "@/features/meetings/grouping";
 import { isInProgress } from "@/features/meetings/status";
 import { cn } from "@/lib/utils";
 
@@ -24,15 +24,15 @@ import { cn } from "@/lib/utils";
  */
 export function MeetingListItem({
   meeting,
-  group,
+  groupKind,
   index,
   deleting,
   justFinished,
   onDelete,
 }: {
   meeting: Meeting;
-  /** The day bucket this row sits in, which decides how short its time can be. */
-  group: DayGroup;
+  /** The kind of bucket this row sits in, which decides how short its time can be. */
+  groupKind: MeetingGroupKind;
   /** Position in the list, for the staggered entrance. */
   index: number;
   deleting: boolean;
@@ -65,7 +65,7 @@ export function MeetingListItem({
       >
         <span className="truncate font-bold">{title}</span>
         <span className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span>{formatMeetingTime(meeting.createdAt, i18n.language, group)}</span>
+          <span>{formatMeetingTime(meeting.createdAt, i18n.language, groupKind)}</span>
           <RowStatus meeting={meeting} deleting={deleting} justFinished={justFinished} />
         </span>
       </Link>

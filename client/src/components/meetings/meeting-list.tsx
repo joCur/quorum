@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/layout/empty-state";
 import { DeleteMeetingDialog } from "@/components/meetings/delete-meeting-dialog";
 import { MeetingListItem } from "@/components/meetings/meeting-list-item";
-import { meetingLabel } from "@/features/meetings/format";
+import { formatGroupRange, meetingLabel } from "@/features/meetings/format";
 import { groupMeetingsByDay } from "@/features/meetings/grouping";
 import { useJustFinished } from "@/features/meetings/use-just-finished";
 import type { MeetingsList } from "@/features/meetings/use-meetings";
@@ -71,29 +71,28 @@ export function MeetingList({
   return (
     <>
       <div className="flex flex-col gap-[22px]">
-        {groups.map((day) => (
-          <section
-            key={day.group}
-            className="flex flex-col gap-2"
-            aria-labelledby={`day-${day.group}`}
-          >
+        {groups.map((bucket) => (
+          <section key={bucket.id} className="flex flex-col gap-2" aria-labelledby={bucket.id}>
             <h2
-              id={`day-${day.group}`}
+              id={bucket.id}
               // `font-sans` on purpose: this is a heading element for the sake of the document
               // outline, not a display line. At 12px, letter-spaced and uppercase, the display
               // face reads as a wordmark rather than as a quiet label.
               className="px-0.5 pt-1.5 font-sans text-xs font-extrabold uppercase tracking-[0.08em] text-muted-foreground"
             >
-              {t(`meetings.groups.${day.group}`)}
+              {bucket.group.kind === "week" || bucket.group.kind === "month"
+                ? formatGroupRange(bucket.group, i18n.language)
+                : t(`meetings.groups.${bucket.group.kind}`)}
             </h2>
-            {/* One panel per day with hairlines between the rows, instead of a card per meeting:
-                the day is the object with an edge, the meetings are its lines. */}
+            {/* One panel per bucket with hairlines between the rows, instead of a card per
+                meeting: the stretch of time is the object with an edge, the meetings are its
+                lines. */}
             <ul className="overflow-hidden rounded-card border border-border bg-card">
-              {day.meetings.map((meeting, index) => (
+              {bucket.meetings.map((meeting, index) => (
                 <li key={meeting.id} className="border-b border-border last:border-b-0">
                   <MeetingListItem
                     meeting={meeting}
-                    group={day.group}
+                    groupKind={bucket.group.kind}
                     index={index}
                     deleting={list.deleting.has(meeting.id)}
                     justFinished={justFinished.has(meeting.id)}

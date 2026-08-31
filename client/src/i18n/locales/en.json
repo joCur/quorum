@@ -115,8 +115,7 @@
     "groups": {
       "today": "Today",
       "yesterday": "Yesterday",
-      "thisWeek": "This week",
-      "earlier": "Earlier"
+      "thisWeek": "This week"
     },
     "loadError": "Your meetings could not be loaded.",
     "deleted": "“{{meeting}}” was deleted.",

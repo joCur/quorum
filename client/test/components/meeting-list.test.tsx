@@ -70,7 +70,7 @@ describe("meetings list", () => {
     vi.useRealTimers();
   });
 
-  it("gathers the rows under their day, in order", () => {
+  it("gathers the rows under their heading, in order", () => {
     renderList(
       list({
         meetings: [
@@ -96,6 +96,60 @@ describe("meetings list", () => {
         "Yesterday sync",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("labels an older week by the range of days it covers", () => {
+    // Past the rolling window the heading stops being a word and becomes the dates themselves,
+    // which is what makes a Monday-to-Sunday week readable without knowing the convention.
+    renderList(
+      list({
+        meetings: [
+          meeting({
+            id: "w",
+            title: "Two weeks ago",
+            createdAt: new Date(2026, 7, 18, 10, 0).toISOString(),
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByRole("heading", { name: /^Aug 17\s*–\s*23$/ })).toBeInTheDocument();
+    // A row under a week heading still says only its weekday and time.
+    expect(screen.getByText(/^Tue · /)).toBeInTheDocument();
+  });
+
+  it("degrades to a month heading past the week horizon, and dates the rows under it", () => {
+    renderList(
+      list({
+        meetings: [
+          meeting({
+            id: "o",
+            title: "Spring review",
+            createdAt: new Date(2026, 2, 17, 10, 0).toISOString(),
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByRole("heading", { name: "March 2026" })).toBeInTheDocument();
+    // A month leaves the day open, so the row names its date rather than a weekday.
+    expect(screen.getByText(/Mar 17/)).toBeInTheDocument();
+  });
+
+  it("orders week and month headings under the named ones, newest first", () => {
+    renderList(
+      list({
+        meetings: [
+          meeting({ id: "old", createdAt: new Date(2026, 2, 17).toISOString() }),
+          meeting({ id: "now", createdAt: NOW.toISOString() }),
+          meeting({ id: "week", createdAt: new Date(2026, 7, 18).toISOString() }),
+        ],
+      }),
+    );
+    expect(
+      screen
+        .getAllByRole("heading", { level: 2 })
+        // `Intl` sets the range with thin spaces around the dash; the words are the assertion.
+        .map((node) => node.textContent?.replace(/\s+/gu, " ")),
+    ).toEqual(["Today", "Aug 17 – 23", "March 2026"]);
   });
 
   it("gives every row a right-aligned mono duration column", () => {
@@ -178,10 +232,22 @@ describe("meetings list", () => {
     expect(remove).toHaveBeenCalledWith("11111111-0000-4000-8000-000000000001");
   });
 
-  it("translates the day headings", async () => {
+  it("translates the named headings and reformats the dated ones", async () => {
+    // The named buckets go through i18n; the dated ones go through `Intl`, which reorders the
+    // range rather than translating the English shape of it.
     await useLanguage("de");
-    renderList(list({ meetings: [meeting({ createdAt: NOW.toISOString() })] }));
+    renderList(
+      list({
+        meetings: [
+          meeting({ id: "n", createdAt: NOW.toISOString() }),
+          meeting({ id: "w", createdAt: new Date(2026, 7, 18, 10, 0).toISOString() }),
+          meeting({ id: "m", createdAt: new Date(2026, 2, 17, 10, 0).toISOString() }),
+        ],
+      }),
+    );
     expect(screen.getByRole("heading", { name: "Heute" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^17\.\s*–\s*23\.\s*Aug\.$/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "März 2026" })).toBeInTheDocument();
     await useLanguage("en");
   });
 });
