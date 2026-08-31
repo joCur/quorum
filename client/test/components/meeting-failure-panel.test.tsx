@@ -192,8 +192,10 @@ describe("failed stage", () => {
     expect(screen.getByText("Transcription failed")).toBeInTheDocument();
     expect(screen.getByText(/This recording could not be transcribed\./)).toBeInTheDocument();
     // The whole reason this panel exists: no part of what a backend said reaches the document.
+    // The status is matched on word boundaries, the way the end-to-end suite has to match it: the
+    // panel prints a job id, and hex digits would otherwise make the needle find itself.
     expect(screen.queryByText(RAW_MESSAGE)).not.toBeInTheDocument();
-    expect(document.body.textContent).not.toContain("404");
+    expect(document.body.textContent).not.toMatch(/\b404\b/);
     expect(document.body.textContent).not.toContain("Model 'small'");
   });
 
