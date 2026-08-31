@@ -9,18 +9,24 @@
 #    ports it takes at startup — so a run never fights a development or demo stack, and two runs
 #    never fight each other. The literals below are only there to keep a hand-run `docker compose`
 #    with this override working; a run through the orchestrator always overrides them.
-# 4. The API rate limits are raised, because the whole suite drives one user through a complete
-#    meeting lifecycle — recording, polling, regenerating, deleting — in a couple of minutes, far
-#    faster than a person ever would. The production defaults are deliberately sized for a human,
-#    so the suite states its own numbers rather than pulling the real ones up to meet it. The
-#    limits are still on: a change that refuses a request outright still fails the suite.
+# 4. The general API rate limit is raised, because the whole suite drives one user through a
+#    complete meeting lifecycle — recording, polling, listing, deleting — in a couple of minutes,
+#    far faster than a person ever would. That production default is sized for a human, so the
+#    suite states its own number rather than pulling the real one up to meet it. The limit is still
+#    on: a change that refuses a request outright still fails the suite.
+#
+#    The allowance for asking for a summary again is deliberately NOT raised. It is the one limit a
+#    user meets in ordinary use, it is the one that has been rendered wrongly before, and a suite
+#    that ran with a thousand of them could never have caught that. Nothing here needs more than a
+#    couple: only two specs regenerate at all, and the self-polling that follows a regenerate reads
+#    rather than posts, so it is metered against the general allowance above. Leaving this at the
+#    shipped number is what lets the limits spec provoke the real refusal against the real value.
 #
 # Never use this override in a deployment.
 services:
   api:
     environment:
       API_RATE_LIMIT_MAX: ${API_RATE_LIMIT_MAX:-10000}
-      API_RATE_LIMIT_SUMMARY_MAX: ${API_RATE_LIMIT_SUMMARY_MAX:-1000}
 
   postgres:
     ports:

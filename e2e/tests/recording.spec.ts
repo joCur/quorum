@@ -104,6 +104,18 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   expect(summary.tenantId).toBe(alice.tenantId);
   expect(summary.userId).toBe(alice.userId);
   expect(summary.isActive).toBe(true);
+
+  // And the user can read both. Everything above is the pipeline seen from behind it; the core
+  // path only ends where the meeting screen shows what came out — a summary and a transcript, not
+  // the "still working" placeholders that stand in until they exist.
+  await page.goto(`/meetings/${transcript.meetingId}`);
+  await expect(page.getByRole("heading", { name: "Summary" })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Transcript" })).toBeVisible();
+  if (stackEnv.whisperMode === "mock") {
+    // The stub transcription backend says one known sentence, so with it the screen can be held to
+    // showing the words that were transcribed rather than merely to showing something.
+    await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 30_000 });
+  }
 });
 
 /**
