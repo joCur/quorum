@@ -54,7 +54,7 @@ export const WorkerConfigSchema = z.object({
   SUMMARY_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.2),
   /**
    * Ceiling on the transcript text handed to the model, in estimated tokens.
-   * `COST-MODEL.md` budgets 12–15k input tokens per meeting hour; longer
+   * `docs/COST-MODEL.md` budgets 12–15k input tokens per meeting hour; longer
    * recordings get their middle elided rather than producing an unbounded bill
    * or a context-length error (see `summary/transcript-window.ts`).
    */

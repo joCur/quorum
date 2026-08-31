@@ -100,7 +100,7 @@ A model that simply *skips* sections is not a parse failure: the sections are st
 
 ### Cost control
 
-`COST-MODEL.md` budgets 12–15k input tokens per meeting hour, which is roughly what an hour of speech transcribes to, and that assumption is what makes the marginal cost per hour predictable. `SUMMARY_MAX_INPUT_TOKENS` (default 14,000) enforces it rather than trusting every meeting to be an hour long.
+`docs/COST-MODEL.md` budgets 12–15k input tokens per meeting hour, which is roughly what an hour of speech transcribes to, and that assumption is what makes the marginal cost per hour predictable. `SUMMARY_MAX_INPUT_TOKENS` (default 14,000) enforces it rather than trusting every meeting to be an hour long.
 
 A transcript that fits is passed whole. One that does not keeps its **head and its tail** and elides the middle, on segment boundaries, with a visible marker saying how many segments were dropped. The shares are 40% head / 60% tail: meetings put their framing at the start and their decisions and action items at the end, and the negotiation in the middle is the most compressible part. The marker is not decoration — an unmarked jump between two unrelated moments invites the model to invent a bridge. Truncation is logged as `transcript.windowed` with `truncated: true`.
 
@@ -214,7 +214,7 @@ Structured JSON via pino. Every line emitted while a job runs carries `jobId`, `
 - Transcription: `job.started`, `audio.assembled`, `transcription.completed`, `summary.enqueued`, `summary.enqueue_failed`, `job.succeeded`, `job.failed`, `job.settled`.
 - Summary: `job.started`, `transcript.windowed`, `summary.completed`, `summary.output.malformed`, `summary.repair.completed`, `summary.output.repaired`, `summary.output.unrecoverable`, `summary.output.truncated`, `summary.sections.missing`, `job.succeeded`, `job.failed`, `job.settled`.
 
-Summary lines additionally carry `transcriptId`, `templateId` and — where the backend reports them — `promptTokens` and `completionTokens`, which is what makes the assumptions in `COST-MODEL.md` checkable against reality instead of against an estimate.
+Summary lines additionally carry `transcriptId`, `templateId` and — where the backend reports them — `promptTokens` and `completionTokens`, which is what makes the assumptions in `docs/COST-MODEL.md` checkable against reality instead of against an estimate.
 
 ## Tests
 

@@ -13,7 +13,7 @@ changes without a PO decision.
 
 ## 1. Consent notice (before recording starts)
 
-Recording other people is the user's legal responsibility (PITCH.md, legal stance). The product surfaces this clearly — the notice is part of the brand, not fine print. No playfulness here.
+Recording other people is the user's legal responsibility (docs/PITCH.md, legal stance). The product surfaces this clearly — the notice is part of the brand, not fine print. No playfulness here.
 
 **Decided in v2: the consent dialog is gone; consent is inline on the start stage.** The interruption
 was removed, the obligation was not. The notice now sits on the recording screen's start stage,
