@@ -6,14 +6,15 @@ import { useAuth } from "@/features/auth/auth-provider";
 import { safeReturnTo } from "@/features/auth/session-expiry";
 
 /**
- * The signed-out view: the landing page, with sign-in as its single action.
+ * The root of the product, as a signed-out visitor sees it: the landing page, with sign-in as its
+ * single action. A signed-in visitor never stays here — the same path takes them into the app.
  *
  * It is also where an expired session lands. The auth gate sends the location along, so signing in
  * again continues where the session ended instead of dropping the user at the meeting list — and
  * whatever the sign-in has to say, an ended session or a failed callback, is said in the hero
  * rather than on a screen of its own.
  */
-export function LoginRoute() {
+export function LandingRoute() {
   const { t } = useTranslation();
   const { status, error, sessionExpired, signIn } = useAuth();
   const location = useLocation();

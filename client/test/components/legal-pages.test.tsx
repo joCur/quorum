@@ -56,7 +56,7 @@ describe("the legal pages", () => {
 
     expect(screen.getByRole("link", { name: "Back to the start page" })).toHaveAttribute(
       "href",
-      "/login",
+      "/",
     );
   });
 });

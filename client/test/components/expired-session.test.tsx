@@ -26,7 +26,7 @@ vi.mock("@/features/auth/auth-provider", () => ({
 }));
 
 const { RequireAuth } = await import("@/features/auth/require-auth");
-const { LoginRoute } = await import("@/routes/login");
+const { LandingRoute } = await import("@/routes/landing");
 
 function setAuth(overrides: Partial<AuthContextValue> = {}): void {
   auth.current = {
@@ -64,7 +64,7 @@ describe("an expired session", () => {
             </RequireAuth>
           }
         />
-        <Route path="/login" element={<LoginRoute />} />
+        <Route path="/" element={<LandingRoute />} />
       </Routes>,
       { route },
     );
@@ -116,9 +116,9 @@ describe("an expired session", () => {
     setAuth({ status: "anonymous" });
     renderWithProviders(
       <Routes>
-        <Route path="/login" element={<LoginRoute />} />
+        <Route path="/" element={<LandingRoute />} />
       </Routes>,
-      { route: "/login" },
+      { route: "/" },
     );
 
     await user.click(screen.getAllByRole("button", { name: "Sign in" })[0]!);
@@ -132,8 +132,8 @@ describe("an expired session", () => {
     setAuth({ status: "loading" });
     renderGate("/meetings/abc");
 
-    // On a reload the session is restored asynchronously; routing to login in the meantime would
-    // bounce an already signed-in user through the front door for no reason.
+    // On a reload the session is restored asynchronously; routing to the landing in the meantime
+    // would bounce an already signed-in user through the front door for no reason.
     expect(screen.queryAllByRole("button", { name: "Sign in" })).toHaveLength(0);
     expect(screen.queryByText("the meeting")).toBeNull();
   });

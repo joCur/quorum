@@ -41,7 +41,7 @@ export function AuthCallbackRoute() {
           void signIn();
           return;
         }
-        navigate("/login", { replace: true });
+        navigate("/", { replace: true });
       });
   }, [completeSignIn, signIn, navigate, search]);
 
