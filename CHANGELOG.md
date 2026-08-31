@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/joCur/quorum/compare/v1.0.0...v1.0.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **release:** tag the release instead of stranding the merged release PR ([#151](https://github.com/joCur/quorum/issues/151)) ([09950fe](https://github.com/joCur/quorum/commit/09950fe122ec180db7c174388cceccaea40fa5e1))
+
 ## [1.0.0](https://github.com/joCur/quorum/compare/v0.1.0...v1.0.0) (2026-08-31)
 
 
