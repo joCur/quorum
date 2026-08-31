@@ -45,6 +45,11 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      maxWidth: {
+        // The shell's content column, shared by the top bar and the main
+        // column so the two stay aligned at every width.
+        shell: "var(--shell-width)",
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

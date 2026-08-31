@@ -147,7 +147,7 @@ export function TopBar() {
         meeting detail sticks its playback bar directly underneath, and an offset computed from a
         height that drifts with the font or the controls inside would overlap sooner or later.
       */}
-      <div className="mx-auto flex h-top-bar w-full max-w-3xl items-center gap-2 px-5 shell:gap-[14px]">
+      <div className="mx-auto flex h-top-bar w-full max-w-shell items-center gap-2 px-5 shell:gap-[14px]">
         <BrandMark />
 
         <nav
