@@ -11,6 +11,13 @@ import { afterEach, vi } from "vitest";
  * tests that care set it themselves.
  */
 
+/**
+ * The Vite-injected version constant. The `define` replacement only reaches the modules the Node
+ * suite transforms; in jsdom the identifier is looked up on the global at run time, so a component
+ * importing `@/env` would otherwise fail on the import alone.
+ */
+(globalThis as unknown as { __APP_VERSION__: string }).__APP_VERSION__ = "0.0.0-test";
+
 if (!window.matchMedia) {
   window.matchMedia = ((query: string) => ({
     matches: false,
