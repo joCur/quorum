@@ -1,6 +1,6 @@
 {
   "name": "@quorum/client",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "Quorum PWA — recording flow, chunk streaming and crash-safe local buffering.",
