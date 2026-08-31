@@ -2,60 +2,38 @@ import * as React from "react";
 import { Check, Copy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Summary, SummarySection } from "@quorum/shared";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatRelativeTime } from "@/features/meetings/format";
 import { sectionToMarkdown, summaryToMarkdown } from "@/features/meetings/summary-markdown";
 
 /**
  * The generated summary, rendered in the order of the template snapshot stored with it
  * (ADR-004 §2) — never the current template, so an old summary keeps explaining itself.
  */
-export function SummaryView({
-  summary,
-  templateName,
-}: {
-  summary: Summary;
-  /**
-   * Name of the template behind the snapshot, resolved by the caller from the template list.
-   *
-   * It is not part of the snapshot itself — the snapshot stores what the summary was *produced
-   * with*, and a name is a label people change freely. Null when the template has since been
-   * deleted or renamed out of the list, in which case the header simply says nothing rather than
-   * naming something that no longer exists. The version and model in the footer are the parts
-   * that always hold.
-   */
-  templateName?: string | null;
-}) {
-  const { t, i18n } = useTranslation();
+export function SummaryView({ summary }: { summary: Summary }) {
+  const { t } = useTranslation();
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        {templateName ? (
-          <p className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-            {/* Transitional: `plum` no longer exists in v2 and resolves to honey through the
-                Tailwind color mapping. This marker becomes a honey underline when the
-                meeting-detail area ticket restyles this screen. */}
-            <span aria-hidden="true" className="h-4 w-1 shrink-0 rounded-full bg-plum" />
-            <span className="truncate">
-              {t("meeting.summary.madeWith", { template: templateName })}
-            </span>
-          </p>
-        ) : (
-          <span />
-        )}
+    <div className="flex flex-col gap-3.5">
+      {/* The whole-summary copy sits alone above the sections: the provenance line that used to
+          share this row now lives at the foot of the rail, with the control that acts on it. */}
+      <div className="flex justify-end">
         <CopyButton text={() => summaryToMarkdown(summary)} label={t("meeting.summary.copyAll")} />
       </div>
 
       {summary.sections.map((section, index) => (
         <Card
           key={section.sectionId}
-          className="animate-rise-in"
+          className="animate-rise-in rounded-card"
           style={{ animationDelay: `${Math.min(index, 9) * 30}ms` }}
         >
-          <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="flex items-center gap-2">
-              <span aria-hidden="true" className="h-5 w-1 rounded-full bg-plum" />
+          <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
+            {/*
+              The section title is underlined with honey rather than flagged with a marker beside
+              it: an inset shadow sits behind the words themselves, so the accent is the width of
+              the title and belongs to it, at any length and on either theme.
+            */}
+            <CardTitle className="w-fit font-display text-base font-bold leading-6 shadow-[inset_0_-0.32em_hsl(var(--honey)/0.4)]">
               {section.title}
             </CardTitle>
             <CopyButton
@@ -68,22 +46,54 @@ export function SummaryView({
           </CardContent>
         </Card>
       ))}
-
-      <p className="text-xs text-muted-foreground">
-        {t("meeting.summary.meta", {
-          version: summary.templateSnapshot.templateVersion,
-          model: summary.model,
-          date: new Date(summary.createdAt).toLocaleString(i18n.language),
-        })}
-      </p>
     </div>
+  );
+}
+
+/**
+ * One line saying where this summary came from: the template it was made with, the version of
+ * that template, and how long ago it was written.
+ *
+ * It sits at the foot of the rail rather than above the sections, directly over the picker that
+ * can replace it — the three facts and the control that acts on them read as one thing. The
+ * relative time is what makes the line worth reading after a regenerate: the question it answers
+ * is "is this the new one yet", and an absolute timestamp answers that slowly.
+ */
+export function SummaryAttribution({
+  summary,
+  templateName,
+}: {
+  summary: Summary;
+  /**
+   * Name of the template behind the snapshot, resolved by the caller from the template list.
+   *
+   * It is not part of the snapshot itself — the snapshot stores what the summary was *produced
+   * with*, and a name is a label people change freely. Null when the template has since been
+   * deleted or renamed out of the list, in which case the line drops that clause rather than
+   * naming something that no longer exists. The version and the time always hold.
+   */
+  templateName?: string | null;
+}) {
+  const { t, i18n } = useTranslation();
+  const values = {
+    template: templateName,
+    version: summary.templateSnapshot.templateVersion,
+    time: formatRelativeTime(summary.createdAt, i18n.language),
+  };
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {templateName
+        ? t("meeting.summary.attribution", values)
+        : t("meeting.summary.attributionNoTemplate", values)}
+    </p>
   );
 }
 
 function SectionContent({ section }: { section: SummarySection }) {
   if (section.format === "bullets") {
     return (
-      <ul className="flex list-disc flex-col gap-1.5 pl-5 text-base leading-relaxed">
+      <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm leading-relaxed">
         {section.content.map((line, index) => (
           <li key={`${section.sectionId}-${String(index)}`}>{line}</li>
         ))}
@@ -110,7 +120,7 @@ function SectionContent({ section }: { section: SummarySection }) {
   }
 
   return (
-    <div className="flex max-w-[65ch] flex-col gap-3 text-base leading-relaxed">
+    <div className="flex max-w-[65ch] flex-col gap-3 text-sm leading-relaxed">
       {section.content.map((paragraph, index) => (
         <p key={`${section.sectionId}-${String(index)}`}>{paragraph}</p>
       ))}
@@ -129,9 +139,12 @@ function CopyButton({ text, label }: { text: () => string; label: string }) {
   }, [copied]);
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
+    // The design has no copy control to copy, so this borrows the shape of the nearest one it
+    // does have — the list's icon-only trash: no border, no fill, muted ink, a soft-cornered
+    // 44px target around a 17px glyph. Quiet enough to sit inside a section without competing
+    // with its title.
+    <button
+      type="button"
       aria-label={label}
       onClick={() => {
         void navigator.clipboard
@@ -141,12 +154,13 @@ function CopyButton({ text, label }: { text: () => string; label: string }) {
           // never appears, and the user can still select the text.
           .catch(() => setCopied(false));
       }}
+      className="-my-1 -mr-1 flex size-11 shrink-0 items-center justify-center rounded-field-sm text-muted-foreground transition-colors duration-micro ease-enter hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {copied ? (
-        <Check aria-hidden="true" className="animate-pop-in text-success" />
+        <Check aria-hidden="true" className="size-[17px] animate-pop-in text-success" />
       ) : (
-        <Copy aria-hidden="true" />
+        <Copy aria-hidden="true" className="size-[17px]" />
       )}
-    </Button>
+    </button>
   );
 }

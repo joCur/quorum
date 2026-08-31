@@ -92,6 +92,15 @@
   --radius-field-sm: 10px;
   --radius: 18px; /* shadcn base; lg = card-lg, md = radius, sm = field-sm */
 
+  /* ---- Layout furniture ----
+     The height of the sticky top bar and of the meeting detail's playback bar.
+     Both are declared here rather than measured, because screens stick their own
+     furniture underneath them: the bar sets these as its own height, and the
+     offsets below it are computed from the same numbers, so the two can never
+     drift into an overlap. */
+  --top-bar-height: 66px;
+  --player-bar-height: 64px;
+
   /* ---- Elevation (warm, diffuse) ---- */
   --shadow-sm: 0 1px 3px hsl(26 30% 12% / 0.07), 0 1px 2px hsl(26 30% 12% / 0.05);
   --shadow-md: 0 6px 16px hsl(26 30% 12% / 0.1);

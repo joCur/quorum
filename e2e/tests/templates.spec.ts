@@ -82,7 +82,9 @@ test("shapes a template and summarizes an existing recording again with it", asy
 
   // --- Regenerating with the user's template -------------------------------------------------
   await page.goto(`/meetings/${transcript.meetingId}`);
-  await page.getByRole("tab", { name: "Summary" }).click();
+  // Nothing to open first: the summary and the transcript stand side by side, so the template
+  // picker is on screen as soon as the meeting is.
+  await expect(page.getByRole("heading", { name: "Summary" })).toBeVisible();
 
   await page.getByLabel("Template").selectOption({ label: TEMPLATE_NAME });
   await page.getByRole("button", { name: "Regenerate" }).click();

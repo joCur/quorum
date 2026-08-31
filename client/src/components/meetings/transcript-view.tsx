@@ -88,12 +88,12 @@ function SegmentBlock({
       )}
       style={index < 8 ? { animationDelay: `${index * 30}ms` } : undefined}
     >
-      <div className="flex items-baseline gap-2">
-        {speaker ? <span className="text-sm font-semibold">{speaker}</span> : null}
+      <div className="flex items-baseline gap-2.5">
+        {speaker ? <span className="text-[13px] font-bold">{speaker}</span> : null}
         <button
           type="button"
           onClick={() => onSeek(segment.start)}
-          className="font-mono text-xs text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="font-mono text-[11.5px] text-honey-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={t("meeting.transcript.jumpTo", { time: formatDuration(segment.start) })}
         >
           {formatDuration(segment.start)}
@@ -121,7 +121,9 @@ function SegmentBlock({
                 onClick={() => onSeek(word.start)}
                 className={cn(
                   "rounded-sm px-px text-left hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  position === wordIndex && "font-semibold underline",
+                  // The word being spoken is tinted honey — a block of background rather than a
+                  // change of ink, so it is legible as a mark and not only as a color.
+                  position === wordIndex && "bg-honey/45 font-semibold",
                 )}
               >
                 {word.word}

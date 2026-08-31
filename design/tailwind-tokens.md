@@ -160,6 +160,13 @@ export default {
       fontSize: {
         timer: ["2.25rem", { lineHeight: "1", fontWeight: "500" }],
       },
+      // The app's two pieces of sticky furniture, as named sizes: the top bar
+      // sets its own height from `h-top-bar`, and a screen that sticks something
+      // underneath it offsets from the same tokens instead of guessing.
+      spacing: {
+        "top-bar": "var(--top-bar-height)",
+        "player-bar": "var(--player-bar-height)",
+      },
       transitionDuration: {
         micro: "140ms",
         DEFAULT: "220ms",

@@ -269,7 +269,7 @@
     "back": "Zurück zu den Meetings",
     "loadError": "Dieses Meeting konnte nicht geladen werden.",
     "deleted": "Dieses Meeting wurde gelöscht.",
-    "tabs": {
+    "view": {
       "label": "Meeting-Inhalt",
       "transcript": "Transkript",
       "summary": "Zusammenfassung"
@@ -290,6 +290,9 @@
       "seek": "Position wählen",
       "back": "{{seconds}} Sekunden zurück",
       "forward": "{{seconds}} Sekunden vor",
+      "backShort": "−{{seconds}} s",
+      "forwardShort": "+{{seconds}} s",
+      "rateValue": "{{rate}}×",
       "rate": "Wiedergabegeschwindigkeit",
       "unavailable": "Diese Aufnahme konnte nicht geladen werden."
     },
@@ -305,13 +308,13 @@
       "failed": "Zusammenfassung fehlgeschlagen",
       "copyAll": "Ganze Zusammenfassung kopieren",
       "copySection": "{{section}} kopieren",
-      "meta": "Vorlagenversion {{version}} · {{model}} · {{date}}",
+      "attribution": "Erstellt mit {{template}} · Vorlagenversion {{version}} · {{time}}",
+      "attributionNoTemplate": "Vorlagenversion {{version}} · {{time}}",
       "template": "Vorlage",
       "regenerate": "Neu erstellen",
       "regenerating": "Wird geschrieben…",
       "previousVersion": "Vorherige Fassung — sie wird ersetzt, sobald die neue fertig ist.",
-      "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben.",
-      "madeWith": "Erstellt mit {{template}}"
+      "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben."
     }
   }
 }
