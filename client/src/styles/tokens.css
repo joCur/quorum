@@ -74,6 +74,11 @@
   --info-foreground: 0 0% 100%;
   --info-subtle: 214 60% 94%;
 
+  /* ---- Layout ----
+     The shell's content column. The top bar and the main column share it, so
+     the two line up at every width. */
+  --shell-width: 1060px;
+
   /* ---- Radius ----
      Controls are pills; cards sit between 16 and 22px; fields are gently
      rounded. `--radius` remains the shadcn base and equals the card radius. */

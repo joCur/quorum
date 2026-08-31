@@ -19,6 +19,11 @@ export default {
         // — the wordmark and the record label — and keeps every control.
         shell: "760px",
       },
+      maxWidth: {
+        // The shell's content column, shared by the top bar and the main
+        // column so the two stay aligned at every width.
+        shell: "var(--shell-width)",
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

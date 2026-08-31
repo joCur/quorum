@@ -111,6 +111,9 @@ flowchart TD
 
 - The same top bar at every width; nothing is anchored to the bottom edge, so no screen needs an
   exception from the shell.
+- The content column is capped at `--shell-width` (1060px, exposed as `max-w-shell`). The top bar's
+  inner row and the main column share that cap and the same gutter, so the two line up at every
+  width; routes inherit it from the shell and never set their own outer width.
 - `< 760px` (the shell breakpoint): the bar sheds words and keeps every control — the wordmark next
   to the Q mark and the label on the record pill drop, leaving Q and the microphone. Sheets instead
   of dialogs for forms.
