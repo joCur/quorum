@@ -4,11 +4,11 @@
 
 ## Context
 
-`OPEN-QUESTIONS.md` deliberately left the technology stack open, with candidates per building block. The walking skeleton (ROADMAP.md V1) cannot start until these are fixed, because every follow-up ticket — WebSocket recording endpoint, job worker, auth flows — depends on them. The lead proposed a set that the PO has accepted; this ADR records the team evaluation of each candidate group and the resulting decision.
+`docs/OPEN-QUESTIONS.md` deliberately left the technology stack open, with candidates per building block. The walking skeleton (docs/ROADMAP.md V1) cannot start until these are fixed, because every follow-up ticket — WebSocket recording endpoint, job worker, auth flows — depends on them. The lead proposed a set that the PO has accepted; this ADR records the team evaluation of each candidate group and the resulting decision.
 
 Constraints that apply to every choice:
 
-- **Self-hosted first.** Everything a customer needs to run must be startable from our own `docker-compose.yml`, with no vendor account required (PITCH.md, ADR-005).
+- **Self-hosted first.** Everything a customer needs to run must be startable from our own `docker-compose.yml`, with no vendor account required (docs/PITCH.md, ADR-005).
 - **`shared/src/` (Zod) is the single source of truth.** Client and server import the same schemas rather than duplicating them (CLAUDE.md).
 - **Every long-running operation is a server-side job** (ADR-002, `shared/src/job.ts`).
 - **Encryption at rest and cascading deletion** are mandatory from day one (ADR-001).
@@ -74,10 +74,10 @@ The decisive criterion is not the protocol — all three candidates do OIDC with
 
 ## Deliberately not decided here
 
-- **Observability stack** (OpenTelemetry + Grafana/Loki/Tempo/Prometheus) — named in `OPEN-QUESTIONS.md`, decided before production, not needed to start the skeleton.
+- **Observability stack** (OpenTelemetry + Grafana/Loki/Tempo/Prometheus) — named in `docs/OPEN-QUESTIONS.md`, decided before production, not needed to start the skeleton.
 - **ORM/query layer** (Drizzle vs. Kysely vs. plain SQL) and the migration tool — an implementation detail of the API ticket, not an architectural commitment.
 - **Reverse proxy and TLS** (Caddy vs. Traefik) and **hosting** (single server vs. later k8s) — infra tickets; GPU sizing follows the first load measurements.
-- **Abuse and cost protection** (quotas, rate limits, job fairness) — named in `OPEN-QUESTIONS.md`, scheduled for V2.
+- **Abuse and cost protection** (quotas, rate limits, job fairness) — named in `docs/OPEN-QUESTIONS.md`, scheduled for V2.
 
 ## Consequences
 
@@ -86,7 +86,7 @@ The decisive criterion is not the protocol — all three candidates do OIDC with
 - Infrastructure stays at four self-hosted services (Postgres, MinIO, Whisper, Keycloak) plus our own API and worker. No Redis, no separate broker.
 - Postgres becomes a single point of failure for domain data *and* the queue: if it is down, nothing is enqueued and nothing runs. That is an accepted, explicit trade — backups and monitoring for Postgres therefore rank highest in the operations ticket.
 - We take on maintenance of a small OpenAI-compatible serving wrapper around whisperX. If that turns out to be more burden than the alignment quality is worth, ADR-005's abstraction lets us fall back to `speaches`/faster-whisper by configuration; this ADR should then be superseded, not silently ignored.
-- Every choice remains runnable without a vendor account, which keeps the "self-hosted first" promise of PITCH.md intact.
+- Every choice remains runnable without a vendor account, which keeps the "self-hosted first" promise of docs/PITCH.md intact.
 
 ## Consequences for `docker-compose.yml`
 

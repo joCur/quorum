@@ -5,7 +5,7 @@ Meeting recording (in person & online) with configurable summaries, planned as a
 
 ## Structure
 
-- `adr/` — Architecture Decision Records
+- `docs/adr/` — Architecture Decision Records
   - ADR-001: Server-side processing, audio persistence, encryption at rest, the deletion concept
   - ADR-002: Chunk streaming over WebSocket, processing as an asynchronous job
   - ADR-003: Transcript data model (immutability, 1:n, word timestamps)
@@ -13,10 +13,10 @@ Meeting recording (in person & online) with configurable summaries, planned as a
   - ADR-005: Self-hosted Whisper + an OpenAI-compatible summary API
   - ADR-006: Stack decision (Fastify, React + Vite PWA, pg-boss, PostgreSQL, MinIO, whisperX, Keycloak)
   - ADR-007: Authentication stays on Keycloak; realm configuration becomes declarative
-- `PITCH.md` — why we are building this, the V1 demo definition, our legal position
-- `ROADMAP.md` — V1 → V2 → later (becomes GitHub issues at project start)
-- `OPEN-QUESTIONS.md` — stack proposals, observability, abuse protection (deliberately open)
-- `COST-MODEL.md` — cost per meeting hour (our own server vs. cloud)
+- `docs/PITCH.md` — why we are building this, the V1 demo definition, our legal position
+- `docs/ROADMAP.md` — V1 → V2 → later (becomes GitHub issues at project start)
+- `docs/OPEN-QUESTIONS.md` — stack proposals, observability, abuse protection (deliberately open)
+- `docs/COST-MODEL.md` — cost per meeting hour (our own server vs. cloud)
 - `docs/observability.md` — the structured log schema both services emit and the Prometheus
   metrics they expose (queue depth, job throughput, failure rate)
 - `docs/runbooks/pipeline.md` — what to do when the pipeline misbehaves: retry and dead-letter

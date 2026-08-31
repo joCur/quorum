@@ -436,7 +436,7 @@ with it.
 | Backups: schedule, retention, restore drills, and the deletion window backups must honor | `docs/runbooks/backup-restore.md`                                  |
 | Storage encryption key custody and rotation | `docs/runbooks/backup-restore.md`                                  |
 | Alert routing — the stack raises alerts, it does not deliver them anywhere | `infra/monitoring/alertmanager.yml`, `docs/runbooks/pipeline.md`   |
-| Disk capacity for recordings, and what happens when it runs out | `COST-MODEL.md` for the sizing, the storage quota variables for the limit |
+| Disk capacity for recordings, and what happens when it runs out | `docs/COST-MODEL.md` for the sizing, the storage quota variables for the limit |
 | Keycloak password policy, MFA, brute-force tuning, federation | `infra/keycloak/realm-production.json` — configure them there, not in the admin console, or the next deploy reverts them. The realm ships Keycloak's brute-force protection on |
 | Anything at all about a second host — this is a single-host deployment | Not in scope for this release                                      |
 
