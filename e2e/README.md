@@ -170,10 +170,13 @@ only the read API answering 404 means both steps are done.
 
 | Spec                       | Critical path  | What it proves                                                                                                                       |
 | -------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `auth.spec.ts`             | Auth flows     | Sign-in through Keycloak's own form; the protected view renders; the token carries the tenant claim and the API agrees; no token means 401; a second tenant cannot address the first tenant's session |
-| `recording.spec.ts`        | The core path  | Consent → capture → stop; every chunk in object storage under the right tenant/user prefix with no gap; manifest consistent; `transcribe` job queued; transcript row written and scoped; the summary derived from it stored and scoped |
-| `crash-recovery.spec.ts`   | Crash recovery | The API is killed mid-recording: the banner names the buffered duration, capture keeps running, and after the restart the stored sequence is gap-free and duplicate-free |
+| `auth.spec.ts`             | Auth flows     | Sign-in through Keycloak's own form; the protected view renders; the token carries the tenant claim and the API agrees; no token means 401; a stale access token is renewed silently and the user never notices; a session with nothing left to renew from lands on sign-in and returns to where it ended; signing out ends the provider's session too; a second tenant cannot address the first tenant's session |
+| `registration.spec.ts`     | Auth flows     | Registering through Keycloak's own form, verifying by real mail, opening the link in a second tab the way a mail client does, and arriving with a provisioned tenant that a recording is then written under; a stale callback address is just the sign-in screen |
+| `recording.spec.ts`        | The core path  | Consent → capture → stop; the hold that ends it and the short press that must not; pause and resume without splitting the meeting; the microphone the user picked; capture surviving navigation across the app; an online meeting captured as sound only, and the share stopped from the browser. Every chunk in object storage under the right tenant/user prefix with no gap; manifest consistent; `transcribe` job queued; transcript and summary rows written and scoped, and both readable on the meeting screen |
+| `templates.spec.ts`        | The core path  | A user's own template shapes a summary; regenerating with it leaves the first summary standing, and deleting the template leaves its summaries standing; a user default is used by a later recording; a template chosen at the start of a recording beats that default; deleting the template that is currently the default hands the mark back to the system one |
+| `crash-recovery.spec.ts`   | Crash recovery | The API is killed mid-recording: the banner names the buffered duration, capture keeps running, and after the restart the stored sequence is gap-free and duplicate-free. And the tab itself dies mid-recording while the server is away: the chunks counted in IndexedDB before the crash are offered for recovery afterwards, delivered on one press, and end up as the same gap-free sequence and one meeting |
 | `deletion-cascade.spec.ts` | Deletion       | A recorded meeting with a transcript and a summary is deleted through the list's delete flow: no audio left under the session prefix, no transcript, summary or job rows — pg-boss's own queue rows included — the meeting gone from the read API, another tenant refused, and a repeat delete still a 404 |
+| `limits.spec.ts`           | All four       | The last hop of a refusal: a recording refused for too many open sessions, and a summary asked for again past its allowance, each arriving on screen as a sentence rather than as a raw code or as silence, and neither leaving the screen pretending the work happened |
 
 ## Reading the log
 
@@ -187,6 +190,17 @@ the behavior under test. They appear between that spec's start and the API comin
   building the PWA in the run is what points it at this stack's API and issuer without a second set
   of committed configuration.
 - **Summary content is not asserted**, only the chain and the scoping — see above.
+- **Deleting a meeting while a job is still in flight is not driven as a race.** The cascade is
+  asserted against a meeting whose transcript and summary already exist, which is the state that
+  makes every assertion unambiguous. Winning the race deliberately would mean holding the worker
+  mid-job, and a spec that only sometimes hits the window is a flaky spec claiming to be a
+  guarantee. The ordering the endpoint relies on — storage first, rows second, a repeat delete
+  still a 404 — is asserted directly instead.
+- **The three duration limits are not provoked.** Reaching them means four hours of recorded audio,
+  twelve hours of open session or a two-hour pause; a spec would have to shrink them in the stack
+  configuration, and the numbers it then asserted would not be the numbers the product ships. Both
+  limits that a user can reach in ordinary use *are* provoked, against the shipped values, in
+  `limits.spec.ts`.
 - **The PWA is served through a proxy, not next to the API.** A deployment puts one reverse proxy
   in front of both, so the app makes same-origin requests and no CORS is involved. `vite preview`
   reproduces that with `QUORUM_PREVIEW_API_TARGET`; pointing the app at a different origin instead
