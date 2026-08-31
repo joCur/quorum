@@ -142,7 +142,7 @@ export function TopBar() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/[0.92] backdrop-blur-lg">
-      <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-5 py-3 shell:gap-[14px]">
+      <div className="mx-auto flex w-full max-w-shell items-center gap-2 px-5 py-3 shell:gap-[14px]">
         <BrandMark />
 
         <nav

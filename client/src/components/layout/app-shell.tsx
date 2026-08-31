@@ -29,7 +29,7 @@ export function AppShell() {
       <main
         id="main"
         // Same column width and gutter as the bar above it, so the two line up at every width.
-        className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 pb-20 pt-7"
+        className="mx-auto flex w-full max-w-shell flex-1 flex-col px-5 pb-20 pt-7"
       >
         <Outlet />
       </main>
