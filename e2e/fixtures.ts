@@ -274,6 +274,40 @@ export async function capturedAudioConstraints(page: Page): Promise<MediaTrackCo
 }
 
 /**
+ * What the device is still holding for a session, read out of IndexedDB itself.
+ *
+ * The local buffer is half of the crash-recovery promise, and it is the half no protocol assertion
+ * can see: a chunk that was written before it was sent and never acknowledged lives only here. The
+ * database is opened read-only at the version the app created, so reading it cannot upgrade it or
+ * block the app's own handle.
+ */
+export async function bufferedChunkCount(page: Page, sessionId: string): Promise<number> {
+  return await page.evaluate(async (id: string) => {
+    const database = await new Promise<IDBDatabase | null>((resolve) => {
+      const open = indexedDB.open("quorum-recording");
+      open.onsuccess = () => resolve(open.result);
+      open.onerror = () => resolve(null);
+    });
+    if (database === null || !database.objectStoreNames.contains("chunks")) return 0;
+    const store = database.transaction("chunks", "readonly").objectStore("chunks");
+    // The compound key is [sessionId, seq], so one session is a bounded range over it.
+    const range = IDBKeyRange.bound([id, -Infinity], [id, Infinity]);
+    const count = await new Promise<number>((resolve) => {
+      const request = store.count(range);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(0);
+    });
+    database.close();
+    return count;
+  }, sessionId);
+}
+
+/** The card offering to deliver audio a crashed tab left behind. */
+export function recoveryCard(page: Page) {
+  return page.getByText("A recording was interrupted");
+}
+
+/**
  * Watches the recording WebSocket and reports what the protocol actually did.
  *
  * The session id never appears in the DOM, but every storage assertion needs it. Reading it off
