@@ -7,6 +7,16 @@ name: Release
 # When that release is created, `publish-images` builds the server and worker images from the
 # tagged tree and pushes them to GHCR. Every other push to main stops after release-please, so
 # only an actual release produces artifacts.
+#
+# Nothing is published from a tree whose CI did not pass. `require-green-ci` below resolves the
+# tag to its commit and refuses to let the publishing jobs start unless the CI workflow succeeded
+# for that exact commit — not for "main, lately". This is the second half of a deliberate pair:
+# branch protection is what stops a red commit from reaching main, and this gate is what stops a
+# release from shipping if protection was ever bypassed, misconfigured or overridden by an admin.
+#
+# release-please itself stays ungated on purpose. It has to be able to open and update the release
+# PR from whatever is on main, including while main is red — that PR is how the state is read and
+# fixed. Only the publishing path waits for green.
 on:
   push:
     branches: [main]
@@ -25,14 +35,92 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
+      # Configured by `release-please-config.json` and `.release-please-manifest.json` at the
+      # repository root rather than by a `release-type` here, because the release has to reach
+      # more than the changelog: one version is written to the root package.json and copied into
+      # the client, server and worker manifests, so the version the client displays is the version
+      # that was tagged. The manifest file is the version the next release counts from; the action
+      # rewrites it as part of the release commit.
+      #
+      # Two settings in that config exist only to keep the release shaped the way it already is:
+      # the empty component keeps the release branch and the tag free of a package prefix, so the
+      # tag stays `vX.Y.Z` and an already-open release pull request keeps its branch instead of
+      # being abandoned in favour of a differently named one.
       - uses: googleapis/release-please-action@v4
         id: release
-        with:
-          release-type: simple
+
+  # The gate. Everything that leaves the repository depends on this job, so a failure here is a
+  # release that stops after the tag: no images, no assets, and a red job saying why.
+  require-green-ci:
+    name: Require green CI for the released commit
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    # The CI workflow for the release commit starts from the same push as this workflow, so this
+    # job usually waits for it. The limit is well above a normal CI run (a few minutes, the
+    # end-to-end suite included) and exists so a stuck run fails the release instead of holding a
+    # runner for six hours.
+    timeout-minutes: 45
+    permissions:
+      # Reading workflow runs is all this needs; it never touches the tree or the release.
+      contents: read
+      actions: read
+    steps:
+      - name: Verify the CI workflow succeeded for the tagged commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          # The tag, not the branch head: another merge to main between the release commit and
+          # this job would otherwise let the release inherit a different commit's CI result. This
+          # is the same commit `publish-images` and `release-assets` check out.
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)
+          echo "Released commit: $sha"
+
+          # The CI workflow's runs for exactly that commit, newest last. Restricted to push
+          # events, because that is what a commit on main produces; a pull request's run belongs
+          # to a merge reference, which is a different tree.
+          #
+          # Only the two scalars are carried out of jq. Commit subjects reach this response and
+          # re-parsing a JSON blob through a shell variable trips over the control characters
+          # some of them contain.
+          run=$(gh api \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&per_page=100" \
+            --jq '[.workflow_runs[] | select(.event == "push")]
+                  | sort_by(.run_number) | last | select(. != null)
+                  | "\(.id) \(.html_url)"')
+
+          if [ -z "$run" ]; then
+            echo "::error::No CI run exists for $sha. A missing result is not a passing one, so" \
+              "this release does not publish. Run the CI workflow for that commit and re-run" \
+              "this job."
+            exit 1
+          fi
+
+          # The newest run wins: a re-run after a fixed infrastructure failure is the answer that
+          # counts, and an older attempt for the same commit is history.
+          id=${run%% *}
+          echo "CI run: ${run#* }"
+
+          # Blocks until that run finishes and exits non-zero unless it succeeded — so a CI run
+          # still in flight is waited for rather than guessed at, and one that already failed
+          # stops the release immediately. `-R` because this job checks out nothing, so there is
+          # no repository for the CLI to infer.
+          gh run watch "$id" -R "$GITHUB_REPOSITORY" --exit-status --interval 30 >/dev/null
+
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq .conclusion)
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI for $sha concluded '$conclusion'. Nothing is published from a tree" \
+              "whose CI did not pass."
+            exit 1
+          fi
+          echo "CI succeeded for $sha — the release may publish."
 
   publish-images:
     name: Publish the ${{ matrix.image }} image
-    needs: release-please
+    needs: [release-please, require-green-ci]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -113,7 +201,7 @@ jobs:
   # need — scripts, realm, edge and monitoring configuration — is baked into the images above.
   release-assets:
     name: Attach the compose files
-    needs: release-please
+    needs: [release-please, require-green-ci]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
