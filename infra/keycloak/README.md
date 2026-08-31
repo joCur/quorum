@@ -14,7 +14,47 @@ working login without a single click in the admin console (ADR-006 §7).
 | Client `quorum-dev-cli`            | **Development only** — password grant so a developer can fetch a token with one `curl`.           |
 | Realm roles `quorum-user`, `quorum-admin` | Regular user vs. tenant administrator.                                                     |
 | User profile attribute `tenant_id` | Declared attribute so the tenant claim survives Keycloak's declarative user profile.              |
+| `smtpServer`                       | Where account mail goes — mailpit in development, the operator's relay in production. See below.   |
 | Dev users                          | See below.                                                                                        |
+
+## Mail
+
+Keycloak is what sends password-reset and address-verification mail, so the relay is a realm
+setting rather than an application one. The two realms answer that differently, and the difference
+is the point.
+
+**Development** sends everything to the `mailpit` container in `docker-compose.yml`. Nothing leaves
+the machine, no credentials are involved, and every message is readable in the web inbox at
+<http://localhost:8025> (`MAILPIT_UI_PORT`). That is what makes the reset flow something a developer
+can walk end to end rather than only configure: click "Forgot Password?", open the inbox, follow the
+link. It is also how the end-to-end suite reads a mail it has to act on.
+
+**Production** takes the whole `smtpServer` block from the environment at import time — host, port,
+sender, TLS flags and the relay credentials. There is no mail container in the release stack, and
+there should not be: delivering mail from a fresh IP address is a job for a relay that has spent
+years building a reputation.
+
+### Why `resetPasswordAllowed` is a substituted value
+
+Password reset is only reachable through mail. A realm with reset enabled and no relay behind it
+puts a "Forgot password?" link on the sign-in page that produces "you should receive an email
+shortly" and then nothing at all — the user waits, retries, and concludes the account is broken.
+
+So the production realm sets `resetPasswordAllowed` to `$(env:QUORUM_SMTP_ENABLED)`, the same switch
+that makes the `SMTP_*` values mandatory in `scripts/secrets-preflight.sh`. One variable governs
+both, and the two cannot disagree: a deployment either has a relay and offers the link, or has
+neither. Turning mail on is a change to `.env` and a redeploy, not a change to this file.
+
+Two alternatives were considered and rejected. A second production realm file (one with reset, one
+without) doubles every future realm change and doubles the drift the guard below exists to catch. A
+documented "run this `kcadm` command after deploying" is configuration that lives in a runbook
+instead of in a reviewed file, and the next deploy reverts it — `keycloak-config-cli` runs with
+`IMPORT_CACHE_ENABLED=false` precisely so that hand-made changes do not survive.
+
+The value crosses from string to boolean on the way in: the substitution happens on the file text,
+so the realm carries `"false"`, and Jackson coerces it to the boolean the representation declares.
+That is verified behavior on the pinned `keycloak-config-cli` version, not an assumption — both
+`true` and `false` were applied against a live Keycloak and read back from the admin API.
 
 ## Transport security: `sslRequired`
 
@@ -84,12 +124,14 @@ This file is the **development** realm, imported by `docker-compose.yml` on firs
 not used anywhere else, and it must not be: `sslRequired: none`, a password-grant client and
 three users with committed passwords.
 
-Production uses `realm-production.json` in this directory. It is the same realm with four
+Production uses `realm-production.json` in this directory. It is the same realm with six
 differences and no others — `sslRequired: external`, no `quorum-dev-cli` client, no `dev.*`
-users, and the PWA client's redirect URIs, **post-logout redirect URIs** and web origins taken
-from `$(env:QUORUM_PUBLIC_URL)` instead of `localhost`. All three URI lists matter: sign-out sends
-the browser back to the app's origin, and Keycloak refuses a post-logout redirect the client has
-not declared. Session lifetimes, refresh-token rotation, the audience and tenant
+users, the PWA client's redirect URIs, **post-logout redirect URIs** and web origins taken
+from `$(env:QUORUM_PUBLIC_URL)` instead of `localhost`, the `smtpServer` block taken from the
+`SMTP_*` environment instead of pointing at mailpit, and `resetPasswordAllowed` following
+`$(env:QUORUM_SMTP_ENABLED)` instead of being on unconditionally. All three URI lists matter:
+sign-out sends the browser back to the app's origin, and Keycloak refuses a post-logout redirect
+the client has not declared. Session lifetimes, refresh-token rotation, the audience and tenant
 mappers and the realm roles are identical, because those are decisions rather than development
 conveniences.
 

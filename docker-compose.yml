@@ -113,6 +113,38 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # Keycloak sends verification and password-reset mail over SMTP the moment a user asks for
+      # one. Starting the relay first is what makes the very first reset in a fresh checkout work
+      # instead of failing with a connection error.
+      mailpit:
+        condition: service_healthy
+
+  mailpit:
+    # The development mail relay. The development realm points its SMTP settings at this
+    # container, so password reset and address verification are walkable end to end on a laptop:
+    # nothing is delivered anywhere, every message lands in the web inbox on MAILPIT_UI_PORT.
+    #
+    # It exists so those flows can be TESTED and not merely configured. A verification mail that is
+    # only ever exercised against a real relay is a flow nobody walks through until a user does.
+    #
+    # DEVELOPMENT ONLY. It accepts every message and shows it to anyone who can reach the port. The
+    # production stack has no mail container at all — it talks to the operator's own relay.
+    image: axllent/mailpit:${MAILPIT_VERSION:-v1.27}
+    restart: unless-stopped
+    environment:
+      # Nothing here is worth keeping across a restart, so the store stays in memory and the
+      # container stays stateless — no volume to remember to empty.
+      MP_MAX_MESSAGES: ${MAILPIT_MAX_MESSAGES:-500}
+    ports:
+      # The web inbox, and the same origin the end-to-end suite reads messages from over the HTTP
+      # API. SMTP stays internal — Keycloak is the only thing that sends to it.
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8025/readyz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
 
   worker:
     # @quorum/worker — the queue consumer: transcribe -> Whisper, then summarize -> an

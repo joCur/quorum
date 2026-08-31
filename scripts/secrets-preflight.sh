@@ -138,6 +138,99 @@ require_public_https_url() {
   pass "$name"
 }
 
+# A strict boolean. Used for the switches that are substituted straight into the realm JSON, where
+# anything other than the two literal words produces a realm import that either fails or, worse,
+# silently reads as false.
+require_boolean() {
+  name="$1"
+  eval "value=\${$name:-}"
+
+  case "$value" in
+    true | false)
+      pass "$name=$value"
+      ;;
+    "")
+      fail "$name is empty or unset. It must be exactly true or false."
+      ;;
+    *)
+      fail "$name must be exactly true or false (it is substituted into the realm as a JSON boolean). Got: $value"
+      ;;
+  esac
+}
+
+# The mail relay.
+#
+# WHY IT IS A GROUP AND NOT SIX INDEPENDENT CHECKS: mail is optional, and the settings only have to
+# be present when it is switched on. QUORUM_SMTP_ENABLED is the switch, and it does two things at
+# once — it decides whether these values are mandatory here, and it is the same value the realm
+# substitutes into `resetPasswordAllowed`. That is deliberate: a deployment cannot end up offering
+# a "Forgot password?" link while having no way to deliver the mail behind it, because one variable
+# governs both.
+#
+# The relay password is checked for presence and for placeholders but not for length. Length is a
+# rule about secrets WE generate; this one is issued by a mail provider, and refusing a short
+# credential the operator cannot change would only teach them to work around the preflight.
+require_mail() {
+  require_boolean QUORUM_SMTP_ENABLED
+
+  if [ "${QUORUM_SMTP_ENABLED:-}" = "false" ]; then
+    echo "  note  mail delivery is off. Password reset and address verification stay disabled,"
+    echo "        and the sign-in page shows no link to them. Set QUORUM_SMTP_ENABLED=true and"
+    echo "        the SMTP_* values documented in .env.example to switch them on."
+    return
+  fi
+
+  # Anything other than the two literal words already failed above; there is nothing sensible to
+  # check against a switch nobody can read.
+  [ "${QUORUM_SMTP_ENABLED:-}" = "true" ] || return
+
+  require_value SMTP_HOST
+  require_value SMTP_FROM
+
+  case "${SMTP_PORT:-}" in
+    "")
+      fail "SMTP_PORT is empty or unset. Common values: 587 for STARTTLS, 465 for implicit TLS."
+      ;;
+    *[!0-9]*)
+      fail "SMTP_PORT must be a number. Got: ${SMTP_PORT}"
+      ;;
+    *)
+      pass "SMTP_PORT"
+      ;;
+  esac
+
+  case "${SMTP_FROM:-}" in
+    ?*@?*.?*) ;;
+    "") ;;
+    *)
+      fail "SMTP_FROM must be a mail address the relay is allowed to send as. Got: ${SMTP_FROM}"
+      ;;
+  esac
+
+  require_boolean SMTP_SSL
+  require_boolean SMTP_STARTTLS
+  require_boolean SMTP_AUTH
+
+  # Plain SMTP to a relay somewhere else on the internet sends the credentials and every
+  # verification link in the clear. A relay on the same host is a different matter, so this is not
+  # refused outright — but it is not allowed to be silent either.
+  if [ "${SMTP_SSL:-}" != "true" ] && [ "${SMTP_STARTTLS:-}" != "true" ]; then
+    echo "  note  SMTP_SSL and SMTP_STARTTLS are both false: mail leaves this host unencrypted."
+    echo "        Fine for a relay on localhost, wrong for anything reached over a network."
+  fi
+
+  if [ "${SMTP_AUTH:-}" = "true" ]; then
+    require_value SMTP_USER
+    if [ -z "${SMTP_PASSWORD:-}" ]; then
+      fail "SMTP_PASSWORD is empty or unset, but SMTP_AUTH is true."
+    elif is_placeholder "${SMTP_PASSWORD}"; then
+      fail "SMTP_PASSWORD still holds a placeholder value."
+    else
+      pass "SMTP_PASSWORD"
+    fi
+  fi
+}
+
 # Called with argument names instead of none, the script checks exactly those variables as
 # credentials and nothing else. The monitoring profile uses this: its one secret cannot be part
 # of the list below, because Compose interpolates every service in the file whether or not its
@@ -177,6 +270,10 @@ echo "Summary backend:"
 require_value SUMMARY_API_KEY
 require_value SUMMARY_BASE_URL
 require_value SUMMARY_MODEL
+
+echo
+echo "Mail delivery:"
+require_mail
 
 echo
 echo "Public origins:"
