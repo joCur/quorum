@@ -274,6 +274,7 @@ async function main() {
     E2E_S3_SECRET_KEY: stack.MINIO_ROOT_PASSWORD,
     E2E_OIDC_CLIENT_ID: stack.OIDC_CLIENT_ID,
     E2E_WHISPER: whisperMode,
+    E2E_MOCK_BACKEND_URL: `http://127.0.0.1:${mockWhisperPort}`,
     // The crash-recovery spec restarts the API container, and Playwright keeps this run's
     // artifacts apart from a concurrent run's — both need the project name.
     E2E_COMPOSE_PROJECT: projectName,

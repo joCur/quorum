@@ -1,57 +1,17 @@
+import { JOB_ERROR_CODES, type JobErrorCode } from "@quorum/shared";
+
 /**
- * Error taxonomy for the transcription and summary pipelines.
+ * Error handling for the transcription and summary pipelines.
  *
- * `code` is the machine-readable value that ends up in `Job.error.code`
- * (`shared/src/job.ts`); `retryable` decides whether pg-boss gets another
- * attempt or the job is dead-lettered immediately. The split matters
- * operationally: a Whisper backend that is still booting must be retried, an
- * audio file the backend cannot decode never will be.
+ * The taxonomy itself lives in `shared/src/job.ts`, because it is a contract
+ * rather than an internal detail: the code ends up in `Job.error.code` and the
+ * client turns it into the sentence the user reads. What belongs here is the
+ * operational half — `retryable` decides whether pg-boss gets another attempt
+ * or the job is dead-lettered immediately. That split matters: a Whisper
+ * backend that is still booting must be retried, an audio file the backend
+ * cannot decode never will be.
  */
-export const JOB_ERROR_CODES = [
-  /** The session was never finalized, so there is nothing to transcribe. */
-  "MANIFEST_NOT_FOUND",
-  /** Object storage refused or failed a read. */
-  "AUDIO_FETCH_FAILED",
-  /** The manifest exists but references no chunk, or the chunks are empty. */
-  "AUDIO_EMPTY",
-  /** The transcription backend could not decode the audio it was given. */
-  "AUDIO_DECODE_FAILED",
-  /** Backend unreachable, overloaded or failing — worth another attempt. */
-  "TRANSCRIPTION_UNAVAILABLE",
-  /** Backend rejected the request (bad model name, unauthorized, too large). */
-  "TRANSCRIPTION_REJECTED",
-  /** Backend answered, but not in the OpenAI-compatible shape we require. */
-  "TRANSCRIPTION_RESPONSE_INVALID",
-  /** The mapped result does not satisfy the transcript schema. */
-  "TRANSCRIPT_INVALID",
-  /** Writing the transcript to PostgreSQL failed. */
-  "TRANSCRIPT_PERSIST_FAILED",
-  /** The job payload on the queue is not a payload we understand. */
-  "JOB_PAYLOAD_INVALID",
-
-  // ---- Summary pipeline (ADR-004, ADR-005) ----
-  /** The transcript the summarize job refers to does not exist (any more). */
-  "TRANSCRIPT_NOT_FOUND",
-  /** The transcript carries no usable text, so there is nothing to summarize. */
-  "TRANSCRIPT_EMPTY",
-  /** The summarize job names a template that is not stored. */
-  "SUMMARY_TEMPLATE_NOT_FOUND",
-  /** Summary backend unreachable, overloaded or failing — worth another attempt. */
-  "SUMMARY_UNAVAILABLE",
-  /** Backend rejected the request (bad model name, unauthorized, too large). */
-  "SUMMARY_REJECTED",
-  /** The model answered, but not in the structure the template demands. */
-  "SUMMARY_RESPONSE_INVALID",
-  /** The mapped result does not satisfy the summary schema. */
-  "SUMMARY_INVALID",
-  /** Writing the summary to PostgreSQL failed. */
-  "SUMMARY_PERSIST_FAILED",
-
-  /** Anything we did not anticipate. */
-  "INTERNAL_ERROR",
-] as const;
-
-export type JobErrorCode = (typeof JOB_ERROR_CODES)[number];
+export { JOB_ERROR_CODES, type JobErrorCode };
 
 /**
  * Not a failure: the meeting was deleted while this job was running.

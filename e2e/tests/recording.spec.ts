@@ -22,7 +22,12 @@ import {
 } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
 import { fetchToken } from "../support/keycloak.js";
-import { findSummary, findTranscribeJob, findTranscript } from "../support/database.js";
+import {
+  findFailedJob,
+  findSummary,
+  findTranscribeJob,
+  findTranscript,
+} from "../support/database.js";
 import { chunkSeqs, readManifest } from "../support/storage.js";
 
 /**
@@ -117,6 +122,85 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 30_000 });
   }
 });
+
+/**
+ * Critical path, unhappy end: the pipeline fails and the screen has to say so in the user's own
+ * terms.
+ *
+ * The stub backend is told to refuse the next transcription, so a real job fails for a real
+ * reason. What is asserted is what the user is left with: a translated sentence about their
+ * recording, the developer-facing string the pipeline logged nowhere on the page, and the code
+ * available a click down for support.
+ */
+test("says a recording could not be transcribed, in the user's language", async ({
+  page,
+  signIn,
+}) => {
+  test.skip(
+    stackEnv.whisperMode !== "mock",
+    "only the stub backend can be told to refuse a transcription",
+  );
+
+  const alice = await fetchToken(devUsers.alice);
+  const protocol = watchRecordingProtocol(page);
+
+  await rejectNextTranscription();
+
+  await signIn(devUsers.alice);
+  await page.goto("/record");
+  await startRecording(page);
+
+  const sessionId = await protocol.waitForSessionId();
+  await protocol.waitForAck(2);
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+
+  const manifest = await readManifest({
+    tenantId: alice.tenantId,
+    userId: alice.userId,
+    sessionId,
+  });
+  expect(manifest?.meetingId).toBeTruthy();
+
+  // The failure is a fact about the pipeline first: the job row carries the code, and the message
+  // the old panel used to print verbatim.
+  const failed = await waitForValue(
+    () => findFailedJob(sessionId, "transcribe"),
+    60_000,
+    "the failed transcribe job",
+  );
+  expect(failed.code).toBe("TRANSCRIPTION_REJECTED");
+  expect(failed.message).toContain("404");
+
+  await page.goto(`/meetings/${manifest?.meetingId}`);
+
+  // What the user reads is about their recording — and it is the only message on the panel.
+  await expect(page.getByText("Transcription failed")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("This recording could not be transcribed.")).toBeVisible();
+  await expect(page.getByText(failed.message)).toHaveCount(0);
+  await expect(page.getByText("is not installed locally")).toHaveCount(0);
+  await expect(page.getByText("404")).toHaveCount(0);
+
+  // The code stays reachable for support, one click down rather than in the sentence.
+  await page.getByText("Technical details").click();
+  await expect(page.getByText("Error code: TRANSCRIPTION_REJECTED")).toBeVisible();
+  await expect(page.getByText(`Reference: ${failed.id}`)).toBeVisible();
+
+  // And the failure costs nothing that succeeded: the audio is still there to play.
+  await expect(page.getByRole("group", { name: "Playback" })).toBeVisible();
+});
+
+/** Arms the stub backend to refuse the next transcription request it receives. */
+async function rejectNextTranscription(): Promise<void> {
+  const response = await fetch(`${stackEnv.mockBackendUrl}/control/reject-transcription`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(
+      `could not arm the stub backend at ${stackEnv.mockBackendUrl}: ${response.status}`,
+    );
+  }
+}
 
 /**
  * Critical path: the two gestures that guard capture — consent before it, and the hold that ends

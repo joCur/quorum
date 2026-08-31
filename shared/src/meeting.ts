@@ -33,7 +33,14 @@ export const MeetingStatusSchema = z.enum([
   "failed",
 ]);
 
-/** Which pipeline stage failed, for the error panel in meeting detail. */
+/**
+ * Which pipeline stage failed, for the error panel in meeting detail.
+ *
+ * `code` is what the panel is rendered from — one of `JOB_ERROR_CODES`, turned into a translated
+ * sentence by the client. `message` is the pipeline's own English description, kept for logs and
+ * support tooling and deliberately never shown to a user: it may quote a backend verbatim, which
+ * ADR-005 keeps out of the UI.
+ */
 export const MeetingFailureSchema = z.object({
   stage: z.enum(["transcribe", "summarize"]),
   code: z.string(),

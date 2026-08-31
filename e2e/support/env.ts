@@ -90,6 +90,11 @@ export const stackEnv = {
   },
   /** "mock" points the worker at a stub transcription endpoint; "real" uses CPU Whisper. */
   whisperMode: read("E2E_WHISPER", "mock"),
+  /**
+   * The stub backend the orchestrator runs beside the stack. It serves summaries in both Whisper
+   * modes, and a control endpoint a test can use to make the next transcription fail.
+   */
+  mockBackendUrl: read("E2E_MOCK_BACKEND_URL", url("MOCK_WHISPER_PORT", "127.0.0.1")),
 } as const;
 
 /** Development fixtures from the imported realm — deliberately not secrets. */

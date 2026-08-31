@@ -179,7 +179,8 @@ Done steps: `success` check that pops in. Active step: `info` pill with a gentle
 
 **Visual**
 - Badge `Failed` (`destructive`, `AlertTriangle`); the stepper shows the failed stage in `destructive` with the later stages muted.
-- In meeting detail, the affected panel shows an error panel (not a toast): title "Transcription failed" / "Summary failed", the human-readable `error.message`, the `error.code` in `font-mono text-xs text-muted-foreground` (support reference), and a primary **Retry** button (creates a new job — cheap by design, ADR-003 reprocessing).
+- In meeting detail, the affected panel shows an error panel (not a toast): title "Transcription failed" / "Summary failed", one translated sentence chosen by `error.code`, and a collapsed "Technical details" disclosure carrying the code and the job reference in `font-mono text-xs text-muted-foreground` (what support asks for), plus a primary **Retry** button (creates a new job — cheap by design, ADR-003 reprocessing).
+- `error.message` is never rendered. It is written for logs and may quote a backend verbatim — a model name, an HTTP status, English — none of which the product talks about (ADR-005), and none of which is in the reader's language. An unmapped code gets the generic failure sentence rather than the raw string.
 - Crucially: everything that succeeded stays usable. Failed summary ≠ broken meeting — audio playback and transcript remain fully functional. A failed transcription still leaves audio playable.
 
 **Behavior**
