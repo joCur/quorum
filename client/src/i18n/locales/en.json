@@ -1,7 +1,6 @@
 {
   "app": {
     "name": "Quorum",
-    "tagline": "Your meetings. Your data.",
     "skipToContent": "Skip to content"
   },
   "common": {
@@ -43,7 +42,22 @@
       "title": "What is said here is nobody else's business.",
       "ownership": "Everything Quorum records and writes belongs in your account and nowhere else. There is no analysis for third parties and no quiet copy.",
       "deletion": "And when you delete a meeting it is really gone, audio, transcript and minutes with it. There is deliberately no trash it comes back from."
+    },
+    "footer": {
+      "copyright": "© Quorum {{year}}",
+      "imprint": "Legal notice",
+      "privacy": "Privacy"
     }
+  },
+  "legal": {
+    "imprint": {
+      "title": "Legal notice"
+    },
+    "privacy": {
+      "title": "Privacy"
+    },
+    "pending": "This page has not been written yet. As soon as the text exists, it will be here.",
+    "back": "Back to the start page"
   },
   "consent": {
     "title": "Before you record",

@@ -1,7 +1,6 @@
 {
   "app": {
     "name": "Quorum",
-    "tagline": "Deine Meetings. Deine Daten.",
     "skipToContent": "Zum Inhalt springen"
   },
   "common": {
@@ -43,7 +42,22 @@
       "title": "Was hier gesagt wird, geht niemanden sonst etwas an.",
       "ownership": "Alles, was Quorum aufnimmt und schreibt, gehört in dein Konto und sonst nirgendwohin. Es gibt keine Auswertung für Dritte und keine stille Kopie.",
       "deletion": "Und wenn du ein Meeting löschst, ist es wirklich weg, samt Audio, Transkript und Protokoll. Einen Papierkorb, aus dem es zurückkommt, gibt es absichtlich nicht."
+    },
+    "footer": {
+      "copyright": "© Quorum {{year}}",
+      "imprint": "Impressum",
+      "privacy": "Datenschutz"
     }
+  },
+  "legal": {
+    "imprint": {
+      "title": "Impressum"
+    },
+    "privacy": {
+      "title": "Datenschutz"
+    },
+    "pending": "Diese Seite ist noch nicht geschrieben. Sobald der Text steht, findest du ihn hier.",
+    "back": "Zurück zur Startseite"
   },
   "consent": {
     "title": "Bevor du aufnimmst",

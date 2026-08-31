@@ -153,6 +153,20 @@ describe("the signed-out gate", () => {
     expect(screen.queryByText(/Your session ended/)).toBeNull();
   });
 
+  it("closes with a working footer rather than a slogan", () => {
+    renderSignedOut();
+
+    // The slogan the artboard put here was struck; what a visitor gets instead is the copyright
+    // line and the two legal pages, which have to be reachable without an account.
+    expect(screen.getByText(`© Quorum ${new Date().getFullYear()}`)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Legal notice" })).toHaveAttribute(
+      "href",
+      "/legal/imprint",
+    );
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/legal/privacy");
+    expect(screen.queryByText(/Your meetings\. Your data\./)).toBeNull();
+  });
+
   it("disables the sign-in while the session is still being restored", () => {
     setAuth({ status: "loading" });
     renderWithProviders(

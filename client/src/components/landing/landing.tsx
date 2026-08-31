@@ -1,6 +1,8 @@
 import * as React from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
+import { LEGAL_PATHS } from "@/routes/legal";
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { cn } from "@/lib/utils";
 
@@ -287,10 +289,26 @@ export function Landing({
         <PrivacySection />
       </main>
 
-      <footer className="flex justify-center border-t border-border px-7 py-5 text-[13px] text-muted-foreground">
-        <span>
-          {t("app.name")} · {t("app.tagline")}
-        </span>
+      {/* A working footer rather than a slogan: the mark, the copyright line, and the two legal
+          pages a visitor is entitled to reach without an account. */}
+      <footer className="border-t border-border px-5 py-5 text-[13px] text-muted-foreground sm:px-7">
+        <div className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-center gap-x-4 gap-y-2">
+          <span className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="relative grid size-5 place-items-center rounded-[6px] bg-primary font-display text-[11px] font-extrabold leading-none text-primary-foreground"
+            >
+              Q
+            </span>
+            <span>{t("landing.footer.copyright", { year: new Date().getFullYear() })}</span>
+          </span>
+          <Link to={LEGAL_PATHS.imprint} className="underline-offset-4 hover:underline">
+            {t("landing.footer.imprint")}
+          </Link>
+          <Link to={LEGAL_PATHS.privacy} className="underline-offset-4 hover:underline">
+            {t("landing.footer.privacy")}
+          </Link>
+        </div>
       </footer>
     </div>
   );
