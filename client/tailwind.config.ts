@@ -201,12 +201,18 @@ export default {
           "0%": { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition: "200% 0" },
         },
+        // The landing's level bars rising from the baseline, once, on arrival.
+        "bar-grow": {
+          from: { transform: "scaleY(0)" },
+          to: { transform: "scaleY(1)" },
+        },
       },
       animation: {
         "recording-pulse": "recording-pulse 1.6s cubic-bezier(0.2, 0, 0, 1) infinite",
         "rise-in": "rise-in 220ms cubic-bezier(0.2, 0, 0, 1) both",
         "pop-in": "pop-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
         shimmer: "shimmer 1.8s linear infinite",
+        "bar-grow": "bar-grow 600ms cubic-bezier(0.34, 1.56, 0.64, 1) both",
       },
     },
   },

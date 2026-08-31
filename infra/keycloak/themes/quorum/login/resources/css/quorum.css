@@ -1,0 +1,618 @@
+/**
+ * Quorum login theme — the sign-in page in the product's own design.
+ *
+ * The values here are the v2 design tokens ("Paper / Espresso / Honey"), copied rather than
+ * imported: Keycloak serves these pages, not the app bundle, so this file is the one place in the
+ * theme where colors are written down. It follows the same rules as the app — paper ground,
+ * espresso action in light and honey in dark, pills for controls, a card between 16 and 22px.
+ *
+ * The markup is Keycloak's. Nothing here renames a field or moves a control: the form the browser
+ * posts is the parent theme's, ids and all.
+ *
+ * Fonts are self-hosted next to this file (no CDN at runtime, as the design system requires) and
+ * subset to Latin, which covers both languages the theme speaks.
+ */
+
+@font-face {
+  font-family: "Schibsted Grotesk";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../fonts/schibsted-grotesk-latin-800-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/figtree-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/figtree-latin-600-normal.woff2") format("woff2");
+}
+
+:root {
+  --quorum-paper: hsl(38 50% 96%);
+  --quorum-ink: hsl(26 30% 12%);
+  --quorum-muted-ink: hsl(28 12% 42%);
+  --quorum-panel: hsl(40 40% 99%);
+  --quorum-line: hsl(34 25% 86%);
+  --quorum-action: hsl(26 30% 16%);
+  --quorum-action-ink: hsl(40 50% 96%);
+  --quorum-brand-dot: hsl(42 92% 55%);
+  --quorum-focus: hsl(36 85% 36%);
+  /* Link text, a step deeper than the ring so body-size links clear 4.5:1 on the card. */
+  --quorum-link: hsl(36 85% 31%);
+  --quorum-destructive: hsl(5 70% 44%);
+  --quorum-shadow-md: 0 6px 16px hsl(26 30% 12% / 0.1);
+
+  --quorum-font-display:
+    "Schibsted Grotesk", "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --quorum-font-sans: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --quorum-paper: hsl(26 18% 9%);
+    --quorum-ink: hsl(38 25% 92%);
+    --quorum-muted-ink: hsl(32 10% 62%);
+    --quorum-panel: hsl(26 15% 13%);
+    --quorum-line: hsl(26 12% 22%);
+    /* Dark mode acts in honey: the action color and the brand mark swap. */
+    --quorum-action: hsl(42 92% 55%);
+    --quorum-action-ink: hsl(26 30% 10%);
+    --quorum-brand-dot: hsl(26 30% 10%);
+    --quorum-focus: hsl(44 85% 66%);
+    --quorum-link: hsl(44 85% 66%);
+    --quorum-destructive: hsl(5 70% 62%);
+    --quorum-shadow-md: 0 4px 12px hsl(0 0% 0% / 0.4);
+  }
+}
+
+/* ---- The page ---------------------------------------------------------------------------- */
+
+html.login-pf,
+body#keycloak-bg {
+  background: var(--quorum-paper);
+  color: var(--quorum-ink);
+  font-family: var(--quorum-font-sans);
+}
+
+/* PatternFly paints a background image and a gradient behind the card; the ground here is paper. */
+body#keycloak-bg::before,
+body#keycloak-bg::after {
+  content: none;
+}
+
+.pf-v5-c-login {
+  background: transparent;
+  padding: 24px;
+}
+
+/**
+ * One centred column, at every width.
+ *
+ * PatternFly builds this container as a two-track grid — card on the left, header and footer in a
+ * sidebar on the right — and from 1200px up it also reserves the gutter that layout needs, as
+ * `padding-inline` on the container itself. The stacked column here is not that layout, so the
+ * grid tracks and the gutter both have to go: with `box-sizing: border-box` and a 380px cap, that
+ * inherited padding was eating 196px of the card and crushing it to 184px — which is what turned
+ * the heading into one word per line and pushed "forgot password?" off the edge.
+ *
+ * 440px is the design system's width for a centred card that carries more than a couple of lines —
+ * the width its confirmation and explainer cards are drawn at. The prototype's login artboard is
+ * narrower, but it holds two fields and nothing else: no language picker, no remember/forgot row,
+ * no error slot, no reset-page help text. This card seats all of them, so it takes the wider of the
+ * system's two card widths.
+ */
+.pf-v5-c-login__container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 26px;
+  max-width: 440px;
+  width: 100%;
+  margin: auto;
+  padding-inline: 0;
+  grid-template-columns: none;
+  grid-template-areas: none;
+}
+
+/* ---- The mark ---------------------------------------------------------------------------- */
+
+/**
+ * The mark above the card: the Q tile and the wordmark, drawn here because they are the brand and
+ * do not change with the language. The message bundle's header line is empty, so nothing else is
+ * printed under them.
+ *
+ * The honey dot is a radial gradient rather than an element: a pseudo-element cannot have
+ * children, and the tile is already one.
+ */
+#kc-header {
+  padding: 0;
+  width: 100%;
+}
+
+#kc-header-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Spacing lives on the tile rather than in a flex gap: the empty header line is still an
+     anonymous flex item, and a gap would reserve room under the wordmark for nothing. */
+  gap: 0;
+  padding: 0;
+  font-family: var(--quorum-font-sans);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+  /* The parent theme sets this line white with `!important`, for a page whose ground is a dark
+     photograph. Ours is paper, so the override has to be as loud. */
+  color: var(--quorum-muted-ink) !important;
+  letter-spacing: normal;
+  text-transform: none;
+  text-align: center;
+}
+
+/* Tile above wordmark. Both are pulled in front of the (empty) bundle line, which is an anonymous
+   flex item and cannot be given an order of its own. */
+#kc-header-wrapper::before {
+  content: "Q";
+  order: -2;
+  margin-bottom: 10px;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+  background-color: var(--quorum-action);
+  background-image: radial-gradient(
+    circle at calc(100% - 12px) calc(100% - 12px),
+    var(--quorum-brand-dot) 4px,
+    transparent 4.5px
+  );
+  color: var(--quorum-action-ink);
+  font-family: var(--quorum-font-display);
+  font-weight: 800;
+  font-size: 28px;
+  line-height: 1;
+  box-shadow: var(--quorum-shadow-md);
+}
+
+#kc-header-wrapper::after {
+  content: "Quorum";
+  order: -1;
+  font-family: var(--quorum-font-display);
+  font-weight: 800;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  color: var(--quorum-ink);
+}
+
+/* ---- The card ---------------------------------------------------------------------------- */
+
+.pf-v5-c-login__main {
+  width: 100%;
+  background: var(--quorum-panel);
+  border: 1px solid var(--quorum-line);
+  border-radius: 22px;
+  box-shadow: var(--quorum-shadow-md);
+  color: var(--quorum-ink);
+  overflow: hidden;
+}
+
+.pf-v5-c-login__main-header,
+.pf-v5-c-login__main-body,
+.pf-v5-c-login__main-footer {
+  padding: 0 28px;
+  background: transparent;
+}
+
+/**
+ * The card header: the step's title, and — when the realm speaks more than one language — the
+ * locale picker.
+ *
+ * The parent theme lays this out as a grid, and from 768px up it re-cuts the tracks with
+ * `div.pf-v5-c-login__main-header { grid-template-columns: 70% 30% }` and pins the picker into the
+ * second track. That type-qualified selector outranks a plain class, so the tracks survive any
+ * class-level override and reappear the moment anything here resolves to `display: grid` again.
+ * The selector below matches its specificity and clears the grid outright, rather than relying on
+ * `display: flex` to keep the leftovers inert.
+ *
+ * They are stacked rather than set side by side. Choosing a language is a utility, not a step in
+ * signing in: it belongs quietly in the card's top corner, the way the app parks its settings
+ * control, and it has no business competing with the title for the same line. Stacking also gives
+ * the title the card's full measure, which is what keeps a long German heading on one line.
+ */
+div.pf-v5-c-login__main-header {
+  /* PatternFly draws a 4px accent stripe across the top of the card. Quorum's accent is the
+     header above it, not a rule inside it. */
+  border-top: none;
+  padding-top: 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  grid-template-columns: none;
+}
+
+.pf-v5-c-login__main-body {
+  padding-top: 20px;
+  padding-bottom: 28px;
+}
+
+/**
+ * The step's title, inside the card. It is kept and merely made quieter than PatternFly's display
+ * size: on the password page it repeats what the header above already says, but on every other
+ * page of the flow — one-time code, password reset, consent — it is the only thing naming the step.
+ */
+#kc-page-title {
+  font-family: var(--quorum-font-display);
+  /* The card-title size from the design system's other centred cards. */
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--quorum-ink);
+  margin: 0;
+  /* PatternFly sets `word-break: break-word` on its titles. A German heading is long enough that
+     this splits words down the middle the moment the column tightens ("anmel / den"). Words stay
+     whole; only a word longer than the line itself is broken. */
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: none;
+  text-wrap: balance;
+}
+
+/* ---- Fields ------------------------------------------------------------------------------ */
+
+/**
+ * The vertical rhythm of the form, taken from the design system's card: 6px from a label to its
+ * field, 18px from one field group to the next. PatternFly's own spacing is looser than the
+ * product's and was leaving the card airier at the top than at the bottom.
+ */
+.pf-v5-c-form {
+  row-gap: 18px;
+}
+
+.pf-v5-c-form__group-label {
+  padding-bottom: 6px;
+}
+
+.pf-v5-c-form__label,
+.pf-v5-c-form__label-text {
+  font-family: var(--quorum-font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--quorum-ink);
+}
+
+.pf-v5-c-form-control {
+  border: 1px solid var(--quorum-line);
+  border-radius: 12px;
+  background: var(--quorum-paper);
+  color: var(--quorum-ink);
+  font-family: var(--quorum-font-sans);
+  font-size: 15px;
+  --pf-v5-c-form-control--BorderBottomColor: var(--quorum-line);
+  --pf-v5-c-form-control--BackgroundColor: transparent;
+}
+
+.pf-v5-c-form-control input,
+.pf-v5-c-form-control > input {
+  background: transparent;
+  color: inherit;
+  padding: 11px 14px;
+}
+
+/**
+ * Exactly one focus indicator per stop, and for a text field it belongs to the frame.
+ *
+ * A field is a frame with an input inside it, and both used to draw a ring — two highlights around
+ * one control. The frame keeps it, because the frame is the shape a user reads as "the field", and
+ * the input's own ring is suppressed. Focus styling is removed in exactly this one place and
+ * replaced in the same breath.
+ *
+ * The ring is keyed on the *input* being focused rather than on `:focus-within`, so that the
+ * password field's visibility toggle — a button inside the same frame — lights up on its own
+ * instead of lighting the whole field a second time.
+ */
+.pf-v5-c-form-control:has(input:focus-visible),
+.pf-v5-c-form-control:has(select:focus-visible) {
+  outline: 2px solid var(--quorum-focus);
+  outline-offset: 2px;
+}
+
+.pf-v5-c-form-control input:focus,
+.pf-v5-c-form-control input:focus-visible,
+.pf-v5-c-form-control select:focus,
+.pf-v5-c-form-control select:focus-visible {
+  outline: none;
+}
+
+/**
+ * PatternFly marks a field's state with a coloured rule under it, drawn by a pseudo-element. The
+ * honey focus ring says the same thing in the product's own language, so the rule goes.
+ */
+.pf-v5-c-form-control::before,
+.pf-v5-c-form-control::after {
+  border: none;
+}
+
+/* The password field keeps the same width as the one above it; its toggle rides inside. */
+.pf-v5-c-input-group,
+.pf-v5-c-input-group__item {
+  background: transparent;
+}
+
+.pf-v5-c-input-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  border: 1px solid var(--quorum-line);
+  border-radius: 12px;
+  background: var(--quorum-paper);
+  padding-right: 6px;
+}
+
+.pf-v5-c-input-group .pf-v5-c-form-control {
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+}
+
+.pf-v5-c-input-group__item {
+  flex: 1;
+}
+
+.pf-v5-c-input-group__item:has(.pf-v5-c-button) {
+  flex: 0 0 auto;
+}
+
+/* Same rule for the grouped field: the frame rings for the input, and the toggle button inside it
+   rings for itself. */
+.pf-v5-c-input-group:has(input:focus-visible) {
+  outline: 2px solid var(--quorum-focus);
+  outline-offset: 2px;
+}
+
+.pf-v5-c-input-group .pf-v5-c-form-control:has(input:focus-visible) {
+  outline: none;
+}
+
+.pf-v5-c-button.pf-m-control {
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  color: var(--quorum-muted-ink);
+}
+
+.pf-v5-c-button.pf-m-control::before,
+.pf-v5-c-button.pf-m-control::after {
+  border: none;
+}
+
+/**
+ * The language picker, which exists because the realm speaks two languages. It is a control, so
+ * it is a pill, and it is quiet: choosing a language is not what anyone came here to do.
+ *
+ * It never shrinks. The parent theme places it in a grid track it no longer has (see the header
+ * above), and PatternFly's form control is itself a grid — a select spanning every track, with the
+ * caret in the last one. Left free to shrink, that select's track collapses and the pill shows a
+ * clipped letter instead of a language. Sitting on its own line, it is sized by the widest language
+ * name it has to offer and nothing competes with it for the room.
+ */
+.pf-v5-c-login__main-header-utilities {
+  grid-area: auto;
+  /* Above the title, in the card's top corner. */
+  order: -1;
+  align-self: flex-end;
+  max-width: 100%;
+}
+
+.pf-v5-c-login__main-header-utilities .pf-v5-c-form-control {
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--quorum-line);
+  font-size: 12.5px;
+  padding: 1px 2px 1px 6px;
+  width: auto;
+  max-width: 100%;
+  /* The caret sits closer to the language name than PatternFly's default, so the pill stays a
+     label with a caret rather than a button with a lot of air in it. */
+  --pf-v5-c-form-control__toggle-icon--PaddingLeft: 2px;
+  --pf-v5-c-form-control__toggle-icon--PaddingRight: 8px;
+}
+
+/* The select and its options carry a fixed near-black in the parent theme, which the dark scheme
+   leaves unreadable. Both follow the theme's colors instead — the closed pill in the muted ink a
+   quiet utility gets, the open list in full ink on paper, where it has to be read. */
+.pf-v5-c-login__main-header-utilities select,
+.pf-v5-c-login__main-header-utilities .pf-v5-c-form-control__toggle-icon {
+  color: var(--quorum-muted-ink);
+  background-color: transparent;
+  font-weight: 600;
+}
+
+.pf-v5-c-login__main-header-utilities option {
+  color: var(--quorum-ink);
+  background-color: var(--quorum-paper);
+  font-weight: 400;
+}
+
+/**
+ * "Remember me", and any other checkbox the flow puts up.
+ *
+ * The parent theme gives the label a fixed near-black — legible on its own white card, and all but
+ * invisible on the dark one (measured at 1.14:1). The label follows the theme's ink like every
+ * other piece of text, and the box itself is drawn in the action color.
+ */
+.pf-v5-c-check__label,
+.pf-v5-c-check__description,
+.pf-v5-c-check__body {
+  color: var(--quorum-ink);
+  font-family: var(--quorum-font-sans);
+  font-size: 14px;
+}
+
+.pf-v5-c-check__input {
+  accent-color: var(--quorum-action);
+}
+
+/**
+ * The row under the password field: "remember me" on one side, "forgot password?" on the other.
+ *
+ * The template builds it with PatternFly's flex utilities, which do not wrap — so on a narrow card
+ * the link simply ran past the edge and was clipped. It wraps instead, and the link keeps its own
+ * line when both no longer fit.
+ */
+.pf-v5-c-form__helper-text .pf-v5-c-helper-text {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+}
+
+.pf-v5-c-form__helper-text {
+  margin-top: 10px;
+}
+
+/* ---- The one action ---------------------------------------------------------------------- */
+
+.pf-v5-c-button.pf-m-primary {
+  background: var(--quorum-action);
+  color: var(--quorum-action-ink);
+  border: none;
+  border-radius: 999px;
+  padding: 13px 22px;
+  font-family: var(--quorum-font-sans);
+  font-size: 15px;
+  font-weight: 700;
+  transition: opacity 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Same pseudo-element border PatternFly draws on every button; on the primary it read as a faint
+   ring floating just outside the pill. */
+.pf-v5-c-button.pf-m-primary::before,
+.pf-v5-c-button.pf-m-primary::after {
+  border: none;
+}
+
+.pf-v5-c-button.pf-m-primary:hover,
+.pf-v5-c-button.pf-m-primary:focus {
+  background: var(--quorum-action);
+  opacity: 0.9;
+}
+
+/**
+ * Links — "Forgot password?" and the flow's other ways out.
+ *
+ * Honey at the focus ring's lightness measures 4.28:1 on the card, just under the 4.5:1 a body
+ * size needs, so link text takes a deeper honey of its own. The ring keeps its value: it is a
+ * graphical indicator and answers to 3:1 against what it sits on, not to the text rule.
+ */
+.pf-v5-c-button.pf-m-link,
+.pf-v5-c-login__main-footer a,
+a {
+  color: var(--quorum-link);
+}
+
+/* ---- Everything else the flow can show --------------------------------------------------- */
+
+.pf-v5-c-alert {
+  border-radius: 16px;
+}
+
+.pf-v5-c-alert.pf-m-danger .pf-v5-c-alert__title,
+.kc-feedback-text {
+  color: var(--quorum-destructive);
+}
+
+/**
+ * The secondary control — "Back to sign-in" on the reset page and its like.
+ *
+ * The parent theme leaves it PatternFly blue, which is both off-brand and, on the dark card,
+ * measured at 2.89:1. It becomes a bordered pill in the theme's own ink.
+ */
+.pf-v5-c-button.pf-m-secondary {
+  background: transparent;
+  border: 1px solid var(--quorum-line);
+  border-radius: 999px;
+  padding: 12px 22px;
+  color: var(--quorum-ink);
+  font-family: var(--quorum-font-sans);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* PatternFly draws a button's border as a pseudo-element rather than on the box, so the border
+   above was covered by a PatternFly-blue ring the theme never asked for. */
+.pf-v5-c-button.pf-m-secondary::before,
+.pf-v5-c-button.pf-m-secondary::after {
+  border: none;
+}
+
+.pf-v5-c-button.pf-m-secondary:hover,
+.pf-v5-c-button.pf-m-secondary:focus {
+  background: var(--quorum-paper);
+  color: var(--quorum-ink);
+}
+
+/* PatternFly's muted utility is a fixed mid-grey — 3.13:1 on the dark card. Its own declaration is
+   a utility and carries `!important`, so this one has to as well. */
+.pf-v5-c-login__main-footer-band,
+.pf-v5-u-color-200 {
+  color: var(--quorum-muted-ink) !important;
+}
+
+/**
+ * The band under the reset form, which explains what submitting will do.
+ *
+ * PatternFly centres it and rules it off with a full-width line. Body copy reads from the left in
+ * this product, and the card is already a container — so the text aligns with the field above it
+ * and the divider softens to the theme's own line.
+ */
+/* The footer already carries the card's 28px inset; the band adds a second one, which pushed this
+   paragraph out of line with everything above it. The band also arrives with a rule of its own on
+   top of the one drawn below, so only one divider is left standing.
+   Spacing lives on the band, not on the footer, because the footer is present and empty on pages
+   that have no band at all. */
+.pf-v5-c-login__main-footer-band {
+  padding-inline: 0;
+  border-top: none;
+  margin-top: 22px;
+  margin-bottom: 26px;
+  text-align: left;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.pf-v5-c-login__main-footer-band-item {
+  border-top: 1px solid var(--quorum-line);
+  padding-top: 18px;
+  text-align: left;
+}
+
+:focus-visible {
+  outline: 2px solid var(--quorum-focus);
+  outline-offset: 2px;
+}
+
+/**
+ * The theme animates nothing on its own; this is the guarantee that inherited motion goes too,
+ * the way it does in the app.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+  }
+}

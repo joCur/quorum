@@ -1,5 +1,6 @@
 import {
   expect,
+  signInButton,
   startRecording,
   stopRecording,
   test,
@@ -42,7 +43,7 @@ test("registers, verifies the address by mail, and lands with a working tenant",
 
   // --- Register through Keycloak's own form -------------------------------------------------
   await page.goto("/");
-  await page.getByRole("button", { name: "Sign in" }).click();
+  await signInButton(page).click();
   await page.waitForURL(new RegExp(`^${escapeRegExp(stackEnv.keycloakUrl)}/realms/`));
 
   await page.getByRole("link", { name: /register/i }).click();
@@ -114,7 +115,7 @@ test("a stale bookmark of the callback is just the sign-in screen, not an error"
   // turn every stray visit into a redirect loop or a scary screen.
   await page.goto("/auth/callback");
 
-  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+  await expect(signInButton(page)).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 

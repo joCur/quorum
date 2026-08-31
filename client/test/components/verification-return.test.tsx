@@ -82,7 +82,7 @@ describe("a callback this tab cannot complete", () => {
     // Not a notice with a button: with a provider session in the cookie jar the round trip is
     // silent, and a button labelled "sign in" that signs you in without asking for anything reads
     // like something went wrong when nothing did.
-    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    expect(screen.queryAllByRole("button", { name: "Sign in" })).toHaveLength(0);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -116,7 +116,8 @@ describe("a callback this tab cannot complete", () => {
     renderAt("/auth/callback");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
+      // The landing page offers sign-in in more than one place; any of them means we are there.
+      expect(screen.getAllByRole("button", { name: "Sign in" }).length).toBeGreaterThan(0);
     });
     // Nobody was sent here and nothing failed; an error would be the app inventing a problem.
     expect(screen.queryByRole("alert")).toBeNull();

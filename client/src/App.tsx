@@ -4,6 +4,7 @@ import { RequireAuth } from "@/features/auth/require-auth";
 import { RequireTenant } from "@/features/auth/require-tenant";
 import { RecordingProvider } from "@/features/recording/recording-provider";
 import { AuthCallbackRoute } from "@/routes/auth-callback";
+import { LegalPlaceholderRoute, LEGAL_PATHS } from "@/routes/legal";
 import { LoginRoute } from "@/routes/login";
 import { MeetingDetailRoute } from "@/routes/meeting-detail";
 import { MeetingsRoute } from "@/routes/meetings";
@@ -22,6 +23,10 @@ export function App() {
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
       <Route path={AUTH_CALLBACK_PATH} element={<AuthCallbackRoute />} />
+
+      {/* Public on purpose: an imprint nobody can read without an account is not an imprint. */}
+      <Route path={LEGAL_PATHS.imprint} element={<LegalPlaceholderRoute page="imprint" />} />
+      <Route path={LEGAL_PATHS.privacy} element={<LegalPlaceholderRoute page="privacy" />} />
 
       {/* One provider above every signed-in screen, the recording screen included: the running
           recording belongs to the app, not to the route that happened to start it, so navigating

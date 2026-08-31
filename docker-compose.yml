@@ -102,6 +102,9 @@ services:
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     volumes:
       - ./infra/keycloak/realm-quorum.json:/opt/keycloak/data/import/realm-quorum.json:ro
+      # The login theme, which the release image bakes in. Mounted here because development runs
+      # the stock upstream image — and because a mounted theme is editable without a rebuild.
+      - ./infra/keycloak/themes/quorum:/opt/keycloak/themes/quorum:ro
     ports:
       # Local development only — put the admin console behind the reverse proxy in production.
       - "${KEYCLOAK_PORT:-8081}:8080"
