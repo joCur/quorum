@@ -50,7 +50,7 @@ Backends differ in where they put word timestamps. `speaches` attaches `words[]`
 
 Docker on macOS has no GPU access, so the CUDA image is meaningless there. Both documented paths work without a code change:
 
-1. **CPU image (full stack parity).** Set `WHISPER_IMAGE_TAG=latest-cpu`, `WHISPER_DEVICE=cpu` and a `small`/int8 model in `.env`, then start the stack as usual. Right for integration and end-to-end tests; slow but faithful.
+1. **CPU image (full stack parity).** Set `WHISPER_IMAGE_TAG=latest-cpu`, `WHISPER_DEVICE=cpu` and `WHISPER_MODEL=Systran/faster-whisper-small` with int8 in `.env`, start the stack as usual, and install that model once (see the deployment guide) — `speaches` answers 404 for a model it has not downloaded, and for a short name like `small`. Right for integration and end-to-end tests; slow but faithful.
 2. **Host-native Whisper (speed).** Run `whisper.cpp --server` or `mlx-whisper` on the host with Metal, leave the `whisper` container out, and point the worker at it:
 
    ```bash
