@@ -1,7 +1,6 @@
 {
   "app": {
     "name": "Quorum",
-    "tagline": "Deine Meetings. Deine Daten.",
     "skipToContent": "Zum Inhalt springen"
   },
   "common": {
@@ -15,6 +14,50 @@
     "completing": "Anmeldung läuft…",
     "error": "Die Anmeldung wurde nicht abgeschlossen.",
     "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dort weiterzumachen, wo du warst."
+  },
+  "landing": {
+    "hero": {
+      "before": "Nie wieder",
+      "highlighted": "Protokoll",
+      "after": "schreiben.",
+      "lead": "Quorum nimmt dein Meeting im Browser auf. Kurz danach liegen das komplette Transkript und ein Protokoll in deiner Gliederung bereit. Du hörst zu, statt mitzuschreiben.",
+      "reach": "Keine Installation, läuft auf Handy und Desktop."
+    },
+    "steps": {
+      "record": {
+        "title": "Aufnahme starten",
+        "body": "Zu Beginn des Meetings auf Aufnehmen tippen und das Handy in die Mitte legen oder den Laptop offen lassen. Mehr ist nicht zu tun."
+      },
+      "read": {
+        "title": "Alles nachlesen",
+        "body": "Kurz nach dem Meeting steht das komplette Transkript bereit. Du kannst es durchsuchen, jede Stelle anspringen und beim Abspielen läuft der Text Wort für Wort mit."
+      },
+      "share": {
+        "title": "Protokoll weitergeben",
+        "body": "Quorum fasst das Meeting in den Abschnitten zusammen, die du brauchst: etwa Überblick, Entscheidungen und Aufgaben. Die Gliederung legst du einmal als Vorlage fest."
+      }
+    },
+    "privacy": {
+      "eyebrow": "Privatsache",
+      "title": "Was hier gesagt wird, geht niemanden sonst etwas an.",
+      "ownership": "Alles, was Quorum aufnimmt und schreibt, gehört in dein Konto und sonst nirgendwohin. Es gibt keine Auswertung für Dritte und keine stille Kopie.",
+      "deletion": "Und wenn du ein Meeting löschst, ist es wirklich weg, samt Audio, Transkript und Protokoll. Einen Papierkorb, aus dem es zurückkommt, gibt es absichtlich nicht."
+    },
+    "footer": {
+      "copyright": "© Quorum {{year}}",
+      "imprint": "Impressum",
+      "privacy": "Datenschutz"
+    }
+  },
+  "legal": {
+    "imprint": {
+      "title": "Impressum"
+    },
+    "privacy": {
+      "title": "Datenschutz"
+    },
+    "pending": "Diese Seite ist noch nicht geschrieben. Sobald der Text steht, findest du ihn hier.",
+    "back": "Zurück zur Startseite"
   },
   "consent": {
     "title": "Bevor du aufnimmst",

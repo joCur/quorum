@@ -1,7 +1,6 @@
 {
   "app": {
     "name": "Quorum",
-    "tagline": "Your meetings. Your data.",
     "skipToContent": "Skip to content"
   },
   "common": {
@@ -15,6 +14,50 @@
     "completing": "Signing you in…",
     "error": "Sign-in did not complete.",
     "sessionExpired": "Your session ended. Sign in again to continue where you left off."
+  },
+  "landing": {
+    "hero": {
+      "before": "Never take",
+      "highlighted": "minutes",
+      "after": "again.",
+      "lead": "Quorum records your meeting in the browser. Shortly afterwards the full transcript and a set of minutes in your own outline are waiting for you. You listen instead of writing.",
+      "reach": "Nothing to install, runs on phone and desktop."
+    },
+    "steps": {
+      "record": {
+        "title": "Start recording",
+        "body": "Tap record as the meeting begins and put your phone in the middle of the table, or leave the laptop open. There is nothing else to do."
+      },
+      "read": {
+        "title": "Read every word",
+        "body": "The full transcript is ready shortly after the meeting. You can search it, jump to any moment, and the text follows along word by word as it plays."
+      },
+      "share": {
+        "title": "Pass the minutes on",
+        "body": "Quorum sums the meeting up in the sections you need — an overview, the decisions, the action items. You set that outline once, as a template."
+      }
+    },
+    "privacy": {
+      "eyebrow": "Private matter",
+      "title": "What is said here is nobody else's business.",
+      "ownership": "Everything Quorum records and writes belongs in your account and nowhere else. There is no analysis for third parties and no quiet copy.",
+      "deletion": "And when you delete a meeting it is really gone, audio, transcript and minutes with it. There is deliberately no trash it comes back from."
+    },
+    "footer": {
+      "copyright": "© Quorum {{year}}",
+      "imprint": "Legal notice",
+      "privacy": "Privacy"
+    }
+  },
+  "legal": {
+    "imprint": {
+      "title": "Legal notice"
+    },
+    "privacy": {
+      "title": "Privacy"
+    },
+    "pending": "This page has not been written yet. As soon as the text exists, it will be here.",
+    "back": "Back to the start page"
   },
   "consent": {
     "title": "Before you record",

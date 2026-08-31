@@ -74,7 +74,9 @@ describe("an expired session", () => {
     renderGate("/meetings/abc");
 
     expect(screen.queryByText("the meeting")).toBeNull();
-    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+    // The landing offers sign-in twice — in the header and under the hero — so a visitor who has
+    // scrolled never has to scroll back to act.
+    expect(screen.getAllByRole("button", { name: "Sign in" })).not.toHaveLength(0);
   });
 
   it("says the session ended, so the sign-in screen is not a mystery", () => {
@@ -101,7 +103,7 @@ describe("an expired session", () => {
     setAuth({ status: "anonymous", sessionExpired: true });
     renderGate("/meetings/abc?tab=summary#section-2");
 
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await user.click(screen.getAllByRole("button", { name: "Sign in" })[0]!);
 
     // A session that expires while the user is reading a summary should bring them back to that
     // summary, not drop them at the meeting list.
@@ -118,7 +120,7 @@ describe("an expired session", () => {
       { route: "/login" },
     );
 
-    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    await user.click(screen.getAllByRole("button", { name: "Sign in" })[0]!);
 
     // Sign-in is exactly the moment an open redirect would be worth having, so anything that is
     // not an in-app path — including nothing at all — resolves to no target.
@@ -131,7 +133,7 @@ describe("an expired session", () => {
 
     // On a reload the session is restored asynchronously; routing to login in the meantime would
     // bounce an already signed-in user through the front door for no reason.
-    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    expect(screen.queryAllByRole("button", { name: "Sign in" })).toHaveLength(0);
     expect(screen.queryByText("the meeting")).toBeNull();
   });
 
