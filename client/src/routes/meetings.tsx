@@ -36,7 +36,7 @@ export function MeetingsRoute() {
           reads as the screen's subject, and the meetings are. It wraps below the heading when
           the two no longer fit side by side. */}
       <div className="flex flex-wrap items-baseline justify-between gap-3.5">
-        <h1 className="text-xl font-bold md:text-2xl">{t("meetings.title")}</h1>
+        <h1 className="text-display-lg">{t("meetings.title")}</h1>
         {showSearch ? <MeetingSearch value={search} onChange={setSearch} /> : null}
       </div>
       <RecoveryCard />

@@ -145,9 +145,7 @@ export function RecordRoute() {
       <main className="flex flex-1 flex-col items-center justify-center gap-7 overflow-y-auto px-6">
         {onStartStage ? (
           <div className="flex w-full max-w-[420px] flex-col gap-4">
-            <h1 className="font-display text-3xl font-extrabold tracking-tight">
-              {t("recording.title")}
-            </h1>
+            <h1 className="text-display-md">{t("recording.title")}</h1>
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="meeting-title">{t("recording.titleField.label")}</Label>

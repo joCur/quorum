@@ -133,6 +133,36 @@ export default {
       },
       fontSize: {
         timer: ["2.25rem", { lineHeight: "1", fontWeight: "500" }],
+        // Heading scale, measured off the rendered v2 prototype. The prototype
+        // sets one size per screen and holds it at every viewport width —
+        // there is no narrow-screen step — so these tokens carry no breakpoint
+        // of their own and a screen applies exactly one of them.
+        //
+        // Each token carries size, leading, weight and tracking together, so a
+        // heading is a single class and cannot drift into a private spelling.
+        // The display face itself comes from the `h1`/`h2`/`h3` base rule.
+        //
+        // 32px — the title of a screen that is its own subject.
+        "display-lg": ["2rem", { lineHeight: "1.5", letterSpacing: "-0.025em", fontWeight: "800" }],
+        // 30px — the recording screen, a step below the list screens because
+        // its title shares the view with the capture controls.
+        "display-md": [
+          "1.875rem",
+          { lineHeight: "1.5", letterSpacing: "-0.025em", fontWeight: "800" },
+        ],
+        // 28px — the title of a single thing the user opened: a meeting, a
+        // template being edited. It names the record, not the screen.
+        "display-sm": [
+          "1.75rem",
+          { lineHeight: "1.5", letterSpacing: "-0.025em", fontWeight: "800" },
+        ],
+        // The quiet uppercase label that names a group or a panel. Its positive
+        // tracking overrides the negative tracking of the heading base rule
+        // when it lands on an `h2`.
+        "section-label": [
+          "0.75rem",
+          { lineHeight: "1rem", letterSpacing: "0.08em", fontWeight: "800" },
+        ],
       },
       // The app's two pieces of sticky furniture, as named sizes: the top bar
       // sets its own height from `h-top-bar`, and a screen that sticks something

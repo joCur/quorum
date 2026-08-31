@@ -153,15 +153,22 @@ rows) so timers never jitter. Recording timers and timestamps use the mono face 
 
 | Token | Size / line-height | Face / weight | Use |
 |---|---|---|---|
-| `text-xs` | 0.75rem / 1rem | sans 500–800 | Badges, meta, uppercase section labels (800, `0.08em` tracking) |
+| `text-xs` | 0.75rem / 1rem | sans 500–700 | Badges, meta, form help emphasis |
+| `text-section-label` | 0.75rem / 1rem | 800, `0.08em` tracking | Uppercase labels naming a group or a panel |
 | `text-sm` | 0.875rem / 1.25rem | sans 400–600 | Secondary text, list meta, form help |
 | `text-base` | 1rem / 1.5rem | sans 400 | Body, transcript text |
 | `text-lg` | 1.125rem / 1.75rem | display 700 | Card titles, summary section heads |
-| `text-xl` | 1.25rem / 1.75rem | display 800 | Screen titles (mobile), dialog titles |
-| `text-2xl` | 1.5rem / 2rem | display 800 | Screen titles (≥ md) |
+| `text-xl` | 1.25rem / 1.75rem | display 800 | Dialog titles |
+| `text-display-sm` | 1.75rem / 1.5 | display 800, `-0.025em` | Title of one opened record: a meeting, a template in the editor |
+| `text-display-md` | 1.875rem / 1.5 | display 800, `-0.025em` | Recording screen title |
 | `text-3xl` | 1.875rem / 2.25rem | display 800 | Empty-state and onboarding headlines |
+| `text-display-lg` | 2rem / 1.5 | display 800, `-0.025em` | Screen title: meetings, templates, settings |
 | display hero | `clamp(2.5rem, 6.5vw, 4.5rem)` / 1.02 | display 900, `-0.03em` | Landing hero only |
 | `text-timer` | 2.25rem / 1 | mono 500, tabular | Recording timer |
+
+The three `text-display-*` steps hold their size at every viewport width — a screen title does not
+shrink on a phone. Each token carries size, leading, weight and tracking together, so a heading is a
+single class; the display face itself comes from the `h1`/`h2`/`h3` base rule.
 
 Max line length for transcript/summary prose: `65ch`.
 

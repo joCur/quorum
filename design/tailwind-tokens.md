@@ -159,6 +159,20 @@ export default {
       },
       fontSize: {
         timer: ["2.25rem", { lineHeight: "1", fontWeight: "500" }],
+        // The heading scale. One size per screen, held at every width.
+        "display-lg": ["2rem", { lineHeight: "1.5", letterSpacing: "-0.025em", fontWeight: "800" }],
+        "display-md": [
+          "1.875rem",
+          { lineHeight: "1.5", letterSpacing: "-0.025em", fontWeight: "800" },
+        ],
+        "display-sm": [
+          "1.75rem",
+          { lineHeight: "1.5", letterSpacing: "-0.025em", fontWeight: "800" },
+        ],
+        "section-label": [
+          "0.75rem",
+          { lineHeight: "1rem", letterSpacing: "0.08em", fontWeight: "800" },
+        ],
       },
       // The app's two pieces of sticky furniture, as named sizes: the top bar
       // sets its own height from `h-top-bar`, and a screen that sticks something
