@@ -5,7 +5,7 @@ import { RequireTenant } from "@/features/auth/require-tenant";
 import { RecordingProvider } from "@/features/recording/recording-provider";
 import { AuthCallbackRoute } from "@/routes/auth-callback";
 import { LegalPlaceholderRoute, LEGAL_PATHS } from "@/routes/legal";
-import { LoginRoute } from "@/routes/login";
+import { LandingRoute } from "@/routes/landing";
 import { MeetingDetailRoute } from "@/routes/meeting-detail";
 import { MeetingsRoute } from "@/routes/meetings";
 import { NotFoundRoute } from "@/routes/not-found";
@@ -15,13 +15,20 @@ import { TemplatesRoute } from "@/routes/templates";
 import { AUTH_CALLBACK_PATH } from "@/features/auth/user-manager";
 
 /**
- * Route table (UI structure §5). Everything except the sign-in flow sits behind
- * the auth gate; the template editor arrives with its own ticket.
+ * Route table (UI structure §5). Everything except the landing page and the sign-in flow sits
+ * behind the auth gate; the template editor arrives with its own ticket.
  */
 export function App() {
   return (
     <Routes>
-      <Route path="/login" element={<LoginRoute />} />
+      {/* The product's root: the landing page for a signed-out visitor, the app for a signed-in
+          one. The landing route itself decides which, because that decision needs the session. */}
+      <Route path="/" element={<LandingRoute />} />
+
+      {/* The landing used to live here. Bookmarks and typed URLs still arrive, and they belong at
+          the root now. */}
+      <Route path="/login" element={<Navigate to="/" replace />} />
+
       <Route path={AUTH_CALLBACK_PATH} element={<AuthCallbackRoute />} />
 
       {/* Public on purpose: an imprint nobody can read without an account is not an imprint. */}
@@ -50,7 +57,6 @@ export function App() {
         <Route path="/record" element={<RecordRoute />} />
 
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/meetings" replace />} />
           <Route path="/meetings" element={<MeetingsRoute />} />
           <Route path="/meetings/:meetingId" element={<MeetingDetailRoute />} />
           <Route path="/templates" element={<TemplatesRoute />} />

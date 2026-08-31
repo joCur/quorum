@@ -89,7 +89,7 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
 - About: version, self-hosted instance info.
 - (Retention rules, quotas: V2 — leave a placeholder group out entirely rather than shipping disabled controls.)
 
-### 2.6 Auth (`/login`)
+### 2.6 Landing / auth (`/`)
 
 > v2: superseded — rewritten by the **landing and auth** redesign.
 - Minimal: wordmark, one-line value prop ("Your meetings. Your infrastructure."), "Sign in" button → OIDC redirect (Authorization Code + PKCE). Error banner on failed callback.
@@ -143,7 +143,8 @@ flowchart TD
 
 | Route | Screen |
 |---|---|
-| `/login` | Auth |
+| `/` | Landing for a signed-out visitor, the meeting list for a signed-in one |
+| `/login` | Redirect to `/` — the landing used to live here |
 | `/meetings` | Meeting list (home) |
 | `/record` | Recording flow |
 | `/meetings/:id` | Meeting detail |

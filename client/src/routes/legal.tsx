@@ -30,7 +30,7 @@ export function LegalPlaceholderRoute({ page }: { page: keyof typeof LEGAL_PATHS
           {t("legal.pending")}
         </p>
         <Link
-          to="/login"
+          to="/"
           className="rounded-pill bg-primary px-[22px] py-3 text-sm font-bold text-primary-foreground transition-opacity duration-micro ease-enter hover:opacity-90"
         >
           {t("legal.back")}
