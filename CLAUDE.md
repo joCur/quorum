@@ -1,19 +1,18 @@
 # Quorum — Working Process (Team Rules)
 
-Process adopted from Grimoire, confirmed by the PO on 2026-08-29.
-
 ## Language policy
 
 - **All code and documentation is written in American English (en-US) — 100%, no exceptions.** No German identifiers, comments, commit messages, ADRs, or issue texts.
 - All user-facing strings go through **i18n** — never hard-coded German (or any other language) in code. German is a translation catalog, not a value in source.
-- The founding documents and the early ADRs have been migrated; the policy now applies to everything in the repository without exception.
 - (Chat communication with the PO remains German.)
 
 ## Git & PR process
 
-- **main is protected — by process, not by branch protection** (free plan, private repository). NEVER push to main directly, no exceptions.
+- **NEVER push to main directly, no exceptions.** Every change lands as a pull request.
+- A ruleset on main requires both CI checks — `Typecheck · Tests · Build · Lint` and `E2E (critical paths)` — to pass before a merge. Lead verification and PO approval are process rules on top of that, not enforced by GitHub.
 - Every ticket runs in its own worktree on a feature branch: `<issue-number>-<slug>` (e.g. `4-websocket-recording-endpoint`).
-- Merge ONLY when: **CI green** (typecheck, tests, build, E2E) **+ lead verification** (a click path for UI changes) **+ explicit PO approval on the PR**.
+- Merge ONLY when: **CI green** **+ lead verification** (a click path for UI changes) **+ explicit PO approval on the PR**.
+- Merges are squash-only, and the branch is deleted automatically. For stacked PRs that means retargeting the dependent PR onto main **before** its base branch disappears — GitHub closes a PR whose base branch is deleted, and a closed PR cannot be reopened.
 - Worktrees: symlink every `.env*` file from the repository root into the worktree (they are gitignored, and their absence causes failures that are hard to diagnose).
 
 ## Team & roles
@@ -24,12 +23,14 @@ Process adopted from Grimoire, confirmed by the PO on 2026-08-29.
 
 ## Tickets
 
-- The roadmap lives as GitHub issues + milestones (`V1 — Walking Skeleton`, `V2 — Ausbau`, `Später / Compliance`).
+- The roadmap lives as GitHub issues and milestones.
 - Every issue: context (which ADRs apply), acceptance criteria, the affected schemas from `shared/src/`.
 - Architecture decisions are recorded as an ADR in `docs/adr/` before they are implemented.
 - Repository files — code comments, READMEs, ADRs, compose files — must never reference issue or PR
   numbers; describe the subject instead. Issue references belong in PR descriptions and commit
   messages only, because those keep their context once an issue is gone.
+- Repository files must not record session history either — no dates, attributions, or notes about
+  which account or agent did the work. Those belong in local memory, not in a doc that outlives them.
 
 ## Critical paths (E2E required)
 
