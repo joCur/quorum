@@ -17,7 +17,7 @@ export const test = base.extend<Fixtures>({
   signIn: async ({ page }, use) => {
     await use(async (user: DevUser) => {
       await page.goto("/");
-      await page.getByRole("button", { name: "Sign in" }).click();
+      await signInButton(page).click();
 
       // Keycloak's own login form — the app never sees these credentials.
       await page.waitForURL(new RegExp(`^${escapeRegExp(stackEnv.keycloakUrl)}/realms/`));
@@ -32,6 +32,17 @@ export const test = base.extend<Fixtures>({
 });
 
 export { expect } from "@playwright/test";
+
+/**
+ * The way into the app from the signed-out landing page.
+ *
+ * The landing offers the same sign-in twice — once in the header, once under the hero — so a
+ * visitor who has scrolled does not have to scroll back. Both do the same thing; the specs take
+ * the first one rather than each picking a different half of the page.
+ */
+export function signInButton(page: Page) {
+  return page.getByRole("button", { name: "Sign in" }).first();
+}
 
 /**
  * The button that starts a recording. It is the consent acknowledgement as well as the start

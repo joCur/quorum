@@ -1,4 +1,4 @@
-import { expect, test } from "../fixtures.js";
+import { expect, signInButton, test } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
 import { decodeClaims, fetchToken } from "../support/keycloak.js";
 import { RecordingSocket, startSession } from "../support/recording-socket.js";
@@ -86,7 +86,7 @@ test.describe("auth", () => {
 
     // Signing in again continues where the session ended. Keycloak's own session usually survives,
     // so its login form may not appear at all; when it does, it is filled like anywhere else.
-    await page.getByRole("button", { name: "Sign in" }).click();
+    await signInButton(page).click();
     const username = page.locator("#username");
     if (await username.isVisible().catch(() => false)) {
       await username.fill(devUsers.alice.username);
@@ -113,7 +113,7 @@ test.describe("auth", () => {
 
     // Back at the signed-out landing view, with nothing of the session left in the browser.
     await page.waitForURL(/\/login$/);
-    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+    await expect(signInButton(page)).toBeVisible();
     await expect
       .poll(async () =>
         page
@@ -132,7 +132,7 @@ test.describe("auth", () => {
 
     // And the provider's own session is gone too: signing in again asks for the credentials
     // instead of waving the browser through on a surviving Keycloak cookie.
-    await page.getByRole("button", { name: "Sign in" }).click();
+    await signInButton(page).click();
     await expect(page.locator("#username")).toBeVisible();
   });
 
