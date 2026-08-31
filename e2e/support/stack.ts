@@ -12,7 +12,16 @@ import { stackEnv } from "./env.js";
  */
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const project = process.env["E2E_COMPOSE_PROJECT"] ?? "quorum-e2e";
+// Which stack to reach for: the orchestrator exports the project name it generated, and a spec
+// run by hand names the stack with E2E_PROJECT. There is no default — every run has its own
+// project, so a guess would restart somebody else's API.
+const project = process.env["E2E_COMPOSE_PROJECT"] ?? process.env["E2E_PROJECT"];
+if (project === undefined || project === "") {
+  throw new Error(
+    "no compose project to control: run the suite through `pnpm run e2e`, or set E2E_PROJECT to " +
+      "the name of the stack that is already up.",
+  );
+}
 
 const composeArgs = [
   "compose",
