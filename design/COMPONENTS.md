@@ -148,9 +148,17 @@ accent to carry an identity of its own.
   (`inset 0 -0.32em hsl(var(--honey)/0.4)`) behind the words themselves, so the accent is exactly as
   wide as the title — never a marker standing beside it. Content per `format` (prose paragraphs /
   `ul` bullets / simple table in `overflow-x-auto`) at `text-sm`. Sections rise in staggered on arrival.
-- Footer meta: template name + version snapshot, model, generated-at, in `text-xs text-muted-foreground`.
+- **Foot of the rail** — one block, `gap-2.5`, 14px below the last section:
+  - **Attribution**, one line in `text-xs text-muted-foreground`: "Made with {template} · Template
+    version {version} · {relative time}". One sentence, because it is one fact about one thing; the
+    time is relative ("2 hours ago") because the question it answers after a regenerate is "is this
+    the new one yet", and it falls back to a date once the summary is more than a week old.
+  - **Picker and regenerate**, two pills on one row (`gap-2`): the template `Select` restyled to a
+    pill (`h-9`, `text-[13px]`, `bg-card`) carrying its name as a label rather than showing one, and
+    the regenerate `Button` as a bordered pill (`text-[13px] font-bold`, no icon). The picker chooses
+    which summary is shown *and* which one is rewritten — one control for one question.
 - Copy-to-clipboard button per section and for the whole summary (Markdown); copy confirms with a springy `Check` swap on the button itself.
-- **Regenerate (V1):** template picker plus an `outline` button with a `RefreshCw` icon, under the sections rather than above them — it is what you reach for after reading them. Creates a new summarize job with the currently selected template (cheap by design — ADR-003/004 reprocessing); the stepper returns to "Summarizing". The previous summary remains visible (dimmed, labeled "Previous version") until the new one arrives — no data vanishes optimistically. No confirm dialog: regenerating destroys nothing.
+- **Regenerate (V1):** creates a new summarize job with the currently selected template (cheap by design — ADR-003/004 reprocessing); the stepper returns to "Summarizing". Work in progress is said by the button's own label swapping to "Writing…" and by the previous summary dimming — never by a spinner as well, which would be a second voice for one fact. The previous summary remains visible (dimmed, labeled "Previous version") until the new one arrives — no data vanishes optimistically. No confirm dialog: regenerating destroys nothing.
 
 ## 12. EmptyState (custom) — where playfulness lives
 

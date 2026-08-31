@@ -298,13 +298,13 @@
       "failed": "Zusammenfassung fehlgeschlagen",
       "copyAll": "Ganze Zusammenfassung kopieren",
       "copySection": "{{section}} kopieren",
-      "meta": "Vorlagenversion {{version}} · {{model}} · {{date}}",
+      "attribution": "Erstellt mit {{template}} · Vorlagenversion {{version}} · {{time}}",
+      "attributionNoTemplate": "Vorlagenversion {{version}} · {{time}}",
       "template": "Vorlage",
       "regenerate": "Neu erstellen",
       "regenerating": "Wird geschrieben…",
       "previousVersion": "Vorherige Fassung — sie wird ersetzt, sobald die neue fertig ist.",
-      "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben.",
-      "madeWith": "Erstellt mit {{template}}"
+      "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben."
     }
   }
 }

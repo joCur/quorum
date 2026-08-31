@@ -60,8 +60,10 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
   ready state — partial readiness is normal (STATES.md §4).
   - Transcript half: `TranscriptView` with word timestamps; playback-synced highlighting in honey;
     tap word → seek.
-  - Summary half: `SummaryView` (sections per template snapshot) + copy actions, with the template
-    picker and **Regenerate** under the sections — the thing you reach for after reading them.
+  - Summary half: `SummaryView` (sections per template snapshot) + copy actions. At the foot of the
+    rail, one attribution line ("Made with X · Template version 3 · 2 hours ago") over the template
+    picker and **Regenerate** — provenance and the control that replaces it, together, under the
+    sections they describe.
 - Below the shell breakpoint one half shows at a time, chosen with a pill switcher
   **Summary | Transcript** with the summary first: it is what people open a finished meeting for,
   and the transcript is the whole record rather than the answer. The switch is a pair of toggle

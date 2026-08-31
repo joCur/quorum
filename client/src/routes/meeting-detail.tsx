@@ -12,7 +12,7 @@ import { DeleteMeetingDialog } from "@/components/meetings/delete-meeting-dialog
 import { PipelineStepper } from "@/components/meetings/pipeline-stepper";
 import { RegenerateSummary } from "@/components/meetings/regenerate-summary";
 import { StatusBadge } from "@/components/meetings/status-badge";
-import { SummaryView } from "@/components/meetings/summary-view";
+import { SummaryAttribution, SummaryView } from "@/components/meetings/summary-view";
 import { TranscriptView } from "@/components/meetings/transcript-view";
 import { formatMeetingDate, formatMeetingDuration, meetingLabel } from "@/features/meetings/format";
 import { asLimitCode, limitMessageKey } from "@/features/limits/messages";
@@ -317,8 +317,12 @@ function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: (
   const summary = forSelected ?? newest;
   const regeneration = useSummaryRegeneration(detail.meeting.id, forSelected?.id ?? null, onReload);
 
+  const templateName =
+    templates.templates.find((view) => view.template.id === summary?.templateSnapshot.templateId)
+      ?.template.name ?? null;
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3.5">
       {regeneration.errorMessage ? (
         <p role="alert" className="text-sm text-destructive">
           {regenerationMessage(t, regeneration.errorCode) ?? regeneration.errorMessage}
@@ -336,29 +340,31 @@ function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: (
           {regeneration.pending ? (
             <p className="text-sm text-muted-foreground">{t("meeting.summary.previousVersion")}</p>
           ) : null}
-          <SummaryView
-            summary={summary}
-            templateName={
-              templates.templates.find(
-                (view) => view.template.id === summary.templateSnapshot.templateId,
-              )?.template.name ?? null
-            }
-          />
+          <SummaryView summary={summary} />
         </div>
       ) : (
         <WaitingPanel message={t("meeting.summary.working")} />
       )}
 
-      {/* Making the summary again is what you reach for after reading it, so the control sits
-          under the sections rather than above them. */}
-      {detail.transcript ? (
-        <RegenerateSummary
-          templates={templates.templates}
-          templateId={selected}
-          onTemplateChange={setTemplateId}
-          pending={regeneration.pending}
-          onRegenerate={regeneration.start}
-        />
+      {/*
+        The foot of the rail: where this summary came from, and the control that replaces it.
+        Making it again is what you reach for after reading it, so both sit under the sections
+        rather than above them, and they sit together — the line names the template the picker
+        is set to.
+      */}
+      {summary || detail.transcript ? (
+        <div className="flex flex-col gap-2.5 px-0.5 py-1">
+          {summary ? <SummaryAttribution summary={summary} templateName={templateName} /> : null}
+          {detail.transcript ? (
+            <RegenerateSummary
+              templates={templates.templates}
+              templateId={selected}
+              onTemplateChange={setTemplateId}
+              pending={regeneration.pending}
+              onRegenerate={regeneration.start}
+            />
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

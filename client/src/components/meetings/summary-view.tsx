@@ -4,40 +4,21 @@ import { useTranslation } from "react-i18next";
 import type { Summary, SummarySection } from "@quorum/shared";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatRelativeTime } from "@/features/meetings/format";
 import { sectionToMarkdown, summaryToMarkdown } from "@/features/meetings/summary-markdown";
 
 /**
  * The generated summary, rendered in the order of the template snapshot stored with it
  * (ADR-004 §2) — never the current template, so an old summary keeps explaining itself.
  */
-export function SummaryView({
-  summary,
-  templateName,
-}: {
-  summary: Summary;
-  /**
-   * Name of the template behind the snapshot, resolved by the caller from the template list.
-   *
-   * It is not part of the snapshot itself — the snapshot stores what the summary was *produced
-   * with*, and a name is a label people change freely. Null when the template has since been
-   * deleted or renamed out of the list, in which case the header simply says nothing rather than
-   * naming something that no longer exists. The version and model in the footer are the parts
-   * that always hold.
-   */
-  templateName?: string | null;
-}) {
-  const { t, i18n } = useTranslation();
+export function SummaryView({ summary }: { summary: Summary }) {
+  const { t } = useTranslation();
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-2">
-        {templateName ? (
-          <p className="min-w-0 truncate text-sm text-muted-foreground">
-            {t("meeting.summary.madeWith", { template: templateName })}
-          </p>
-        ) : (
-          <span />
-        )}
+    <div className="flex flex-col gap-3.5">
+      {/* The whole-summary copy sits alone above the sections: the provenance line that used to
+          share this row now lives at the foot of the rail, with the control that acts on it. */}
+      <div className="flex justify-end">
         <CopyButton text={() => summaryToMarkdown(summary)} label={t("meeting.summary.copyAll")} />
       </div>
 
@@ -66,15 +47,47 @@ export function SummaryView({
           </CardContent>
         </Card>
       ))}
-
-      <p className="text-xs text-muted-foreground">
-        {t("meeting.summary.meta", {
-          version: summary.templateSnapshot.templateVersion,
-          model: summary.model,
-          date: new Date(summary.createdAt).toLocaleString(i18n.language),
-        })}
-      </p>
     </div>
+  );
+}
+
+/**
+ * One line saying where this summary came from: the template it was made with, the version of
+ * that template, and how long ago it was written.
+ *
+ * It sits at the foot of the rail rather than above the sections, directly over the picker that
+ * can replace it — the three facts and the control that acts on them read as one thing. The
+ * relative time is what makes the line worth reading after a regenerate: the question it answers
+ * is "is this the new one yet", and an absolute timestamp answers that slowly.
+ */
+export function SummaryAttribution({
+  summary,
+  templateName,
+}: {
+  summary: Summary;
+  /**
+   * Name of the template behind the snapshot, resolved by the caller from the template list.
+   *
+   * It is not part of the snapshot itself — the snapshot stores what the summary was *produced
+   * with*, and a name is a label people change freely. Null when the template has since been
+   * deleted or renamed out of the list, in which case the line drops that clause rather than
+   * naming something that no longer exists. The version and the time always hold.
+   */
+  templateName?: string | null;
+}) {
+  const { t, i18n } = useTranslation();
+  const values = {
+    template: templateName,
+    version: summary.templateSnapshot.templateVersion,
+    time: formatRelativeTime(summary.createdAt, i18n.language),
+  };
+
+  return (
+    <p className="text-xs text-muted-foreground">
+      {templateName
+        ? t("meeting.summary.attribution", values)
+        : t("meeting.summary.attributionNoTemplate", values)}
+    </p>
   );
 }
 

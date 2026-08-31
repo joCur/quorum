@@ -298,13 +298,13 @@
       "failed": "Summary failed",
       "copyAll": "Copy the whole summary",
       "copySection": "Copy {{section}}",
-      "meta": "Template version {{version}} · {{model}} · {{date}}",
+      "attribution": "Made with {{template}} · Template version {{version}} · {{time}}",
+      "attributionNoTemplate": "Template version {{version}} · {{time}}",
       "template": "Template",
       "regenerate": "Regenerate",
       "regenerating": "Writing…",
       "previousVersion": "Previous version — the new one replaces it as soon as it is written.",
-      "alreadyRunning": "A summary of this meeting is already being written.",
-      "madeWith": "Made with {{template}}"
+      "alreadyRunning": "A summary of this meeting is already being written."
     }
   }
 }

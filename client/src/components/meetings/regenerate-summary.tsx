@@ -1,8 +1,6 @@
-import { RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { SummaryTemplateView } from "@quorum/shared";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 
 export interface RegenerateSummaryProps {
@@ -38,27 +36,35 @@ export function RegenerateSummary({
   if (templates.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      <div className="flex min-w-[12rem] flex-1 flex-col gap-2">
-        <Label htmlFor="regenerate-template">{t("meeting.summary.template")}</Label>
-        <Select
-          id="regenerate-template"
-          value={templateId}
-          onChange={(event) => onTemplateChange(event.target.value)}
-        >
-          {templates.map((view) => (
-            <option key={view.template.id} value={view.template.id}>
-              {view.template.name}
-            </option>
-          ))}
-        </Select>
-      </div>
+    // Two pills on one line. The picker carries its name as a label rather than showing one: in a
+    // rail this narrow, a stacked caption and field spend three rows asking one small question,
+    // and the value on the control already answers it.
+    <div className="flex flex-wrap items-center gap-2">
+      <Select
+        id="regenerate-template"
+        aria-label={t("meeting.summary.template")}
+        value={templateId}
+        onChange={(event) => onTemplateChange(event.target.value)}
+        className="h-9 w-auto rounded-pill border-border bg-card px-3 pr-8 text-[13px]"
+      >
+        {templates.map((view) => (
+          <option key={view.template.id} value={view.template.id}>
+            {view.template.name}
+          </option>
+        ))}
+      </Select>
+      {/*
+        Work in progress is said in the label and nowhere else: a spinning icon would be a second,
+        louder voice for the same fact, and the summary above already dims while its replacement
+        is being written.
+      */}
       <Button
         variant="outline"
+        size="sm"
         disabled={pending || templateId === ""}
         onClick={() => onRegenerate(templateId)}
+        className="rounded-pill border-border bg-card px-[18px] text-[13px] font-bold"
       >
-        <RefreshCw aria-hidden="true" className={pending ? "animate-spin" : undefined} />
         {pending ? t("meeting.summary.regenerating") : t("meeting.summary.regenerate")}
       </Button>
     </div>

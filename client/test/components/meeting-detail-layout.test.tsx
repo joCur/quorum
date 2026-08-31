@@ -28,6 +28,7 @@ const SEGMENT_ID = "33333333-0000-4000-8000-000000000001";
 
 const SPOKEN = "The home page is finished.";
 const SECTION_TITLE = "Decisions";
+const TWO_HOURS_AGO = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
 
 const templateSections = [
   { id: "decisions", title: SECTION_TITLE, instruction: "List them.", format: "bullets" as const },
@@ -90,7 +91,8 @@ function detail(): MeetingDetail {
         },
         model: "llama",
         promptVersion: "1",
-        createdAt: "2026-08-29T10:08:00.000Z",
+        // Relative to now, because the attribution line reports how long ago it was written.
+        createdAt: TWO_HOURS_AGO,
         sections: [
           {
             sectionId: "decisions",
@@ -228,8 +230,24 @@ describe("meeting detail layout", () => {
   });
 
   it("keeps the template choice and the regenerate action with the summary", () => {
+    // The picker is named by its label rather than showing one: in a rail this narrow a caption
+    // above the field costs a row to say what the value on the control already says.
     renderDetail();
     expect(screen.getByLabelText("Template")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument();
+  });
+
+  it("says where the summary came from in one line, right above the picker", () => {
+    // Template, version and freshness are one fact about one thing, so they are one sentence —
+    // and it sits directly above the control that can replace what it describes.
+    renderDetail();
+    const attribution = screen.getByText(/Made with Standard minutes/);
+    expect(attribution).toHaveTextContent("Template version 3");
+    expect(attribution).toHaveTextContent("2 hours ago");
+
+    const picker = screen.getByLabelText("Template");
+    expect(attribution.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 });
