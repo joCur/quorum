@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Meeting } from "@quorum/shared";
-import { formatMeetingDate, formatMeetingDuration, meetingLabel } from "@/features/meetings/format";
+import {
+  formatMeetingDate,
+  formatMeetingDuration,
+  formatMeetingTime,
+  meetingLabel,
+} from "@/features/meetings/format";
 
 function meeting(overrides: Partial<Meeting> = {}): Meeting {
   return {
@@ -32,6 +37,32 @@ describe("meeting formatting", () => {
 
   it("survives a date it cannot read instead of rendering 'Invalid Date'", () => {
     expect(formatMeetingDate("not a date", "en-US")).toBe("");
+  });
+
+  it("says only the time under today and yesterday", () => {
+    // The heading already carries the day, so repeating the date in every row would be noise.
+    const iso = new Date(2026, 7, 31, 14, 5).toISOString();
+    for (const group of ["today", "yesterday"] as const) {
+      const text = formatMeetingTime(iso, "en-US", group);
+      expect(text).toMatch(/^2:05\s?PM$/i);
+    }
+  });
+
+  it("names the weekday inside the week group", () => {
+    // The group spans six days, so a weekday name identifies the day without ambiguity.
+    const monday = new Date(2026, 7, 31, 16, 0).toISOString();
+    expect(formatMeetingTime(monday, "en-US", "thisWeek")).toContain("Mon");
+    expect(formatMeetingTime(monday, "de-DE", "thisWeek")).toContain("Mo");
+  });
+
+  it("falls back to the full date once the group stops naming a day", () => {
+    const iso = "2026-08-29T10:00:00.000Z";
+    expect(formatMeetingTime(iso, "en-US", "earlier")).toBe(formatMeetingDate(iso, "en-US"));
+  });
+
+  it("survives an unreadable timestamp in every group", () => {
+    expect(formatMeetingTime("not a date", "en-US", "today")).toBe("");
+    expect(formatMeetingTime("not a date", "en-US", "thisWeek")).toBe("");
   });
 
   it("formats the duration past an hour", () => {

@@ -1,4 +1,5 @@
 import type { Meeting } from "@quorum/shared";
+import type { DayGroup } from "@/features/meetings/grouping";
 import { formatDuration } from "@/lib/duration";
 
 /**
@@ -18,6 +19,26 @@ export function formatMeetingDate(isoDate: string, locale: string): string {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+/**
+ * When the meeting happened, said as briefly as its day group allows.
+ *
+ * The group heading already carries the day, so the row does not repeat it: under "Today" the
+ * time alone is enough, and inside the rolling week the weekday plus the time is unambiguous
+ * (the window is six days, so no weekday appears twice). Only "Earlier" needs the full date,
+ * because that group spans everything else.
+ */
+export function formatMeetingTime(isoDate: string, locale: string, group: DayGroup): string {
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return "";
+  if (group === "earlier") return formatMeetingDate(isoDate, locale);
+
+  const time = new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }).format(date);
+  if (group !== "thisWeek") return time;
+
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: "short" }).format(date);
+  return `${weekday} · ${time}`;
 }
 
 /** `mm:ss` / `h:mm:ss`, or null while the length is not known yet. */

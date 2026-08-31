@@ -112,6 +112,12 @@
       "howItWorks": "So funktioniert Quorum"
     },
     "untitled": "Meeting ohne Titel",
+    "groups": {
+      "today": "Heute",
+      "yesterday": "Gestern",
+      "thisWeek": "Diese Woche",
+      "earlier": "Früher"
+    },
     "loadError": "Deine Meetings konnten nicht geladen werden.",
     "deleted": "„{{meeting}}“ wurde gelöscht.",
     "deleteFailed": "„{{meeting}}“ konnte nicht gelöscht werden.",
@@ -127,6 +133,7 @@
       "transcribing": "Transkribiert",
       "summarizing": "Fasst zusammen",
       "ready": "Fertig",
+      "done": "Fertig",
       "failed": "Fehlgeschlagen"
     },
     "delete": {
