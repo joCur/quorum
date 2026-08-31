@@ -6,6 +6,8 @@
 # next to them is e2e/e2e.env.example; nothing env-shaped is ever tracked.
 e2e/e2e.env
 e2e/.stack.env
+# The host ports a run took, remembered per compose project so the reuse loop finds its stack.
+e2e/.ports.*.json
 
 # --- Dependencies ---
 node_modules/
