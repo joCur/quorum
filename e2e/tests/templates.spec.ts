@@ -307,3 +307,53 @@ test("summarizes a recording with the template picked at the start, over the use
     await expect(doomed).toHaveCount(0);
   }
 });
+
+const DOOMED_DEFAULT_NAME = "E2E doomed default layout";
+
+/**
+ * Deleting the template that is currently the default, which is the case the fallback exists for.
+ *
+ * The spec above gives the choice up first and then deletes an ordinary template; nothing checked
+ * what happens when the row a user's settings point at simply disappears. The promise is that a
+ * user is never left without a default: the mark goes back to the system template, and it goes
+ * back on the server rather than only in the list that happens to be on screen — so the page is
+ * reloaded before the assertion, which is what tells a stored fallback apart from a rendered one.
+ */
+test("hands the default back to the system template when the chosen one is deleted", async ({
+  page,
+  signIn,
+}) => {
+  await signIn(devUsers.alice);
+  await page.goto("/templates");
+
+  await page.getByRole("button", { name: "Create a template" }).first().click();
+  await page.getByLabel("Name").fill(DOOMED_DEFAULT_NAME);
+  await page.getByRole("button", { name: "Add a section" }).click();
+  await page.getByLabel("Heading").last().fill("Anything");
+  await page.getByLabel("What belongs in it").last().fill("Whatever was said.");
+  await page.getByRole("button", { name: "Save template" }).click();
+
+  const card = page.getByTestId("template-card").filter({ hasText: DOOMED_DEFAULT_NAME });
+  await expect(card).toBeVisible();
+
+  await card
+    .getByRole("button", { name: `Default — use ${DOOMED_DEFAULT_NAME} for new recordings` })
+    .click();
+  await expect(card.getByTestId("template-default-badge")).toBeVisible();
+
+  // Deleted while it is still the default — no unsetting first, which is the whole point.
+  await card.getByRole("button", { name: `Delete ${DOOMED_DEFAULT_NAME}` }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete template" }).click();
+  await expect(card).toHaveCount(0);
+
+  await page.reload();
+  await expect(
+    page.getByTestId("template-card").filter({ hasText: DOOMED_DEFAULT_NAME }),
+  ).toHaveCount(0);
+  await expect(
+    page
+      .getByTestId("template-card")
+      .filter({ hasText: "Standard meeting summary" })
+      .getByTestId("template-default-badge"),
+  ).toBeVisible();
+});

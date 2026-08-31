@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { expect, signInButton, test } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
 import { decodeClaims, fetchToken } from "../support/keycloak.js";
@@ -18,16 +19,7 @@ test.describe("auth", () => {
     await signIn(devUsers.alice);
 
     // The access token really is in the app's hands, and it is scoped to Alice's tenant.
-    const accessToken = await page.evaluate(() => {
-      for (let index = 0; index < window.sessionStorage.length; index += 1) {
-        const key = window.sessionStorage.key(index);
-        if (key === null || !key.startsWith("oidc.user:")) continue;
-        const raw = window.sessionStorage.getItem(key);
-        if (raw === null) continue;
-        return (JSON.parse(raw) as { access_token?: string }).access_token ?? null;
-      }
-      return null;
-    });
+    const accessToken = await readAccessToken(page);
     expect(accessToken).not.toBeNull();
 
     const claims = decodeClaims(accessToken as string);
@@ -50,6 +42,59 @@ test.describe("auth", () => {
       failOnStatusCode: false,
     });
     expect(response.status()).toBe(401);
+  });
+
+  /**
+   * The ordinary half of token refresh: the access token has run out, the session has not.
+   *
+   * This is what happens to every user who leaves a tab open past the token's lifetime, and its
+   * whole point is that they never notice. Only the access token is spoiled here — the refresh
+   * token is left untouched, which is exactly the state an expired access token leaves behind — so
+   * the first API call comes back 401 and the app renews silently instead of asking for anything.
+   * The spec below covers the other half, where there is nothing left to renew from; without this
+   * one, a regression that turned every expiry into a sign-in prompt would still pass the suite.
+   */
+  test("renews a stale access token silently and never interrupts the user", async ({
+    page,
+    signIn,
+  }) => {
+    await signIn(devUsers.alice);
+    await page.goto("/templates");
+    await expect(page.getByRole("heading", { name: "Templates" })).toBeVisible();
+
+    const stale = "stale-access-token";
+    await page.evaluate((token: string) => {
+      for (let index = 0; index < window.sessionStorage.length; index += 1) {
+        const key = window.sessionStorage.key(index);
+        if (key === null || !key.startsWith("oidc.user:")) continue;
+        const raw = window.sessionStorage.getItem(key);
+        if (raw === null) continue;
+        const stored = JSON.parse(raw) as Record<string, unknown>;
+        stored["access_token"] = token;
+        window.sessionStorage.setItem(key, JSON.stringify(stored));
+      }
+    }, stale);
+
+    // Reloading is what makes the app pick the spoiled token up: until then it is still holding the
+    // good one in memory, and nothing would come back 401 at all.
+    await page.reload();
+
+    // Nothing is asked of the user: the screen renders, and the sign-in page is never reached.
+    await expect(page.getByRole("heading", { name: "Templates" })).toBeVisible();
+    await expect(page).toHaveURL(/\/templates$/);
+    await expect(page.getByText("Your session ended.", { exact: false })).toHaveCount(0);
+
+    // And the token the app now holds is a different, working one — the renewal really happened,
+    // rather than the screen rendering from a cache while the session was already gone.
+    await expect.poll(async () => readAccessToken(page), { timeout: 20_000 }).not.toBe(stale);
+
+    const renewed = await readAccessToken(page);
+    expect(renewed).not.toBeNull();
+    const me = await page.request.get(`${stackEnv.apiUrl}/api/me`, {
+      headers: { authorization: `Bearer ${renewed as string}` },
+    });
+    expect(me.ok()).toBe(true);
+    expect(await me.json()).toMatchObject({ tenantId: devUsers.alice.tenantId });
   });
 
   test("routes an expired session into sign-in and returns to where it ended", async ({
@@ -170,3 +215,22 @@ test.describe("auth", () => {
     }
   });
 });
+
+/**
+ * The access token as the app is holding it, read out of the store the OIDC library keeps it in.
+ *
+ * Several specs need it — to check what it claims, to spoil it, to see it replaced — and each of
+ * them wants the token the app would actually send, not one fetched beside it.
+ */
+async function readAccessToken(page: Page): Promise<string | null> {
+  return await page.evaluate(() => {
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index);
+      if (key === null || !key.startsWith("oidc.user:")) continue;
+      const raw = window.sessionStorage.getItem(key);
+      if (raw === null) continue;
+      return (JSON.parse(raw) as { access_token?: string }).access_token ?? null;
+    }
+    return null;
+  });
+}
