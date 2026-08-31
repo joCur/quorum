@@ -102,9 +102,14 @@ The stack validates your configuration first and stops with a readable list if a
 missing, then creates Keycloak's database, the recordings bucket and the production realm, and
 brings everything up. All of that is idempotent and happens on every start.
 
-**One port is published**: `127.0.0.1:8080`. The app, the API and Keycloak are all reachable
-through it — nothing else has a host port at all. Change `BIND_ADDRESS` only if your reverse proxy
-runs on another machine, and understand that it publishes plain HTTP when you do.
+**One port is published**: `127.0.0.1:8080`, the edge proxy. The app, the API and Keycloak are all
+reachable through it, and none of them — nor Postgres, MinIO or the client — has a host port of
+its own. Change `BIND_ADDRESS` only if your reverse proxy runs on another machine, and understand
+that it publishes plain HTTP when you do.
+
+The one exception is the opt-in `monitoring` profile: enabling it publishes Grafana, Prometheus
+and Alertmanager on loopback as well, because those are human-facing UIs with nothing in front of
+them. They stay off unless you ask for them.
 
 ## 4. Put your reverse proxy in front
 
@@ -239,6 +244,57 @@ exited non-zero, its log says what it could not do, and the API will not have st
 
 Then sign in and record a short meeting. That exercises the whole critical path — chunk streaming,
 persistence, transcription and summary — and is the only check that covers all of it at once.
+
+## Where the data lives
+
+Four named Docker volumes: `quorum_pg-data` (the database, including Keycloak's), `quorum_minio-data`
+(the recordings), `quorum_whisper-models` (the model cache) and, with monitoring on, the Prometheus
+and Grafana volumes. `docker volume ls` shows them; `docker compose down` leaves them alone, and
+only `down -v` destroys them.
+
+**Named volumes are the default deliberately.** They need no host directory to exist beforehand,
+they carry no uid/gid mismatch between the container's user and yours — the failure mode of a bind
+mount, and one that surfaces as a container that will not start rather than as a permissions
+message — and they are portable across hosts with different filesystem layouts.
+
+### Putting the data on a specific filesystem
+
+If you want the recordings on a particular disk — a large array, an encrypted mount, a path your
+existing backup tooling already watches — declare the volume with a bind driver. Add this to the
+bottom of your compose file, replacing the `volumes:` entry of the same name:
+
+```yaml
+volumes:
+  minio-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/quorum/recordings   # must already exist
+  pg-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/quorum/postgres     # must already exist
+```
+
+Create the directories first. The containers run as non-root users, so the directories have to be
+writable by them — this is the trap named above, and it is why this is the escape hatch rather
+than the default. If a container fails to start after this change, ownership is the first thing to
+check.
+
+Do this before the first start if you can. Moving a volume afterwards means stopping the stack and
+copying the contents across, not just changing the declaration.
+
+### Backups do not read the volumes directly
+
+Worth knowing before you plan around paths: the backup procedure does not copy volume directories.
+It uses `pg_dump` per logical database — a snapshot of a running Postgres data directory is not a
+consistent backup — and `mc mirror` against the MinIO API for the recordings. Both work identically
+whether the volume is named or bound to a path, so relocating data does not change the backup
+story. The full procedure, including the retention and deletion window, is in the
+[backup and restore runbook](https://github.com/joCur/quorum/blob/main/docs/runbooks/backup-restore.md).
 
 ## 7. Before you call it done
 

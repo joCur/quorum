@@ -36,6 +36,13 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      # The two release compose files are deliberate duplicates that differ only in GPU access.
+      # Nothing about copying a file keeps the copies in step, so this asserts it: a port,
+      # hardening flag or service added to one and not the other fails here rather than reaching
+      # a deployment that behaves differently depending on which file the operator picked.
+      - name: Release compose parity
+        run: ./scripts/check-compose-parity.sh
+
   docker:
     name: Docker image (${{ matrix.image }})
     runs-on: ubuntu-latest

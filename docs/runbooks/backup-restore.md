@@ -24,6 +24,15 @@ The last row is the one that turns a good backup into a useless one. See
 Not backed up on purpose: Prometheus and Grafana volumes. Operational metrics are worth 15 days of
 retention and nothing more; the dashboards and rules are in `infra/monitoring/`.
 
+**Nothing here reads a volume directory, and that is deliberate.** The "where it lives" column
+names Docker volumes so you know what would be lost, not what to copy. Both procedures below go
+through a running service — `pg_dump` per logical database, `mc mirror` against the MinIO API —
+because copying a live Postgres data directory produces a file that looks like a backup and
+restores as a corrupt database. The practical consequence is a good one: whether those volumes are
+named Docker volumes or bound to a host path changes nothing about backing them up, so a
+deployment can relocate its data onto a specific filesystem without any of this needing to change.
+The deployment guide describes how.
+
 ## Schedule
 
 The proposal for the single-host phase, to be adjusted when there are real users:
