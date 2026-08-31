@@ -1,0 +1,175 @@
+name: Publish release
+
+# Publishes the images and deployment files for a tag that already exists.
+#
+# The Release workflow does this automatically for a release it just created. This one is the
+# manual route to the same result, for the cases that workflow cannot cover: a release whose tag
+# was created outside it, a publish that failed after the release was already made, or an image
+# that has to be rebuilt from an older tag.
+#
+# It is deliberately not a shortcut past the checks. It resolves the tag to its commit and runs
+# the same green-CI gate the automatic path runs, against that commit, before anything leaves the
+# repository.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The existing release tag to publish, for example v1.0.0"
+        required: true
+        type: string
+      tag_latest:
+        description: "Also move the `latest` image tag. Leave off when rebuilding an older release."
+        required: false
+        default: true
+        type: boolean
+
+permissions: {}
+
+jobs:
+  # Fails early and clearly when the tag does not exist, rather than three jobs later in a
+  # checkout. Also derives the version, which is the tag without its leading `v`.
+  resolve:
+    name: Resolve the tag
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      version: ${{ steps.resolve.outputs.version }}
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve the tag to a commit and a version
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::No tag named '$TAG' exists in this repository. This workflow publishes" \
+              "a tag that is already there; it never creates one."
+            exit 1
+          fi
+          # An annotated tag points at a tag object, not at the commit. Dereference it so the gate
+          # and the build agree on which commit is being published.
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "Publishing $TAG (version ${TAG#v}) from commit $sha"
+
+  require-green-ci:
+    name: Require green CI for the released commit
+    needs: resolve
+    runs-on: ubuntu-latest
+    # The CI run for a tag that was pushed moments ago may still be in flight, so this waits. The
+    # limit is well above a normal CI run and exists so a stuck run fails the publish instead of
+    # holding a runner for six hours.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the CI workflow succeeded for the tagged commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./scripts/require-green-ci.sh "${{ needs.resolve.outputs.sha }}"
+
+  publish-images:
+    name: Publish the ${{ matrix.image }} image
+    needs: [resolve, require-green-ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: server
+            dockerfile: server/Dockerfile
+          - image: worker
+            dockerfile: worker/Dockerfile
+          - image: client
+            dockerfile: client/Dockerfile
+          - image: init
+            dockerfile: infra/init/Dockerfile
+          - image: edge
+            dockerfile: infra/edge/Dockerfile
+          - image: prometheus
+            dockerfile: infra/monitoring/prometheus.Dockerfile
+          - image: alertmanager
+            dockerfile: infra/monitoring/alertmanager.Dockerfile
+          - image: grafana
+            dockerfile: infra/monitoring/grafana.Dockerfile
+          - image: keycloak
+            dockerfile: infra/keycloak/Dockerfile
+    steps:
+      # The tag, not a branch: this workflow exists to build exactly what was released.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `latest` is optional here, unlike the automatic path: rebuilding an older release must not
+      # silently move the tag that unpinned deployments follow.
+      - name: Work out the image tags
+        id: tags
+        env:
+          IMAGE: ${{ matrix.image }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          TAG_LATEST: ${{ inputs.tag_latest }}
+        run: |
+          set -euo pipefail
+          {
+            echo "list<<EOF"
+            echo "ghcr.io/jocur/quorum-$IMAGE:$VERSION"
+            if [ "$TAG_LATEST" = "true" ]; then
+              echo "ghcr.io/jocur/quorum-$IMAGE:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push the ${{ matrix.image }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          # The registry path is lowercase because GHCR rejects uppercase in an image name, while
+          # the GitHub organization is spelled with a capital letter.
+          tags: ${{ steps.tags.outputs.list }}
+          platforms: linux/amd64
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          provenance: true
+          sbom: true
+
+  release-assets:
+    name: Attach the compose files
+    needs: [resolve, require-green-ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release upload "$TAG" \
+            docker-compose.release.yml \
+            docker-compose.release-gpu.yml \
+            .env.example \
+            --clobber
