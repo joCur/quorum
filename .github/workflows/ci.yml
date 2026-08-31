@@ -36,6 +36,13 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      # Reads the service worker the build just emitted and checks that its navigation fallback
+      # still leaves the identity provider, the API, the recording socket and the readiness probe
+      # to the network. A deployment serves all of them from the app's own origin, where a fallback
+      # that answers them from the precache breaks sign-in outright.
+      - name: Service worker navigation guard
+        run: pnpm run check:sw-denylist
+
       # Compares the two realm JSON files against their documented differences. Reads two files
       # and prints — no containers, no network, so it stays in the fast job.
       - name: Realm drift guard
