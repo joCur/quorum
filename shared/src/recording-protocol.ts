@@ -1,14 +1,14 @@
 import { z } from "zod";
 
 /**
- * Chunk-Streaming-Protokoll Client ↔ Server (ADR-002)
- * Control-Messages als JSON über WebSocket; Audio-Chunks binär mit Header.
+ * The chunk streaming protocol, client ↔ server (ADR-002)
+ * Control messages as JSON over WebSocket; audio chunks binary with a header.
  */
 
 export const AudioFormatSchema = z.object({
-  /** z. B. "opus" | "aac" — wie vom MediaRecorder geliefert, kein Re-Encoding */
+  /** e.g. "opus" | "aac" — as delivered by the MediaRecorder, no re-encoding */
   codec: z.string(),
-  /** z. B. "webm" | "ogg" | "mp4" (Safari) */
+  /** e.g. "webm" | "ogg" | "mp4" (Safari) */
   container: z.string(),
   sampleRate: z.number().int().positive(),
   channels: z.number().int().positive(),
@@ -41,7 +41,7 @@ export const SessionStartSchema = z.object({
    */
   summaryTemplateId: z.string().uuid().nullable().default(null),
   clientInfo: z.object({
-    platform: z.string(), // z. B. "web-desktop" | "web-mobile"
+    platform: z.string(), // e.g. "web-desktop" | "web-mobile"
     userAgent: z.string(),
   }),
 });
@@ -49,7 +49,7 @@ export const SessionStartSchema = z.object({
 export const SessionPauseSchema = z.object({
   type: z.literal("session.pause"),
   sessionId: z.string().uuid(),
-  /** Realzeit der Pause — Grundlage für Audio-Zeit ↔ Wanduhr-Mapping */
+  /** Wall-clock time of the pause — the basis for mapping audio time ↔ wall clock */
   at: z.string().datetime(),
 });
 
@@ -62,7 +62,7 @@ export const SessionResumeSchema = z.object({
 export const SessionEndSchema = z.object({
   type: z.literal("session.end"),
   sessionId: z.string().uuid(),
-  /** Höchste gesendete Sequenznummer — Server prüft Vollständigkeit */
+  /** The highest sequence number sent — the server checks for completeness */
   lastSeq: z.number().int().nonnegative(),
 });
 
@@ -83,7 +83,7 @@ export const SessionReadySchema = z.object({
 export const ChunkAckSchema = z.object({
   type: z.literal("chunk.ack"),
   sessionId: z.string().uuid(),
-  /** Letzte PERSISTIERTE Sequenznummer — Client darf bis hierhin seinen Puffer leeren */
+  /** The last PERSISTED sequence number — the client may clear its buffer up to here */
   persistedSeq: z.number().int().nonnegative(),
 });
 
@@ -91,11 +91,11 @@ export const SessionFinalizedSchema = z.object({
   type: z.literal("session.finalized"),
   sessionId: z.string().uuid(),
   meetingId: z.string().uuid(),
-  /** ID des angelegten Verarbeitungs-Jobs */
+  /** The ID of the processing job that was created */
   jobId: z.string().uuid(),
 });
 
-/** In V1 reserviert, wird nie gesendet — Live-Transkript später rein additiv */
+/** Reserved in V1, never sent — a live transcript is purely additive later */
 export const TranscriptPartialSchema = z.object({
   type: z.literal("transcript.partial"),
   sessionId: z.string().uuid(),
@@ -109,8 +109,8 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   TranscriptPartialSchema,
 ]);
 
-// ---- Binärer Chunk-Header ----
-// Layout (little-endian): [16 B Session-UUID][4 B uint32 seq][8 B float64 timestampOffset s][Rest: Audio-Payload]
+// ---- The binary chunk header ----
+// Layout (little-endian): [16 B session UUID][4 B uint32 seq][8 B float64 timestampOffset s][rest: audio payload]
 export const CHUNK_HEADER_BYTES = 28;
 
 export const ChunkMetaSchema = z.object({

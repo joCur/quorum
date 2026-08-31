@@ -1,49 +1,49 @@
-# Quorum — Arbeitsprozess (Team-Regeln)
-
-Prozess übernommen aus Grimoire, bestätigt vom PO am 2026-08-29.
+# Quorum — Working Process (Team Rules)
 
 ## Language policy
 
 - **All code and documentation is written in American English (en-US) — 100%, no exceptions.** No German identifiers, comments, commit messages, ADRs, or issue texts.
-- All user-facing strings go through **i18n** — never hard-coded German (or any other language) in code.
-- Existing German founding documents are migrated via a dedicated ticket; new content is English from now on.
+- All user-facing strings go through **i18n** — never hard-coded German (or any other language) in code. German is a translation catalog, not a value in source.
 - (Chat communication with the PO remains German.)
 
-## Git & PR-Prozess
+## Git & PR process
 
-- **main ist geschützt — per Prozess, nicht per Branch Protection** (Free-Plan, privates Repo). NIE direkt auf main pushen, keine Ausnahmen.
-- Jedes Ticket läuft in einem eigenen Worktree auf einem Feature-Branch: `<issue-nr>-<slug>` (z. B. `4-websocket-recording-endpoint`).
-- Merge NUR wenn: **CI grün** (Typecheck, Tests, Build, E2E) **+ Lead-Verifikation** (Click-Path bei UI-Änderungen) **+ explizites PO-Approval am PR**.
-- Commits mit der konfigurierten Identität `joCur <mail@jonascurth.de>` — nie per `-c` übersteuern.
-- Worktrees: alle `.env*`-Dateien aus dem Repo-Root in den Worktree symlinken (gitignored, sonst schwer diagnostizierbare Fehler).
+- **NEVER push to main directly, no exceptions.** Every change lands as a pull request. A ruleset enforces this: main accepts only approved, squash-merged pull requests whose required checks are green, and it refuses deletions and non-fast-forward pushes.
+- The ruleset also dismisses stale approvals when a branch is pushed, requires the last push to be approved, and requires review threads to be resolved. So a review is not banked: pushing after approval means asking for it again.
+- Every ticket runs in its own worktree on a feature branch: `<issue-number>-<slug>` (e.g. `4-websocket-recording-endpoint`).
+- Merge ONLY when: **CI green** **+ lead verification** (a click path for UI changes) **+ explicit PO approval on the PR**.
+- The branch is deleted automatically on merge. For stacked PRs that means retargeting the dependent PR onto main **before** its base branch disappears — GitHub closes a PR whose base branch is deleted, and a closed PR cannot be reopened.
+- Worktrees: symlink every `.env*` file from the repository root into the worktree (they are gitignored, and their absence causes failures that are hard to diagnose).
 
-## Team & Rollen
+## Team & roles
 
-- Der **Lead implementiert nicht selbst** — auch keine Einzeiler. Er scoped Tickets, briefed Engineers, reviewt, verifiziert und merged.
-- Engineer-Agents (Backend, Frontend, Infra, QA) laufen auf **Opus**; nur der Lead auf Fable. Designer auf Fable nur auf expliziten PO-Wunsch.
-- Rollen: Backend/Pipeline · Frontend/PWA · Infra/Ops · QA/Security.
+- The **lead does not implement** — not even one-liners. The lead scopes tickets, briefs engineers, reviews, verifies, and merges.
+- Engineer agents (backend, frontend, infra, QA) run on **Opus**; only the lead runs on Fable. A designer runs on Fable only at the PO's explicit request.
+- Roles: backend/pipeline · frontend/PWA · infra/ops · QA/security.
 
 ## Tickets
 
-- Roadmap lebt als GitHub-Issues + Milestones (`V1 — Walking Skeleton`, `V2 — Ausbau`, `Später / Compliance`).
-- Jedes Issue: Kontext (welche ADRs gelten), Akzeptanzkriterien, betroffene Schemas aus `shared/src/`.
-- Architektur-Entscheidungen werden als ADR in `docs/adr/` festgehalten, bevor implementiert wird.
+- The roadmap lives as GitHub issues and milestones.
+- Every issue: context (which ADRs apply), acceptance criteria, the affected schemas from `shared/src/`.
+- Architecture decisions are recorded as an ADR in `docs/adr/` before they are implemented.
 - Repository files — code comments, READMEs, ADRs, compose files — must never reference issue or PR
   numbers; describe the subject instead. Issue references belong in PR descriptions and commit
   messages only, because those keep their context once an issue is gone.
+- Repository files must not record session history either — no dates, attributions, or notes about
+  which account or agent did the work. Those belong in local memory, not in a doc that outlives them.
 
-## Kritische Pfade (E2E-Pflicht)
+## Critical paths (E2E required)
 
-Jede Änderung, die einen dieser Pfade berührt, braucht einen (ggf. erweiterten) E2E-Test:
+Every change touching one of these paths needs an E2E test, extended if one already exists:
 
-1. Aufnahme → Chunk-Streaming → Persistierung → Transcript → Summary (der Kernpfad)
-2. Auth-Flows (Login, Token-Refresh, Mandanten-Scope)
-3. Vollständiges Löschen eines Meetings (Kaskade: Audio, Transcripts, Summaries, Jobs)
-4. Crash-Recovery: Reconnect ab `persistedSeq`, IndexedDB-Puffer
+1. Recording → chunk streaming → persistence → transcript → summary (the core path)
+2. Auth flows (login, token refresh, tenant scope)
+3. Complete deletion of a meeting (cascade: audio, transcripts, summaries, jobs)
+4. Crash recovery: reconnect from `persistedSeq`, the IndexedDB buffer
 
-## Architektur-Grundregeln
+## Architecture ground rules
 
-- `shared/src/` (Zod-Schemas) ist Single Source of Truth — Client und Server importieren, nie duplizieren.
-- Maschinen-Output ist immutabel; Nutzerkorrekturen sind Overlays (ADR-003/004).
-- Jede lang laufende Operation ist ein serverseitiger Job (Job-Schema in `shared/src/job.ts`) — nie browser-gebunden.
-- Mandanten-/User-Scope in jedem Datenobjekt ab Tag 1 (ADR-001).
+- `shared/src/` (the Zod schemas) is the single source of truth — client and server import from it, never duplicate it.
+- Machine output is immutable; user corrections are overlays (ADR-003/004).
+- Every long-running operation is a server-side job (the job schema in `shared/src/job.ts`) — never bound to the browser.
+- Tenant/user scope in every data object from day one (ADR-001).

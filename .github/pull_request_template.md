@@ -2,14 +2,14 @@
 
 Closes #
 
-## Was wurde gemacht
+## What was done
 
-<!-- Kurzbeschreibung der Änderung -->
+<!-- A short description of the change -->
 
-## Checkliste (Merge-Gate)
+## Checklist (merge gate)
 
-- [ ] CI grün (Typecheck, Tests, Build, E2E)
-- [ ] Kritischer Pfad berührt? → E2E-Test erweitert (siehe CLAUDE.md)
-- [ ] Schemas in `shared/src/` geändert? → Version erhöht, Client & Server angepasst
-- [ ] Lead-Verifikation erfolgt
-- [ ] **PO-Approval** (Pflicht vor Merge)
+- [ ] CI green (typecheck, tests, build, E2E)
+- [ ] Critical path touched? → E2E test extended (see CLAUDE.md)
+- [ ] Schemas in `shared/src/` changed? → version bumped, client & server adjusted
+- [ ] Lead verification done
+- [ ] **PO approval** (required before merge)

@@ -1,8 +1,8 @@
 name: Release
 
-# Release-Prozess: release-please pflegt einen Release-PR aus den Conventional
-# Commits auf main. Merge des Release-PRs (mit PO-Approval, wie jeder PR)
-# erzeugt Tag + GitHub-Release mit Changelog.
+# Release process: release-please maintains a release PR from the conventional
+# commits on main. Merging that release PR (with PO approval, like every PR)
+# produces a tag and a GitHub release with a changelog.
 #
 # When that release is created, `publish-images` builds the server and worker images from the
 # tagged tree and pushes them to GHCR. Every other push to main stops after release-please, so

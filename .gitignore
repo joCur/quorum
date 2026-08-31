@@ -21,12 +21,12 @@ out/
 *.tsbuildinfo
 coverage/
 
-# --- Runtime & Daten (lokale Docker-Volumes, falls gemountet) ---
+# --- Runtime & data (local Docker volumes, if mounted) ---
 data/
 *.log
 logs/
 
-# --- Modelle & Audio (groß, gehören nicht ins Repo) ---
+# --- Models & audio (large, do not belong in the repository) ---
 models/
 *.bin
 *.gguf
