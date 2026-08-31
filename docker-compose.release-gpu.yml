@@ -329,6 +329,10 @@ services:
       WHISPER_BASE_URL: ${WHISPER_BASE_URL:-http://whisper:8000/v1}
       WHISPER_MODEL: ${WHISPER_MODEL}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+      # Silence is skipped instead of transcribed, which is what keeps a speechless
+      # stretch from sending the model into a repetition loop. Set to false to transcribe
+      # everything, hallucination risk included.
+      WHISPER_VAD_FILTER: ${WHISPER_VAD_FILTER:-true}
       SUMMARY_BASE_URL: ${SUMMARY_BASE_URL}
       SUMMARY_API_KEY: ${SUMMARY_API_KEY}
       SUMMARY_MODEL: ${SUMMARY_MODEL}

@@ -26,6 +26,38 @@ const port = Number.parseInt(process.env.MOCK_WHISPER_PORT ?? "8123", 10);
  */
 let rejectNextTranscription = false;
 
+/**
+ * The form fields of the most recent transcription request, read back by a test through
+ * `GET /control/last-transcription`.
+ *
+ * Only the short scalar fields are kept, and only by name: the audio part is binary and large, and
+ * nothing here is a multipart parser. That is enough for the one thing a test needs to know from
+ * this side — that the worker asked the backend for the behavior it is configured for.
+ */
+let lastTranscriptionFields = null;
+
+/** Field names worth recording — everything else in the body is the audio itself. */
+const OBSERVED_FIELDS = ["model", "response_format", "language", "vad_filter"];
+
+/**
+ * Pulls one simple form field out of a raw multipart body.
+ *
+ * Deliberately minimal: the parts the worker sends besides the file are single-line values, so the
+ * header line plus the blank line plus one line of value is the whole grammar needed. Read as
+ * latin1 so the binary audio part cannot produce replacement characters that shift offsets.
+ */
+function formField(body, name) {
+  const match = new RegExp(
+    `name="${name}"\\r\\n(?:[^\\r\\n]+\\r\\n)*\\r\\n([^\\r\\n]{0,128})\\r\\n`,
+  ).exec(body);
+  return match ? match[1] : null;
+}
+
+function observedFields(body) {
+  const text = body.toString("latin1");
+  return Object.fromEntries(OBSERVED_FIELDS.map((name) => [name, formField(text, name)]));
+}
+
 /** The shape a real OpenAI-compatible backend answers with when it does not have the model. */
 function rejection() {
   return {
@@ -90,6 +122,15 @@ function summary(prompt) {
   return { sections };
 }
 
+/** The raw bytes of a request, for the multipart body the transcription endpoint receives. */
+function readRawBody(request) {
+  return new Promise((resolve) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => resolve(Buffer.concat(chunks)));
+  });
+}
+
 function readBody(request) {
   return new Promise((resolve) => {
     let body = "";
@@ -105,6 +146,13 @@ const server = createServer((request, response) => {
     rejectNextTranscription = true;
     response.writeHead(204);
     response.end();
+    return;
+  }
+
+  if (request.url === "/control/last-transcription" && request.method === "GET") {
+    request.resume();
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ fields: lastTranscriptionFields }));
     return;
   }
 
@@ -138,10 +186,11 @@ const server = createServer((request, response) => {
   }
 
   if (request.url?.endsWith("/audio/transcriptions") && request.method === "POST") {
-    // The body is drained but not inspected: this endpoint stands in for a model, not for a
-    // decoder, and the audio itself is asserted on in object storage instead.
-    request.resume();
-    request.on("end", () => {
+    // The audio itself is not decoded — this endpoint stands in for a model, and object storage is
+    // where the recording is asserted on. The body is read only to record which form fields came
+    // with it, so a test can hold the worker to the request it is configured to send.
+    void readRawBody(request).then((body) => {
+      lastTranscriptionFields = observedFields(body);
       if (rejectNextTranscription) {
         // 404 is the answer the worker maps to a terminal rejection, so the job fails once
         // instead of being retried until a test runs out of patience.

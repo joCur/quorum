@@ -110,6 +110,14 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   expect(summary.userId).toBe(alice.userId);
   expect(summary.isActive).toBe(true);
 
+  // The request that produced it asked the backend to filter silence. This is the one place the
+  // worker's transcription request can be seen from outside the worker, and getting it wrong is
+  // invisible until a real meeting with a quiet opening comes back as a repetition loop.
+  if (stackEnv.whisperMode === "mock") {
+    const fields = await lastTranscriptionFields();
+    expect(fields.vad_filter).toBe("true");
+  }
+
   // And the user can read both. Everything above is the pipeline seen from behind it; the core
   // path only ends where the meeting screen shows what came out — a summary and a transcript, not
   // the "still working" placeholders that stand in until they exist.
@@ -189,6 +197,25 @@ test("says a recording could not be transcribed, in the user's language", async 
   // And the failure costs nothing that succeeded: the audio is still there to play.
   await expect(page.getByRole("group", { name: "Playback" })).toBeVisible();
 });
+
+/**
+ * The form fields of the last transcription request the stub backend received.
+ *
+ * The stub records them by name rather than parsing multipart properly, so a missing field and a
+ * field the stub could not find look the same — which is exactly why the assertion is on the value
+ * the worker is configured to send, not on absence.
+ */
+async function lastTranscriptionFields(): Promise<Record<string, string | null>> {
+  const response = await fetch(`${stackEnv.mockBackendUrl}/control/last-transcription`);
+  if (!response.ok) {
+    throw new Error(
+      `could not read the stub backend's last request at ${stackEnv.mockBackendUrl}: ${response.status}`,
+    );
+  }
+  const body = (await response.json()) as { fields: Record<string, string | null> | null };
+  if (!body.fields) throw new Error("the stub backend saw no transcription request");
+  return body.fields;
+}
 
 /** Arms the stub backend to refuse the next transcription request it receives. */
 async function rejectNextTranscription(): Promise<void> {

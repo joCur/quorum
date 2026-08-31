@@ -177,6 +177,10 @@ services:
       # Unset means "let the model detect the language", which is what mixed-language
       # meetings want.
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
+      # Silence is skipped instead of transcribed, which is what keeps a speechless stretch
+      # from sending the model into a repetition loop. Set to false to transcribe
+      # everything, hallucination risk included.
+      WHISPER_VAD_FILTER: ${WHISPER_VAD_FILTER:-true}
       # Summary: OpenAI-compatible — OpenRouter today, LM Studio/vLLM/Ollama tomorrow (ADR-005).
       SUMMARY_BASE_URL: ${SUMMARY_BASE_URL}
       SUMMARY_API_KEY: ${SUMMARY_API_KEY}
