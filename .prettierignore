@@ -14,3 +14,6 @@ adr/
 
 # Compose files use hand-aligned trailing comments that Prettier would collapse.
 docker-compose*.yml
+
+# Design snapshots handed over for a ticket; not ours to format.
+.design-ref/

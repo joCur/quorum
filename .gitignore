@@ -46,3 +46,6 @@ Thumbs.db
 playwright-report/
 test-results/
 .nyc_output/
+
+# Design snapshots handed over for a ticket; not part of the build.
+.design-ref/

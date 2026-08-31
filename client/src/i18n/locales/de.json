@@ -36,6 +36,9 @@
       "recording": "REC",
       "paused": "PAUSE"
     },
+    "pill": {
+      "paused": "PAUSE"
+    },
     "bar": {
       "return": "Zurück zur Aufnahme"
     },
@@ -43,7 +46,6 @@
       "label": "Titel des Meetings",
       "placeholder": "Optional — geht auch später"
     },
-
     "templateField": {
       "label": "Vorlage für die Zusammenfassung"
     },

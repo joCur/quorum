@@ -14,6 +14,11 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      screens: {
+        // The app shell's own breakpoint. Below it the top bar sheds its words
+        // — the wordmark and the record label — and keeps every control.
+        shell: "760px",
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

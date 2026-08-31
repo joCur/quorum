@@ -36,6 +36,9 @@
       "recording": "REC",
       "paused": "PAUSED"
     },
+    "pill": {
+      "paused": "PAUSE"
+    },
     "bar": {
       "return": "Return to recording"
     },
@@ -43,7 +46,6 @@
       "label": "Meeting title",
       "placeholder": "Optional — you can add it later"
     },
-
     "templateField": {
       "label": "Summary template"
     },
