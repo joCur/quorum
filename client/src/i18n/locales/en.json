@@ -16,6 +16,47 @@
     "error": "Sign-in did not complete.",
     "sessionExpired": "Your session ended. Sign in again to continue where you left off."
   },
+  "landing": {
+    "hero": {
+      "line1": "You lead the conversation.",
+      "line2": "Quorum takes the notes.",
+      "body": "Record the room — the transcript and the summary show up on their own. A closed tab or a dropped connection costs you nothing.",
+      "reach": "Runs in the browser — phone or desktop."
+    },
+    "tiles": {
+      "onAir": {
+        "badge": "REC",
+        "body": "While you are still talking, every second is already safe — offline too."
+      },
+      "transcript": {
+        "label": "Afterwards — on its own",
+        "title": "Transcript, word for word",
+        "quoteBefore": "“…let's simplify the navigation ",
+        "quoteHighlight": "down to two levels",
+        "quoteAfter": ". On the form, I suggest we keep only name and email as required…”"
+      },
+      "template": {
+        "label": "In your template",
+        "title": "A summary in your own sections",
+        "sections": ["Overview", "Decisions", "Action items"]
+      }
+    },
+    "privacy": {
+      "title": "Your meetings. Your data.",
+      "nothingLost": {
+        "title": "Nothing gets lost",
+        "body": "Your audio is stored while the recording is still running — a closed tab costs you nothing."
+      },
+      "yours": {
+        "title": "Yours alone",
+        "body": "Your recordings, transcripts and summaries stay in your account. Nobody else reads along."
+      },
+      "deletion": {
+        "title": "Deleted means deleted",
+        "body": "A deleted meeting is gone for good — audio, transcripts, summaries. There is no trash."
+      }
+    }
+  },
   "consent": {
     "title": "Before you record",
     "body": "You are responsible for informing all participants that this meeting is being recorded, and for obtaining any consent required where you are. Quorum cannot notify participants outside this app.",

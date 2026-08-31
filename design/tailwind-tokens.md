@@ -102,6 +102,12 @@ export default {
         },
         // Brand mark dot — honey on the espresso mark, inverted in dark mode.
         "brand-dot": "hsl(var(--brand-dot))",
+        // The landing's on-air tile: a picture of a live recording, dark in both themes.
+        "on-air": {
+          DEFAULT: "hsl(var(--on-air))",
+          foreground: "hsl(var(--on-air-foreground))",
+          muted: "hsl(var(--on-air-muted))",
+        },
         // Status colors — state, and only state.
         recording: {
           DEFAULT: "hsl(var(--recording))",

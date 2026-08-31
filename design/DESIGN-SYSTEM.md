@@ -112,6 +112,10 @@ recording screen. There is therefore no dedicated on-air surface token: the scre
 `background` / `foreground`, and what marks it as a different place is its layout, the `REC` pill,
 the level bars and the hold-to-stop ring.
 
+The one exception is the landing's on-air tile (`on-air`, `on-air-foreground`, `on-air-muted`),
+which stays dark in both themes. It is a *picture* of a running capture shown to a signed-out
+visitor, not a surface anyone is working on, and the rule above is about the screens people use.
+
 ### Status colors (state, and only state)
 
 | Token | Light | Dark | Use |

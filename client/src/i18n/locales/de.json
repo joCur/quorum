@@ -16,6 +16,47 @@
     "error": "Die Anmeldung wurde nicht abgeschlossen.",
     "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dort weiterzumachen, wo du warst."
   },
+  "landing": {
+    "hero": {
+      "line1": "Du führst das Gespräch.",
+      "line2": "Quorum schreibt mit.",
+      "body": "Nimm den Raum auf — Transkript und Zusammenfassung erscheinen von selbst. Ein geschlossener Tab oder eine abgerissene Verbindung kostet dich keine Minute.",
+      "reach": "Läuft im Browser — Handy oder Desktop."
+    },
+    "tiles": {
+      "onAir": {
+        "badge": "REC",
+        "body": "Während du sprichst, ist jede Sekunde schon gesichert — auch offline."
+      },
+      "transcript": {
+        "label": "Danach — von selbst",
+        "title": "Transkript, Wort für Wort",
+        "quoteBefore": "„…die Navigation vereinfachen wir ",
+        "quoteHighlight": "auf zwei Ebenen",
+        "quoteAfter": ". Beim Formular schlage ich vor, nur Name und E-Mail als Pflicht zu behalten…“"
+      },
+      "template": {
+        "label": "Nach deiner Vorlage",
+        "title": "Zusammenfassung in deinen Abschnitten",
+        "sections": ["Überblick", "Entscheidungen", "Aufgaben"]
+      }
+    },
+    "privacy": {
+      "title": "Deine Meetings. Deine Daten.",
+      "nothingLost": {
+        "title": "Nichts geht verloren",
+        "body": "Dein Audio wird schon während der Aufnahme gesichert — ein geschlossener Tab kostet dich nichts."
+      },
+      "yours": {
+        "title": "Gehört dir",
+        "body": "Deine Aufnahmen, Transkripte und Zusammenfassungen bleiben in deinem Konto. Niemand sonst liest mit."
+      },
+      "deletion": {
+        "title": "Löschen heißt löschen",
+        "body": "Ein gelöschtes Meeting ist endgültig weg — Audio, Transkripte, Zusammenfassungen. Kein Papierkorb."
+      }
+    }
+  },
   "consent": {
     "title": "Bevor du aufnimmst",
     "body": "Du bist dafür verantwortlich, alle Teilnehmenden darüber zu informieren, dass dieses Meeting aufgezeichnet wird, und die an deinem Ort erforderliche Einwilligung einzuholen. Quorum kann Teilnehmende außerhalb dieser App nicht benachrichtigen.",
