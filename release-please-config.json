@@ -10,7 +10,9 @@
       "extra-files": [
         { "type": "json", "path": "client/package.json", "jsonpath": "$.version" },
         { "type": "json", "path": "server/package.json", "jsonpath": "$.version" },
-        { "type": "json", "path": "worker/package.json", "jsonpath": "$.version" }
+        { "type": "json", "path": "worker/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "shared/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "e2e/package.json", "jsonpath": "$.version" }
       ]
     }
   }
