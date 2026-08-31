@@ -28,6 +28,29 @@ export interface TokenVerifierOptions {
 /** Verifies a raw bearer token and produces the tenant-scoped request context. */
 export type TokenVerifier = (token: string) => Promise<RequestContext>;
 
+/**
+ * Who the caller is, without a tenant.
+ *
+ * This exists for exactly one situation: a freshly registered account whose token carries no tenant
+ * yet, asking to be given one. It is deliberately a separate type rather than a
+ * {@link RequestContext} with an optional `tenantId`, because an optional field is something a
+ * handler can forget to check, and a query scoped by `undefined` is the failure ADR-001 exists to
+ * make impossible. Nothing that reads or writes data accepts this type.
+ */
+export interface TokenIdentity {
+  /** Stable subject identifier from the token (`sub`). */
+  readonly userId: string;
+  /** Realm roles granted to the user. */
+  readonly roles: readonly string[];
+  readonly username: string | undefined;
+  readonly email: string | undefined;
+  /** Whether the provider considers the address verified. */
+  readonly emailVerified: boolean;
+}
+
+/** Verifies a raw bearer token and produces the caller's identity, with or without a tenant. */
+export type IdentityVerifier = (token: string) => Promise<TokenIdentity>;
+
 /** Builds the JWKS endpoint of a Keycloak realm from its issuer URL. */
 export function keycloakJwksUri(issuer: string): string {
   return `${issuer.replace(/\/+$/, "")}/protocol/openid-connect/certs`;
@@ -44,6 +67,7 @@ export function createKeycloakJwks(issuer: string, jwksUri?: string): JWTVerifyG
 interface KeycloakAccessToken extends JWTPayload {
   readonly preferred_username?: unknown;
   readonly email?: unknown;
+  readonly email_verified?: unknown;
   readonly realm_access?: { readonly roles?: unknown };
 }
 
@@ -77,19 +101,32 @@ function toAuthError(error: unknown): AuthError {
   return new AuthError("invalid_token", "The access token could not be verified.");
 }
 
-export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifier {
+/**
+ * The two verifiers built over one signature check.
+ *
+ * They are produced together rather than independently so that there is exactly one place where a
+ * token's signature, issuer, audience and expiry are decided. A second, separately written
+ * verifier is how the strict path and the lenient one drift apart, and the lenient one is the one
+ * an unprovisioned account reaches.
+ */
+export interface TokenVerifiers {
+  /** The strict verifier: a tenant is mandatory, and everything that touches data uses this. */
+  readonly verifyAccessToken: TokenVerifier;
+  /** The same checks minus the tenant. Only the tenant-provisioning route uses it. */
+  readonly verifyIdentity: IdentityVerifier;
+}
+
+export function createTokenVerifiers(options: TokenVerifierOptions): TokenVerifiers {
   const tenantClaim = options.tenantClaim ?? "tenant_id";
   const issuers = [...options.issuers];
   if (issuers.length === 0) {
     throw new Error("createTokenVerifier requires at least one accepted issuer.");
   }
 
-  return async function verifyAccessToken(token: string): Promise<RequestContext> {
+  async function verify(token: string): Promise<KeycloakAccessToken> {
     if (token.length === 0) {
       throw new AuthError("missing_token", "No access token was provided.");
     }
-
-    let payload: KeycloakAccessToken;
     try {
       const result = await jwtVerify<KeycloakAccessToken>(token, options.keySource, {
         issuer: issuers,
@@ -97,15 +134,34 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
         algorithms: [...(options.algorithms ?? ["RS256"])],
         clockTolerance: options.clockToleranceSeconds ?? 5,
       });
-      payload = result.payload;
+      return result.payload;
     } catch (error) {
       throw toAuthError(error);
     }
+  }
 
+  function subjectOf(payload: KeycloakAccessToken): string {
     const userId = readStringClaim(payload, "sub");
     if (userId === undefined) {
       throw new AuthError("missing_subject", "The access token carries no subject.");
     }
+    return userId;
+  }
+
+  async function verifyIdentity(token: string): Promise<TokenIdentity> {
+    const payload = await verify(token);
+    return {
+      userId: subjectOf(payload),
+      roles: readRealmRoles(payload),
+      username: readStringClaim(payload, "preferred_username"),
+      email: readStringClaim(payload, "email"),
+      emailVerified: payload.email_verified === true,
+    };
+  }
+
+  async function verifyAccessToken(token: string): Promise<RequestContext> {
+    const payload = await verify(token);
+    const userId = subjectOf(payload);
 
     // ADR-001: without a tenant we cannot scope a single query, so the request is rejected
     // rather than silently falling back to something global.
@@ -127,7 +183,14 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
       issuer: payload.iss ?? issuers[0]!,
       expiresAt: payload.exp ?? 0,
     };
-  };
+  }
+
+  return { verifyAccessToken, verifyIdentity };
+}
+
+/** The strict verifier on its own — the one almost every caller wants. */
+export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifier {
+  return createTokenVerifiers(options).verifyAccessToken;
 }
 
 /** Extracts the raw token from an `Authorization: Bearer <token>` header. */

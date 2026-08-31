@@ -15,6 +15,7 @@ working login without a single click in the admin console (ADR-006 §7).
 | Realm roles `quorum-user`, `quorum-admin` | Regular user vs. tenant administrator.                                                     |
 | User profile attribute `tenant_id` | Declared attribute so the tenant claim survives Keycloak's declarative user profile.              |
 | `smtpServer`                       | Where account mail goes — mailpit in development, the operator's relay in production. See below.   |
+| Client `quorum-provisioner`        | Service account the API uses to give a self-registered account a tenant. See "Signing up" below.   |
 | Dev users                          | See below.                                                                                        |
 
 ## Mail
@@ -47,6 +48,9 @@ imports a realm that does not exist yet and does nothing otherwise, so an edit t
 
 ### Why `resetPasswordAllowed` is a substituted value
 
+Two more settings ride on the same switch for the same reason — `registrationAllowed` and
+`verifyEmail`; see "Signing up" below.
+
 Password reset is only reachable through mail. A realm with reset enabled and no relay behind it
 puts a "Forgot password?" link on the sign-in page that produces "you should receive an email
 shortly" and then nothing at all — the user waits, retries, and concludes the account is broken.
@@ -66,6 +70,71 @@ The value crosses from string to boolean on the way in: the substitution happens
 so the realm carries `"false"`, and Jackson coerces it to the boolean the representation declares.
 That is verified behavior on the pinned `keycloak-config-cli` version, not an assumption — both
 `true` and `false` were applied against a live Keycloak and read back from the admin API.
+
+None of the three is a first-start-only setting. `keycloak-config-cli` reconciles the realm on every
+deploy, so flipping the switch in `.env` takes effect on the next `up`.
+
+## Signing up
+
+Self-registration is the way in: `registrationAllowed` with `verifyEmail`, so an account is created
+by the person who will use it and is not usable until the address is proven. Both follow the mail
+switch in production for the reason above — an account that can be registered but never verified is
+worse than one that cannot be registered at all.
+
+Two things a new account needs beyond a password.
+
+**The role** comes from the realm's default roles. `quorum-user` is listed in `defaultRoles`, so
+Keycloak grants it at registration with no code involved. That is the whole mechanism.
+
+**The tenant cannot work that way**, and this is the part worth reading before changing anything.
+
+Every data object in Quorum is tenant-scoped from day one (ADR-001), and the access token has to
+carry the tenant as a claim: a request whose token has none is refused with 403 rather than falling
+back to something global. Registration therefore produces a user Keycloak is perfectly happy with
+and the API cannot serve — the account exists, the password works, the token is signed, and every
+endpoint says no.
+
+Keycloak cannot close that gap on its own. The declarative user profile has no defaults; a protocol
+mapper reads attributes but cannot invent one; and two mappers writing the same claim have no
+defined execution order, so "the attribute if present, else the user id" is not expressible. What
+remains is a registration-time SPI in Java — a second language, its own build, pinned to an admin
+API that changes between majors — or filling the attribute in from our own API. **We do the second
+one.** On the first request a tenant-less account makes, the API writes a `tenant_id` attribute onto
+the Keycloak user through the admin API, using the `quorum-provisioner` service account. The next
+token carries the claim, and the account is then indistinguishable from one an administrator created
+by hand.
+
+The token contract does not change. `tenant_id` stays mandatory, an unprovisioned user still cannot
+read a single row, and the one route that runs without a tenant is given an identity rather than a
+request context — so it has no tenant to query under even if someone later added a query to it. See
+`server/src/auth/provisioning.ts`.
+
+The first tenant is `tenant-<user id>`: each self-registration gets its own. Deriving it rather than
+generating a random one makes provisioning genuinely idempotent, so two devices signing in at the
+same moment cannot produce two tenants for one account. It is a starting value and not an identity
+— the attribute is ordinary data, so moving a user into a shared tenant later is an attribute change
+and nothing else. That is also why this is an attribute rather than a mapper reading `sub` directly:
+a mapper would make one-user-per-tenant permanent, and `quorum-admin` already promises tenants with
+more than one member in them.
+
+### The provisioner client
+
+`quorum-provisioner` is confidential, has no browser flow and no direct grants — it can obtain a
+token for itself and nothing else — and holds exactly two realm-management roles, `view-users` and
+`manage-users`. Its secret is a committed development fixture in `realm-quorum.json` (like the dev
+users) and `$(env:KEYCLOAK_PROVISIONER_SECRET)` in production, which the release preflight refuses
+to let stay a placeholder.
+
+Leaving `KEYCLOAK_PROVISIONER_SECRET` unset in a deployment switches the whole path off: the API
+does not register the provisioning route at all, and an account without a tenant is simply refused.
+That is the right behavior for a deployment whose users are created by an administrator.
+
+### `tenant_id` is not a required user-profile attribute
+
+It used to be. It cannot be: the person filling in the registration form has no edit permission on
+it and nothing to write there, and a service account has no tenant at all. Requiring it in the user
+profile makes both of those a special case for the sake of an invariant the API already enforces on
+every single request.
 
 ## Transport security: `sslRequired`
 
@@ -127,7 +196,12 @@ secrets, and the realm must never be imported as-is into a non-development envir
 | `dev.carol`  | `dev-password` | `tenant-globex` | `quorum-user`, `quorum-admin` |
 
 Alice and Bob share a tenant; Carol is in a second one. That is what makes cross-tenant access
-denial testable in the end-to-end auth suite.
+denial testable in the end-to-end auth suite — and it is why the tenant is a user attribute rather
+than something derived from the user id: two people in one tenant has to remain expressible.
+
+The development realm also carries the `quorum-provisioner` secret as a literal, for the same
+reason these passwords are here: a fresh checkout should register a new account and land in a
+working workspace without anyone setting a variable first.
 
 ## The production realm is a different file
 
@@ -135,12 +209,14 @@ This file is the **development** realm, imported by `docker-compose.yml` on firs
 not used anywhere else, and it must not be: `sslRequired: none`, a password-grant client and
 three users with committed passwords.
 
-Production uses `realm-production.json` in this directory. It is the same realm with six
-differences and no others — `sslRequired: external`, no `quorum-dev-cli` client, no `dev.*`
-users, the PWA client's redirect URIs, **post-logout redirect URIs** and web origins taken
-from `$(env:QUORUM_PUBLIC_URL)` instead of `localhost`, the `smtpServer` block taken from the
-`SMTP_*` environment instead of pointing at mailpit, and `resetPasswordAllowed` following
-`$(env:QUORUM_SMTP_ENABLED)` instead of being on unconditionally. All three URI lists matter:
+Production uses `realm-production.json` in this directory. It is the same realm with a short list of
+differences and no others — `sslRequired: external`, no `quorum-dev-cli` client, no `dev.*` human
+users, the PWA client's redirect URIs, **post-logout redirect URIs** and web origins taken from
+`$(env:QUORUM_PUBLIC_URL)` instead of `localhost`, the `smtpServer` block taken from the `SMTP_*`
+environment instead of pointing at mailpit, the `quorum-provisioner` secret from
+`$(env:KEYCLOAK_PROVISIONER_SECRET)` instead of the committed fixture, and `resetPasswordAllowed`,
+`registrationAllowed` and `verifyEmail` following `$(env:QUORUM_SMTP_ENABLED)` instead of being on
+unconditionally. Each of those is an allow-list rule with a reason. All three URI lists matter:
 sign-out sends the browser back to the app's origin, and Keycloak refuses a post-logout redirect
 the client has not declared. Session lifetimes, refresh-token rotation, the audience and tenant
 mappers and the realm roles are identical, because those are decisions rather than development
@@ -154,7 +230,9 @@ next deploy. **Realm changes in production are pull requests against `realm-prod
 
 The one exception is users: the service runs with `IMPORT_MANAGED_USER=no-delete`, because users
 are runtime data rather than configuration. Everything else absent from the file is removed from
-the realm.
+the realm. The production realm's `users` array therefore holds exactly one entry — the
+`quorum-provisioner` service account and its two realm-management roles, which are configuration
+wearing a user's clothes. Real accounts come from sign-ups and are never written here.
 
 Keep the two files in step when you change either. A change here that belongs in production
 belongs in `realm-production.json` too — they are deliberately not generated from one another, so
@@ -223,6 +301,23 @@ signs in through. A restyle that starts overriding `login.ftl` takes on both of 
 
 Fonts are shipped with the theme, subset to Latin, because these pages are served by Keycloak and
 cannot reach the app bundle — and the design system rules out font CDNs at runtime.
+
+The browser tab carries the Quorum icon, so the tab does not change hands between the landing page,
+the sign-in and the app. This needs no template of ours: the parent theme's `template.ftl` already
+emits `<link rel="icon" href="${url.resourcesPath}/img/favicon.ico">`, and `resourcesPath` points at
+whichever theme is active — so a file at `login/resources/img/favicon.ico` here simply wins over the
+one the parent would otherwise resolve to. It is generated from the app's master vector
+(`client/public/favicon.svg`, see `design/APP-ICON.md`) at 16, 32 and 48 px, in the light colorway
+the app's own PNG exports use:
+
+```bash
+for s in 16 32 48; do rsvg-convert -w $s -h $s client/public/favicon.svg -o /tmp/quorum-$s.png; done
+magick /tmp/quorum-16.png /tmp/quorum-32.png /tmp/quorum-48.png \
+  infra/keycloak/themes/quorum/login/resources/img/favicon.ico
+```
+
+An `.ico` is what that link tag asks for; serving the SVG instead would mean overriding the
+template, which this theme does not do.
 
 Development mounts the theme into the stock upstream image (see `docker-compose.yml`), so editing
 the stylesheet and reloading the page is enough; the release image bakes the same directory in.
