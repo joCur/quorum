@@ -1,5 +1,10 @@
 # Quorum App Icon
 
+> **Superseded in full by the v2 redesign.** This file still describes the v1 teal "quorum ring"
+> mark. The v2 mark is the letter Q set in Schibsted Grotesk on an espresso tile with a honey dot
+> (inverted in dark mode). The brand and app-icon redesign rewrites this file and regenerates the
+> assets; nothing here is deleted ahead of that PR.
+
 Master vector: `client/public/favicon.svg` (512-grid, hand-written SVG). PNGs in `client/public/icons/` are generated from it (`rsvg-convert -w <size>`); the maskable variant scales the glyph to 82% around the center and drops the corner rounding so the full-bleed tile survives any platform mask (safe zone: central 80%).
 
 ## Concept — "the quorum ring"

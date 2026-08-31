@@ -186,6 +186,9 @@ function TemplateCard({
       <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
         <div className="flex min-w-0 flex-col gap-1">
           <CardTitle className="flex items-center gap-2">
+            {/* Transitional: `plum` no longer exists in v2 and resolves to honey through the
+                Tailwind color mapping. This marker becomes a honey underline when the
+                templates area ticket restyles this screen. */}
             <span aria-hidden="true" className="h-5 w-1 rounded-full bg-plum" />
             <span className="truncate">{view.template.name}</span>
           </CardTitle>
