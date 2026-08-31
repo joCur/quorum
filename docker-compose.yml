@@ -48,6 +48,11 @@ services:
       OIDC_PUBLIC_ISSUER_URL: ${OIDC_PUBLIC_ISSUER_URL:-http://localhost:8081/realms/quorum}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-quorum-pwa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-quorum-api}
+      # Service account the API uses to give a self-registered account its own tenant. The default
+      # is the secret the development realm declares, so registration works in a fresh checkout;
+      # it is a committed development fixture like the dev users, not a secret.
+      KEYCLOAK_PROVISIONER_CLIENT_ID: ${KEYCLOAK_PROVISIONER_CLIENT_ID:-quorum-provisioner}
+      KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET:-dev-provisioner-secret}
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:

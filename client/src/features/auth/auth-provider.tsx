@@ -22,6 +22,15 @@ export interface AuthContextValue {
   signOut: () => Promise<void>;
   /** Finishes the flow and answers with the in-app path to return to, if one was remembered. */
   completeSignIn: () => Promise<string | null>;
+  /**
+   * Exchanges the current session for a fresh token.
+   *
+   * This is the same silent renewal a 401 triggers, exposed because there is a second reason to
+   * want a new token: claims are minted at the provider, so a change to the account — being given
+   * a tenant on first sign-in — only reaches the app through a renewal. A failed renewal ends the
+   * session, exactly as it does after a 401.
+   */
+  renewSession: () => Promise<void>;
 }
 
 const AuthContext = React.createContext<AuthContextValue | null>(null);
@@ -151,8 +160,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signOut,
       completeSignIn,
+      renewSession: recoverSession,
     }),
-    [status, user, error, sessionExpired, signIn, signOut, completeSignIn],
+    [status, user, error, sessionExpired, signIn, signOut, completeSignIn, recoverSession],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -257,6 +257,10 @@ echo "Credentials:"
 require_url_safe_secret POSTGRES_PASSWORD
 require_secret KEYCLOAK_DB_PASSWORD
 require_secret KEYCLOAK_ADMIN_PASSWORD
+# The service account the API uses to give a self-registered account its own tenant. Mandatory
+# rather than optional: the realm always declares that client, and a client whose secret is the
+# unsubstituted placeholder is a credential nobody chose.
+require_secret KEYCLOAK_PROVISIONER_SECRET
 require_secret MINIO_ROOT_PASSWORD
 # Format and length are checked by scripts/kms-preflight.sh, which knows what MinIO requires.
 # Here the only question is whether anyone replaced the value at all.

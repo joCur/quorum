@@ -14,7 +14,9 @@
     "signIn": "Anmelden",
     "completing": "Anmeldung läuft…",
     "error": "Die Anmeldung wurde nicht abgeschlossen.",
-    "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dort weiterzumachen, wo du warst."
+    "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dort weiterzumachen, wo du warst.",
+    "settingUp": "Dein Arbeitsbereich wird eingerichtet…",
+    "setupFailed": "Dein Arbeitsbereich konnte nicht eingerichtet werden. Das legt sich meist von selbst — versuch es gleich noch einmal."
   },
   "consent": {
     "title": "Bevor du aufnimmst",

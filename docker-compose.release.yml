@@ -72,6 +72,10 @@ services:
       # substitutes the same value into `resetPasswordAllowed`, so a deployment cannot offer a
       # password-reset link it has no way to deliver.
       QUORUM_SMTP_ENABLED: ${QUORUM_SMTP_ENABLED:-false}
+      # Secret of the service account the API uses to give a self-registered account
+      # its own tenant. Substituted into the realm here and handed to the API below,
+      # so the two always speak of the same credential.
+      KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_FROM: ${SMTP_FROM:-}
@@ -125,6 +129,10 @@ services:
       # substitutes the same value into `resetPasswordAllowed`, so a deployment cannot offer a
       # password-reset link it has no way to deliver.
       QUORUM_SMTP_ENABLED: ${QUORUM_SMTP_ENABLED:-false}
+      # Secret of the service account the API uses to give a self-registered account
+      # its own tenant. Substituted into the realm here and handed to the API below,
+      # so the two always speak of the same credential.
+      KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_FROM: ${SMTP_FROM:-}
@@ -177,6 +185,10 @@ services:
       # substitutes the same value into `resetPasswordAllowed`, so a deployment cannot offer a
       # password-reset link it has no way to deliver.
       QUORUM_SMTP_ENABLED: ${QUORUM_SMTP_ENABLED:-false}
+      # Secret of the service account the API uses to give a self-registered account
+      # its own tenant. Substituted into the realm here and handed to the API below,
+      # so the two always speak of the same credential.
+      KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_FROM: ${SMTP_FROM:-}
@@ -244,6 +256,11 @@ services:
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-quorum-pwa}
       OIDC_AUDIENCE: ${OIDC_AUDIENCE:-quorum-api}
       OIDC_TENANT_CLAIM: ${OIDC_TENANT_CLAIM:-tenant_id}
+      # Lets the API give a freshly registered account its own tenant. Without it the
+      # provisioning route does not exist and an account with no tenant is refused,
+      # which is what a deployment with administrator-created users wants.
+      KEYCLOAK_PROVISIONER_CLIENT_ID: ${KEYCLOAK_PROVISIONER_CLIENT_ID:-quorum-provisioner}
+      KEYCLOAK_PROVISIONER_SECRET: ${KEYCLOAK_PROVISIONER_SECRET}
     # No host port. The client container is the single entry point and reaches the API over the
     # Compose network; publishing a second door would only be a way around the one front door.
     depends_on:

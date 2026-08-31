@@ -3,8 +3,33 @@
   "rules": [
     {
       "kind": "devOnly",
-      "path": "users",
-      "reason": "The dev.* fixture users with their committed passwords exist only in the development realm. Production users come from real sign-ups, never from the realm file."
+      "path": "users/dev.alice",
+      "reason": "A dev.* fixture user with a committed password. Human users in production come from real sign-ups, never from the realm file."
+    },
+    {
+      "kind": "devOnly",
+      "path": "users/dev.bob",
+      "reason": "A dev.* fixture user with a committed password. Alice and Bob share a tenant, which is what makes cross-tenant denial testable."
+    },
+    {
+      "kind": "devOnly",
+      "path": "users/dev.carol",
+      "reason": "A dev.* fixture user with a committed password, in a second tenant."
+    },
+    {
+      "kind": "envSubstitution",
+      "path": "clients/quorum-provisioner/secret",
+      "reason": "The service account the API uses to give a self-registered account its own tenant. Development commits a fixed secret so a fresh checkout registers without configuration; a deployment takes it from KEYCLOAK_PROVISIONER_SECRET, which the preflight refuses to let stay a placeholder."
+    },
+    {
+      "kind": "envSubstitution",
+      "path": "registrationAllowed",
+      "reason": "Self-registration needs verification mail to be of any use, so a deployment follows QUORUM_SMTP_ENABLED with it. Development always has mailpit and is always open."
+    },
+    {
+      "kind": "envSubstitution",
+      "path": "verifyEmail",
+      "reason": "Requiring a verified address without a relay would create accounts that can never be verified and therefore never sign in. It follows the same switch as registration for that reason."
     },
     {
       "kind": "devOnly",

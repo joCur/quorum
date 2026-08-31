@@ -1,6 +1,12 @@
 import { buildServer } from "./app.js";
-import { loadConfig, resolveOidcConfig, resolveUserLimits } from "./config.js";
-import { createKeycloakJwks, createTokenVerifier } from "./auth/token-verifier.js";
+import {
+  loadConfig,
+  resolveOidcConfig,
+  resolveProvisioningConfig,
+  resolveUserLimits,
+} from "./config.js";
+import { createKeycloakJwks, createTokenVerifiers } from "./auth/token-verifier.js";
+import { KeycloakTenantProvisioner } from "./auth/provisioning.js";
 import { HeaderRecordingContextProvider } from "./recording/context-provider.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import { PgBossJobQueue, createPendingJobCounter } from "./recording/queue/pg-boss.js";
@@ -16,9 +22,11 @@ export type { BuildServerOptions } from "./app.js";
 export {
   loadConfig,
   resolveOidcConfig,
+  resolveProvisioningConfig,
   resolveUserLimits,
   ServerConfigSchema,
   type OidcConfig,
+  type ProvisioningConfig,
   type ServerConfig,
 } from "./config.js";
 export { authPlugin } from "./auth/plugin.js";
@@ -30,10 +38,23 @@ export type { AuthErrorCode } from "./auth/errors.js";
 export {
   createKeycloakJwks,
   createTokenVerifier,
+  createTokenVerifiers,
   extractBearerToken,
   keycloakJwksUri,
 } from "./auth/token-verifier.js";
-export type { TokenVerifier, TokenVerifierOptions } from "./auth/token-verifier.js";
+export type {
+  IdentityVerifier,
+  TokenIdentity,
+  TokenVerifier,
+  TokenVerifierOptions,
+  TokenVerifiers,
+} from "./auth/token-verifier.js";
+export {
+  derivedTenantId,
+  KeycloakTenantProvisioner,
+  ProvisioningError,
+} from "./auth/provisioning.js";
+export type { KeycloakTenantProvisionerOptions, TenantProvisioner } from "./auth/provisioning.js";
 export * from "./recording/types.js";
 export * from "./recording/keys.js";
 export * from "./recording/frame.js";
@@ -89,6 +110,7 @@ export { PostgresQueueSnapshot } from "./observability/queue-snapshot.js";
 async function main(): Promise<void> {
   const config = loadConfig();
   const oidc = resolveOidcConfig(config);
+  const provisioningConfig = resolveProvisioningConfig(config);
   // V1 has no plan tiers, so every user resolves to the same environment-configured limits.
   const limits = new StaticUserLimitsResolver(resolveUserLimits(config));
 
@@ -128,14 +150,17 @@ async function main(): Promise<void> {
     metrics,
     meetings,
     templates,
-    auth: {
-      verifyAccessToken: createTokenVerifier({
-        issuers: oidc.acceptedIssuers,
-        audience: oidc.audience,
-        tenantClaim: oidc.tenantClaim,
-        keySource: createKeycloakJwks(oidc.issuer, oidc.jwksUri),
-      }),
-    },
+    auth: createTokenVerifiers({
+      issuers: oidc.acceptedIssuers,
+      audience: oidc.audience,
+      tenantClaim: oidc.tenantClaim,
+      keySource: createKeycloakJwks(oidc.issuer, oidc.jwksUri),
+    }),
+    // Present only when the deployment configured a provisioning client. Without one, a token
+    // with no tenant is refused like any other, and the route does not exist.
+    ...(provisioningConfig
+      ? { provisioning: new KeycloakTenantProvisioner(provisioningConfig) }
+      : {}),
     // The header provider stays reachable only behind its explicit development gate; everywhere
     // else the recording scope comes from the validated access token.
     contextProvider: config.RECORDING_ALLOW_HEADER_AUTH

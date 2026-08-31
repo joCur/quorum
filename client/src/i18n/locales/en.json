@@ -14,7 +14,9 @@
     "signIn": "Sign in",
     "completing": "Signing you in…",
     "error": "Sign-in did not complete.",
-    "sessionExpired": "Your session ended. Sign in again to continue where you left off."
+    "sessionExpired": "Your session ended. Sign in again to continue where you left off.",
+    "settingUp": "Setting up your workspace\u2026",
+    "setupFailed": "Your workspace could not be set up. This usually passes \u2014 try again in a moment."
   },
   "consent": {
     "title": "Before you record",

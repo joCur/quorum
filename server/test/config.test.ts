@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadConfig, resolveOidcConfig } from "../src/config.js";
+import { loadConfig, resolveOidcConfig, resolveProvisioningConfig } from "../src/config.js";
 
 const minimal = {
   DATABASE_URL: "postgres://quorum:secret@postgres:5432/quorum",
@@ -64,5 +64,47 @@ describe("resolveOidcConfig", () => {
       loadConfig({ ...minimal, OIDC_PUBLIC_ISSUER_URL: minimal.OIDC_ISSUER_URL }),
     );
     expect(oidc.acceptedIssuers).toHaveLength(1);
+  });
+});
+
+describe("resolveProvisioningConfig", () => {
+  it("is undefined until a deployment sets a provisioner secret", () => {
+    expect(resolveProvisioningConfig(loadConfig(minimal))).toBeUndefined();
+  });
+
+  it("derives the admin endpoint and the realm from the issuer, so the two cannot disagree", () => {
+    const config = resolveProvisioningConfig(
+      loadConfig({ ...minimal, KEYCLOAK_PROVISIONER_SECRET: "s3cret" }),
+    );
+    expect(config).toEqual({
+      baseUrl: "http://keycloak:8080",
+      realm: "quorum",
+      clientId: "quorum-provisioner",
+      clientSecret: "s3cret",
+      attribute: "tenant_id",
+    });
+  });
+
+  it("handles an issuer served under a path prefix, which is how the edge proxy serves it", () => {
+    const config = resolveProvisioningConfig(
+      loadConfig({
+        ...minimal,
+        OIDC_ISSUER_URL: "https://quorum.example.com/auth/realms/quorum",
+        KEYCLOAK_PROVISIONER_SECRET: "s3cret",
+      }),
+    );
+    expect(config?.baseUrl).toBe("https://quorum.example.com/auth");
+  });
+
+  it("refuses an issuer that is not a realm URL rather than guessing", () => {
+    expect(() =>
+      resolveProvisioningConfig(
+        loadConfig({
+          ...minimal,
+          OIDC_ISSUER_URL: "http://keycloak:8080/",
+          KEYCLOAK_PROVISIONER_SECRET: "s3cret",
+        }),
+      ),
+    ).toThrow(/realms/);
   });
 });

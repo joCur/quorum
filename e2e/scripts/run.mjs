@@ -42,6 +42,7 @@ const mockWhisperPort = Number.parseInt(process.env.MOCK_WHISPER_PORT ?? "8123",
 const clientPort = stack.CLIENT_PORT ?? "4173";
 const apiUrl = `http://localhost:${stack.API_PORT}`;
 const keycloakUrl = `http://localhost:${stack.KEYCLOAK_PORT}`;
+const mailpitUrl = `http://localhost:${stack.MAILPIT_UI_PORT ?? "8125"}`;
 const clientUrl = `http://localhost:${clientPort}`;
 const databaseUrl = `postgres://${stack.POSTGRES_USER}:${stack.POSTGRES_PASSWORD}@127.0.0.1:${stack.POSTGRES_PORT}/${stack.POSTGRES_DB}`;
 const s3Endpoint = `http://127.0.0.1:${stack.MINIO_PORT}`;
@@ -62,7 +63,7 @@ const composeArgs = [
   "e2e/docker-compose.e2e.yml",
 ];
 
-const composeServices = ["postgres", "keycloak", "minio", "minio-init", "api"];
+const composeServices = ["postgres", "mailpit", "keycloak", "minio", "minio-init", "api"];
 if (whisperMode === "real") composeServices.push("whisper");
 
 /** Long-running child processes this script owns and must clean up. */
@@ -96,6 +97,7 @@ async function main() {
   await step("waiting for the stack", async () => {
     await waitForHttp(`${apiUrl}/healthz`, "the API");
     await waitForHttp(`${keycloakUrl}/realms/quorum`, "Keycloak");
+    await waitForHttp(`${mailpitUrl}/api/v1/messages`, "the mail relay");
     await waitForHttp(`${s3Endpoint}/minio/health/live`, "MinIO");
     if (whisperMode === "real") await waitForHttp(`${whisperBaseUrl}/models`, "Whisper", 300_000);
   });
@@ -196,6 +198,7 @@ async function main() {
     E2E_CLIENT_URL: clientUrl,
     E2E_API_URL: apiUrl,
     E2E_KEYCLOAK_URL: keycloakUrl,
+    E2E_MAILPIT_URL: mailpitUrl,
     E2E_DATABASE_URL: databaseUrl,
     E2E_S3_ENDPOINT: s3Endpoint,
     E2E_S3_BUCKET: stack.S3_BUCKET,

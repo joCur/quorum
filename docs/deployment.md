@@ -57,6 +57,7 @@ refuses to start while any of them is missing or still holds a placeholder, and 
 | `POSTGRES_PASSWORD`       | See the warning below about URL-safe characters.                     |
 | `KEYCLOAK_DB_PASSWORD`    | Keycloak's own database role on the same Postgres instance.          |
 | `KEYCLOAK_ADMIN_PASSWORD` | The admin account. Used on every deploy, not just the first.         |
+| `KEYCLOAK_PROVISIONER_SECRET` | Service account the API uses to give a new account its workspace. |
 | `MINIO_ROOT_USER` / `_PASSWORD` | Object storage credentials, also used as the S3 access key.    |
 | `MINIO_KMS_SECRET_KEY`    | Storage encryption master key. **Back this up — see step 6.**        |
 | `S3_BUCKET`               | Bucket for recordings, e.g. `recordings`.                            |
@@ -104,12 +105,24 @@ Turn it on with one switch and the settings it makes mandatory:
 | `SMTP_AUTH`               | Whether the relay wants credentials. When `true`, the two below are required. |
 | `SMTP_USER` / `SMTP_PASSWORD` | The relay credentials.                                              |
 
-`QUORUM_SMTP_ENABLED` does two things at once, and that is deliberate. It makes the `SMTP_*` values
-mandatory in the preflight — a missing or placeholder relay password stops the deploy with one
-readable line instead of producing reset mail that silently vanishes. And the realm substitutes the
-same value into `resetPasswordAllowed`, so while mail is off the sign-in page shows no "Forgot
-password?" link at all. A door that opens onto a mail nobody can send is worse than no door: the
-user waits, retries, and concludes the account is broken.
+`QUORUM_SMTP_ENABLED` governs more than the relay settings, and that is deliberate. It makes the
+`SMTP_*` values mandatory in the preflight — a missing or placeholder relay password stops the
+deploy with one readable line instead of producing reset mail that silently vanishes. And the realm
+substitutes the same value into three settings that are only usable with mail behind them:
+
+| Realm setting           | With mail off                                                            |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `resetPasswordAllowed`  | No "Forgot password?" link on the sign-in page.                           |
+| `registrationAllowed`   | No "Register" link either — see "How people get accounts" in step 5.      |
+| `verifyEmail`           | Off, because nothing could deliver the verification link.                 |
+
+One switch rather than three because the three cannot sensibly disagree. A "Forgot password?" link
+that leads to a mail nobody can send is worse than no link: the user waits, retries, and concludes
+the account is broken. And registration that demands a verified address without a way to verify one
+creates accounts that can never sign in at all — a worse outcome than not offering registration.
+
+**So: mail off is a closed, working deployment whose accounts an administrator creates. Mail on is
+self-service.** Nothing in between is offered, because nothing in between works.
 
 Switching it on is a change to `.env` and a redeploy. So is changing relay later, or rotating the
 relay password: the realm is reconciled on **every** deploy, not only the first, so each `SMTP_*`
@@ -243,13 +256,29 @@ This is the part worth internalising:
 So do not make realm changes in the admin console expecting them to last. Accounts, group
 memberships and role assignments are fine; realm and client configuration is not.
 
-### Creating the first user
+### How people get accounts
 
-Self-registration through the app is the intended path and is not built yet. Until it ships:
-open the admin console at `QUORUM_PUBLIC_URL/admin`, sign in with `KEYCLOAK_ADMIN` and
-`KEYCLOAK_ADMIN_PASSWORD`, and add a user to the `quorum` realm with the `quorum-user` role and a
-`tenant_id` attribute (add `quorum-admin` for a tenant administrator). Every data object in Quorum
-is tenant-scoped (ADR-001), so a user without that attribute gets tokens the API rejects.
+**They sign up.** With mail switched on, the sign-in page offers "Register": someone fills in the
+form, gets a verification mail, follows the link, and signs in. Nothing has to be created for them
+by hand.
+
+What happens on that first sign-in is worth knowing, because it is the one moment the app does
+something an account never needs again. Keycloak creates the user with the `quorum-user` role but
+without a tenant, and everything in Quorum is tenant-scoped (ADR-001) — so the API would refuse
+every request that account made. The app therefore asks the API to finish the sign-up, the API
+writes the tenant onto the Keycloak user through the `quorum-provisioner` service account, and the
+app renews its token so the new tenant is actually in it. The user sees "Setting up your
+workspace…" for a moment. Each sign-up gets **its own tenant**, and its data is invisible to every
+other account from the first request onward.
+
+That is what `KEYCLOAK_PROVISIONER_SECRET` is for, and why it is mandatory.
+
+**Without mail** there is no registration, so accounts are created by hand: open the admin console
+at `QUORUM_PUBLIC_URL/admin`, sign in with `KEYCLOAK_ADMIN` and `KEYCLOAK_ADMIN_PASSWORD`, and add a
+user to the `quorum` realm with the `quorum-user` role and a `tenant_id` attribute — any string;
+users sharing one belong to the same workspace. Add `quorum-admin` for a tenant administrator. A
+user without that attribute gets tokens the API rejects, which the app resolves by provisioning them
+a tenant of their own on first sign-in, exactly as it does for a sign-up.
 
 `KEYCLOAK_ADMIN_PASSWORD` stays in use after the first start — it is what the bootstrap
 authenticates with on every deploy, so treat it as a deployment credential rather than a one-time

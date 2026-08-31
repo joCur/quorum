@@ -82,6 +82,15 @@ export const ServerConfigSchema = z.object({
   OIDC_JWKS_URI: z.string().url().optional(),
   OIDC_AUDIENCE: z.string().min(1).default("quorum-api"),
   OIDC_TENANT_CLAIM: z.string().min(1).default("tenant_id"),
+
+  /**
+   * Confidential client the API uses to give a self-registered account its tenant
+   * (`auth/provisioning.ts`). Leaving the secret unset switches the whole path off: the route does
+   * not exist and an account without a tenant is simply refused, which is the right behavior for a
+   * deployment whose users are created by an administrator.
+   */
+  KEYCLOAK_PROVISIONER_CLIENT_ID: z.string().min(1).default("quorum-provisioner"),
+  KEYCLOAK_PROVISIONER_SECRET: z.string().min(1).optional(),
 });
 
 export type ServerConfig = z.infer<typeof ServerConfigSchema>;
@@ -106,6 +115,46 @@ export function resolveUserLimits(config: ServerConfig): UserLimits {
     apiRequestsPerWindow: config.API_RATE_LIMIT_MAX,
     apiWindowSeconds: config.API_RATE_LIMIT_WINDOW_SECONDS,
     apiSummaryRequestsPerWindow: config.API_RATE_LIMIT_SUMMARY_MAX,
+  };
+}
+
+/** What the tenant provisioner needs. `undefined` when the deployment has not configured one. */
+export interface ProvisioningConfig {
+  /** Keycloak's own origin, without the realm path. */
+  readonly baseUrl: string;
+  readonly realm: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
+  /** The user attribute behind the tenant claim — the two are the same thing on either side. */
+  readonly attribute: string;
+}
+
+/**
+ * Splits the internal issuer into the admin base URL and the realm.
+ *
+ * Derived rather than configured separately: the realm the API validates tokens against and the
+ * realm it writes a tenant attribute into have to be the same one, and two variables that must
+ * agree are two variables that eventually will not.
+ */
+export function resolveProvisioningConfig(config: ServerConfig): ProvisioningConfig | undefined {
+  if (config.KEYCLOAK_PROVISIONER_SECRET === undefined) return undefined;
+
+  const issuer = new URL(config.OIDC_ISSUER_URL);
+  const match = /^(?<prefix>.*)\/realms\/(?<realm>[^/]+)\/?$/.exec(issuer.pathname);
+  const realm = match?.groups?.["realm"];
+  if (realm === undefined) {
+    throw new Error(
+      `OIDC_ISSUER_URL must be a Keycloak realm URL ending in /realms/<realm> to derive the ` +
+        `provisioning endpoint from it. Got: ${config.OIDC_ISSUER_URL}`,
+    );
+  }
+
+  return {
+    baseUrl: `${issuer.origin}${match?.groups?.["prefix"] ?? ""}`,
+    realm: decodeURIComponent(realm),
+    clientId: config.KEYCLOAK_PROVISIONER_CLIENT_ID,
+    clientSecret: config.KEYCLOAK_PROVISIONER_SECRET,
+    attribute: config.OIDC_TENANT_CLAIM,
   };
 }
 
