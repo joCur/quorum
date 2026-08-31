@@ -35,10 +35,19 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
+      # Configured by `release-please-config.json` and `.release-please-manifest.json` at the
+      # repository root rather than by a `release-type` here, because the release has to reach
+      # more than the changelog: one version is written to the root package.json and copied into
+      # the client, server and worker manifests, so the version the client displays is the version
+      # that was tagged. The manifest file is the version the next release counts from; the action
+      # rewrites it as part of the release commit.
+      #
+      # Two settings in that config exist only to keep the release shaped the way it already is:
+      # the empty component keeps the release branch and the tag free of a package prefix, so the
+      # tag stays `vX.Y.Z` and an already-open release pull request keeps its branch instead of
+      # being abandoned in favour of a differently named one.
       - uses: googleapis/release-please-action@v4
         id: release
-        with:
-          release-type: simple
 
   # The gate. Everything that leaves the repository depends on this job, so a failure here is a
   # release that stops after the tag: no images, no assets, and a red job saying why.
