@@ -1,22 +1,22 @@
-# Quorum — Fundament (Schemas & ADRs)
-> **Quorum** — Meetingaufzeichnung mit Transkription und konfigurierbaren Zusammenfassungen, self-hosted first.
+# Quorum — Foundation (Schemas & ADRs)
+> **Quorum** — meeting recording with transcription and configurable summaries, self-hosted first.
 
-Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, geplant als SaaS. Webanwendung (Desktop + Mobile Browser, PWA), Wake Lock während der Aufnahme.
+Meeting recording (in person & online) with configurable summaries, planned as a SaaS. A web application (desktop + mobile browser, PWA), with a wake lock held during the recording.
 
-## Struktur
+## Structure
 
-- `adr/` — Architecture Decision Records
-  - ADR-001: Serverseitige Verarbeitung, Audio-Persistierung, Verschlüsselung at rest, Löschkonzept
-  - ADR-002: Chunk-Streaming per WebSocket, Verarbeitung als asynchroner Job
-  - ADR-003: Transcript-Datenmodell (Immutability, 1:n, Wort-Timestamps)
-  - ADR-004: Summary-Templates (Vererbung, Snapshot, strukturierter Output)
-  - ADR-005: Self-hosted Whisper + OpenAI-kompatible Summary-API
+- `docs/adr/` — Architecture Decision Records
+  - ADR-001: Server-side processing, audio persistence, encryption at rest, the deletion concept
+  - ADR-002: Chunk streaming over WebSocket, processing as an asynchronous job
+  - ADR-003: Transcript data model (immutability, 1:n, word timestamps)
+  - ADR-004: Summary templates (inheritance, snapshot, structured output)
+  - ADR-005: Self-hosted Whisper + an OpenAI-compatible summary API
   - ADR-006: Stack decision (Fastify, React + Vite PWA, pg-boss, PostgreSQL, MinIO, whisperX, Keycloak)
   - ADR-007: Authentication stays on Keycloak; realm configuration becomes declarative
-- `PITCH.md` — Warum wir das bauen, V1-Demo-Definition, rechtliche Haltung
-- `ROADMAP.md` — V1 → V2 → später (wird bei Projektstart zu GitHub-Issues)
-- `OPEN-QUESTIONS.md` — Stack-Vorschläge, Observability, Missbrauchsschutz (bewusst offen)
-- `COST-MODEL.md` — Kosten pro Meeting-Stunde (eigener Server vs. Cloud)
+- `docs/PITCH.md` — why we are building this, the V1 demo definition, our legal position
+- `docs/ROADMAP.md` — V1 → V2 → later (becomes GitHub issues at project start)
+- `docs/OPEN-QUESTIONS.md` — stack proposals, observability, abuse protection (deliberately open)
+- `docs/COST-MODEL.md` — cost per meeting hour (our own server vs. cloud)
 - `docs/observability.md` — the structured log schema both services emit and the Prometheus
   metrics they expose (queue depth, job throughput, failure rate)
 - `docs/runbooks/pipeline.md` — what to do when the pipeline misbehaves: retry and dead-letter
@@ -25,16 +25,17 @@ Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, gepl
   that backups have to honor, and how the MinIO KMS master key is kept and rotated
 - `infra/monitoring/` — Prometheus, Alertmanager and Grafana as code, behind the opt-in
   `monitoring` compose profile
-- `docker-compose.yml` + `docker-compose.gpu.yml` + `.env.example` — Self-Hosting-Skeleton, Hardware-Wechsel rein per Env
+- `docker-compose.yml` + `docker-compose.gpu.yml` + `.env.example` — the self-hosting skeleton; a
+  hardware change is purely an env change
 - `docker-compose.release.yml` / `docker-compose.release-gpu.yml` + `docs/deployment.md` — the
   production stack. Installing it is one compose file plus a `.env`: every script, configuration
   file and the production realm is baked into the published images, and nothing is mounted from
   the host. Pick the CPU or the GPU file, never both.
-- `shared/src/` — Zod-Schemas als Single Source of Truth für Client & Server
-  - `recording-protocol.ts` — WebSocket-Control-Messages + binäres Chunk-Format
-  - `transcript.ts` — Transcript, Segmente, Sprecher, Wort-Timestamps
-  - `summary.ts` — Templates, Overrides, erzeugte Summaries mit Snapshot
-  - `job.ts` — Async-Job-API (Status, Fehlerformat, Ergebnis-Referenz)
+- `shared/src/` — Zod schemas as the single source of truth for client & server
+  - `recording-protocol.ts` — WebSocket control messages + the binary chunk format
+  - `transcript.ts` — transcript, segments, speakers, word timestamps
+  - `summary.ts` — templates, overrides, generated summaries with a snapshot
+  - `job.ts` — the async job API (status, error format, result reference)
 
 ## Development
 
@@ -134,22 +135,25 @@ pnpm --filter @quorum/server run build
 pnpm --filter @quorum/server run start   # environment as described in server/README.md
 ```
 
-## Nächste Schritte (Walking Skeleton)
+## Walking Skeleton Steps
 
-1. Auth aufsetzen (OIDC via fertige Lösung, Authorization Code + PKCE) — Mandanten-/User-Scope in jedem Datenobjekt ab Tag 1
-2. Server: WebSocket-Endpoint gemäß `recording-protocol.ts`, Chunks in Object Storage persistieren, `chunk.ack` senden
-3. Client: Aufnahme (getUserMedia + MediaRecorder), IndexedDB-Puffer für unbestätigte Chunks, Reconnect ab `persistedSeq`
-4. Job-Worker: Audio → Whisper → `Transcript` gemäß Schema (inkl. `words[]`)
-5. Summary-Worker: System-Template → LLM → `Summary` mit Template-Snapshot
-6. E2E-Test des kritischen Pfads: Aufnahme → Streaming → Transcript → Summary
+The steps that took the repository from schemas to a running pipeline. All of them have landed;
+they are kept here as the shape of the critical path:
 
-Shared Package: `@quorum/shared` (npm-Scope bei Repo-Setup prüfen). Abhängigkeit: `zod` (v3+).
+1. Set up auth (OIDC via an off-the-shelf solution, Authorization Code + PKCE) — tenant/user scope in every data object from day one
+2. Server: a WebSocket endpoint per `recording-protocol.ts`, persisting chunks in object storage, sending `chunk.ack`
+3. Client: recording (getUserMedia + MediaRecorder), an IndexedDB buffer for unacknowledged chunks, reconnect from `persistedSeq`
+4. Job worker: audio → Whisper → `Transcript` per the schema (including `words[]`)
+5. Summary worker: system template → LLM → `Summary` with a template snapshot
+6. E2E test of the critical path: recording → streaming → transcript → summary
 
-## Lokale Entwicklung unter macOS
+Shared package: `@quorum/shared` (check the npm scope when setting up the repository). Dependency: `zod` (v3+).
 
-Docker-Container haben auf dem Mac **keinen GPU-Zugriff** (Linux-VM, kein Metal) — das CUDA-Image und `docker-compose.gpu.yml` sind dort gegenstandslos. Zwei Wege:
+## Local Development on macOS
 
-1. **Default — CPU-Image (volle Stack-Parität):** In `.env` das macOS-Profil setzen (`WHISPER_IMAGE_TAG=latest-cpu`, `WHISPER_DEVICE=cpu`, Modell `small`/int8). Identisches Compose-Setup wie Produktion — richtig für Integrations- und E2E-Tests.
-2. **Speed-Modus — Whisper nativ mit Metal:** whisper.cpp (`--server`) oder mlx-whisper auf dem Host starten, Whisper-Container weglassen, im Worker `WHISPER_BASE_URL=http://host.docker.internal:8080/v1` setzen. Large-Qualität, schnell — für intensive Arbeit an der Transkriptions-Pipeline. Der Worker merkt dank OpenAI-kompatibler Abstraktion (ADR-005) keinen Unterschied.
+Docker containers have **no GPU access** on a Mac (a Linux VM, no Metal) — the CUDA image and `docker-compose.gpu.yml` are moot there. Two ways:
 
-Auf Apple Silicon auf arm64-Images achten (speaches, Postgres, MinIO liefern multi-arch), sonst bremst Rosetta-Emulation.
+1. **Default — the CPU image (full stack parity):** set the macOS profile in `.env` (`WHISPER_IMAGE_TAG=latest-cpu`, `WHISPER_DEVICE=cpu`, the `small` model / int8). An identical compose setup to production — the right choice for integration and E2E tests.
+2. **Speed mode — Whisper natively with Metal:** start whisper.cpp (`--server`) or mlx-whisper on the host, leave the Whisper container out, and set `WHISPER_BASE_URL=http://host.docker.internal:8080/v1` in the worker. Large-model quality, fast — for intensive work on the transcription pipeline. Thanks to the OpenAI-compatible abstraction (ADR-005), the worker notices no difference.
+
+On Apple Silicon, watch out for arm64 images (speaches, Postgres and MinIO ship multi-arch), otherwise Rosetta emulation slows things down.

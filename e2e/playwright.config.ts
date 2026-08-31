@@ -2,6 +2,17 @@ import { defineConfig, devices } from "@playwright/test";
 import { stackEnv } from "./support/env.js";
 
 /**
+ * Traces, videos and the HTML report go under this run's compose project name.
+ *
+ * Playwright empties its output directory when it starts, so two concurrent runs sharing one would
+ * delete each other's evidence — and only the survivor would have a report. The orchestrator
+ * prints the path at startup; a bare `playwright test` keeps the plain folders.
+ */
+const runArtifacts = process.env["E2E_COMPOSE_PROJECT"]
+  ? `/${process.env["E2E_COMPOSE_PROJECT"]}`
+  : "";
+
+/**
  * The suite runs against a real stack that the orchestrator (`scripts/run.mjs`) brings up, so
  * there is no `webServer` here: starting compose, the worker and the PWA is more than Playwright's
  * one-command hook can express, and hiding it there would make a single-spec run impossible.
@@ -12,6 +23,7 @@ import { stackEnv } from "./support/env.js";
  */
 export default defineConfig({
   testDir: "./tests",
+  outputDir: `./test-results${runArtifacts}`,
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env["CI"],
@@ -22,7 +34,9 @@ export default defineConfig({
   failOnFlakyTests: true,
   timeout: 120_000,
   expect: { timeout: 15_000 },
-  reporter: process.env["CI"] ? [["github"], ["html", { open: "never" }]] : [["list"]],
+  reporter: process.env["CI"]
+    ? [["github"], ["html", { open: "never", outputFolder: `./playwright-report${runArtifacts}` }]]
+    : [["list"]],
   use: {
     baseURL: stackEnv.clientUrl,
     // en-US is the source locale; pinning it keeps the assertions readable.

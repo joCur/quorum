@@ -537,7 +537,7 @@ describe("parallel session cap", () => {
 
 describe("default limits", () => {
   it("stays far above what a real recording does", () => {
-    // A live recording sends 0.5–1 chunk/s and roughly 4 KiB/s of Opus (ADR-002, COST-MODEL.md).
+    // A live recording sends 0.5–1 chunk/s and roughly 4 KiB/s of Opus (ADR-002, docs/COST-MODEL.md).
     // The e2e suite records for seconds, so the defaults must never be in its way.
     expect(DEFAULT_USER_LIMITS.maxChunksPerSecond).toBeGreaterThanOrEqual(10);
     expect(DEFAULT_USER_LIMITS.maxBytesPerSecond).toBeGreaterThanOrEqual(1024 * 1024);
