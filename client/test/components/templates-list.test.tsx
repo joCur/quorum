@@ -172,32 +172,36 @@ describe("templates card grid", () => {
   });
 });
 
-describe("template editor section numbering", () => {
+function renderEditor(): void {
+  const sections = ["Context", "Decisions"].map((title, index) => ({
+    id: `s${index}`,
+    title,
+    instruction: "",
+    format: "bullets" as const,
+  }));
+
+  renderWithProviders(
+    <TemplateEditor
+      initialName="Customer call"
+      initialSections={sections}
+      initialOptions={{ tone: "neutral", length: "standard", outputLanguage: "auto" }}
+      baseSections={sections}
+      basedOn={SYSTEM_ID}
+      saving={false}
+      onCancel={vi.fn()}
+      onSave={vi.fn()}
+    />,
+  );
+}
+
+describe("template editor sections", () => {
   beforeAll(async () => {
     await useLanguage("en");
   });
 
   it("numbers the section cards in the order they will be summarized", async () => {
     const user = userEvent.setup();
-    const sections = ["Context", "Decisions"].map((title, index) => ({
-      id: `s${index}`,
-      title,
-      instruction: "",
-      format: "bullets" as const,
-    }));
-
-    renderWithProviders(
-      <TemplateEditor
-        initialName="Customer call"
-        initialSections={sections}
-        initialOptions={{ tone: "neutral", length: "standard", outputLanguage: "auto" }}
-        baseSections={sections}
-        basedOn={SYSTEM_ID}
-        saving={false}
-        onCancel={vi.fn()}
-        onSave={vi.fn()}
-      />,
-    );
+    renderEditor();
 
     const numbers = () => screen.getAllByTestId("section-number").map((el) => el.textContent);
     expect(numbers()).toEqual(["01", "02"]);
@@ -209,5 +213,21 @@ describe("template editor section numbering", () => {
     expect(
       screen.getAllByLabelText("Heading").map((input) => (input as HTMLInputElement).value),
     ).toEqual(["Decisions", "Context"]);
+  });
+
+  it("keeps the fields named once the per-section help text is gone", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    // The heading and the instruction lost their visible labels to the compact row; their
+    // accessible names have to carry them, or the form stops being usable without sight.
+    const instruction = screen.getAllByLabelText("What belongs in it")[0]!;
+    await user.clear(screen.getAllByLabelText("Heading")[0]!);
+    await user.type(screen.getAllByLabelText("Heading")[0]!, "Risks");
+    await user.type(instruction, "Named risks only.");
+
+    expect((instruction as HTMLTextAreaElement).value).toBe("Named risks only.");
+    // The preview follows the form as it is edited, before anything is saved.
+    expect(screen.getByRole("region", { name: "Preview" })).toHaveTextContent("Risks");
   });
 });

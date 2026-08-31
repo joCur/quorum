@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ListChecks, Pencil, Plus, Star, Trash2 } from "lucide-react";
+import { ArrowLeft, ListChecks, Pencil, Plus, Star, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { SummaryTemplateDraft, SummaryTemplateView } from "@quorum/shared";
 import { EmptyState } from "@/components/layout/empty-state";
@@ -69,7 +69,9 @@ export function TemplatesRoute() {
   if (templates.status === "error") {
     return (
       <div className="flex flex-col gap-6">
-        <h1 className="text-xl font-bold md:text-2xl">{t("templates.title")}</h1>
+        <h1 className="font-display text-2xl font-extrabold tracking-tight md:text-3xl">
+          {t("templates.title")}
+        </h1>
         <Card>
           <CardContent className="flex flex-col items-start gap-3 pt-6">
             <p className="text-muted-foreground">{t("templates.loadError")}</p>
@@ -91,8 +93,22 @@ export function TemplatesRoute() {
       : (system?.resolvedSections ?? []);
 
     return (
-      <div className="flex flex-col gap-6">
-        <h1 className="text-xl font-bold md:text-2xl">
+      <div className="flex flex-col gap-4">
+        {/* The way back out at the top of the screen, where the eye starts. Cancel at the foot of
+            the form does the same thing, but only once the form has been read to the end. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-2 w-fit rounded-pill text-muted-foreground"
+          onClick={() => {
+            setSaveError(null);
+            setMode({ kind: "list" });
+          }}
+        >
+          <ArrowLeft aria-hidden="true" className="size-4" />
+          {t("templates.editor.back")}
+        </Button>
+        <h1 className="font-display text-2xl font-extrabold tracking-tight md:text-3xl">
           {editing ? editing.template.name : t("templates.create")}
         </h1>
         {saveError ? <p className="text-sm text-destructive">{saveError}</p> : null}
@@ -119,7 +135,9 @@ export function TemplatesRoute() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-2">
-        <h1 className="text-xl font-bold md:text-2xl">{t("templates.title")}</h1>
+        <h1 className="font-display text-2xl font-extrabold tracking-tight md:text-3xl">
+          {t("templates.title")}
+        </h1>
         <Button onClick={() => setMode({ kind: "create" })}>
           <Plus aria-hidden="true" className="size-4" />
           {t("templates.create")}
@@ -188,7 +206,9 @@ function TemplateCard({
   return (
     <Card data-testid="template-card" className="flex h-full flex-col gap-3 p-4 md:p-5">
       <div className="flex flex-wrap items-center gap-2">
-        <CardTitle className="min-w-0 break-words text-base">{view.template.name}</CardTitle>
+        <CardTitle className="min-w-0 break-words font-display text-base font-bold">
+          {view.template.name}
+        </CardTitle>
         {view.isDefault ? (
           <Badge variant="honey" data-testid="template-default-badge">
             {t("templates.default")}
