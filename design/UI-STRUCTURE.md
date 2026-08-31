@@ -1,6 +1,6 @@
 # V1 UI Structure — Screens & Navigation
 
-Mobile-first PWA (phones are a primary case); every screen scales up to desktop. Layout: single-column on mobile with a bottom tab bar; on ≥ md, a slim left sidebar replaces the tabs and content gets a centered max-width (~720px for reading views, wider for the list).
+Mobile-first PWA (phones are a primary case); every screen scales up to desktop. Layout: a single centered content column under one sticky top bar, at every width — there is no sidebar and no bottom tab bar.
 
 > **Superseded section by section by the v2 redesign.** This file still describes the v1 visual
 > language. Every section below carries a `v2:` marker naming the area that owns its rewrite. When
@@ -12,16 +12,20 @@ Mobile-first PWA (phones are a primary case); every screen scales up to desktop.
 
 ## 1. Navigation model
 
-> v2: superseded — rewritten by the **app shell** redesign.
+One sticky top bar carries the whole model, at every width, on every screen the shell renders:
 
-Three top-level destinations + one modal flow:
+`Q mark · nav pill (Meetings | Templates) · spacer · settings icon · record pill`
 
-- **Meetings** (default/home) — list of all meetings with status.
-- **Templates** — summary template list + editor.
-- **Settings** — account, appearance, app info.
-- **Record** — not a tab in the usual sense: a prominent center action (FAB-style raised record button in the mobile tab bar; primary button in the desktop sidebar) that launches the recording flow.
+- **Meetings** (default/home) — list of all meetings with status. A segment of the nav pill.
+- **Templates** — summary template list + editor. The other segment.
+- **Settings** — account, appearance, app info. An icon button at the far end, outside the pill:
+  a place you visit, not a place you work.
+- **Record** — the action the bar ends on, an espresso pill, never a destination in the nav.
 
-While a recording session is live, a persistent `RecordingBar` (slim strip: pulsing indicator + timer + "Return to recording") sits above the content on every other screen.
+While a recording session is live the record pill is replaced, in place, by the live pill: red with
+a breathing dot, `REC` and the running timer; neutral and bordered with a pause glyph while the
+session is held. It is one button and it leads back to the recording screen, which the user may
+always leave — the session belongs to the app, not to that screen.
 
 Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-in screen.
 
@@ -75,19 +79,17 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
 
 ## 3. Flow diagram
 
-> v2: superseded — rewritten by the **app shell** redesign.
-
 ```mermaid
 flowchart TD
     Login[Sign in / OIDC] --> List
 
-    subgraph Tabs [Bottom tabs / sidebar]
+    subgraph Bar [Top bar]
       List[Meetings list]
       Templates[Templates]
       Settings[Settings]
     end
 
-    List -- "Record (center action)" --> Consent[Consent notice]
+    List -- "Record (top-bar pill)" --> Consent[Consent notice]
     Consent -- cancel --> List
     Consent -- confirm --> Mic[Mic permission] --> Rec[Recording screen]
     Rec -- "pause / resume" --> Rec
@@ -107,16 +109,16 @@ flowchart TD
 
 ## 4. Responsive rules
 
-> v2: superseded — rewritten by the **app shell** redesign.
-
-- `< md`: bottom tab bar (Meetings · Record · Templates · Settings — Record raised/circular in the center), full-width content, sheets instead of dialogs for forms.
-- `≥ md`: left sidebar (wordmark, nav, record button), content max-width, dialogs.
+- The same top bar at every width; nothing is anchored to the bottom edge, so no screen needs an
+  exception from the shell.
+- `< 760px` (the shell breakpoint): the bar sheds words and keeps every control — the wordmark next
+  to the Q mark and the label on the record pill drop, leaving Q and the microphone. Sheets instead
+  of dialogs for forms.
+- `≥ 760px`: wordmark and record label are shown; dialogs.
 - Recording screen is always full-screen and distraction-free on all sizes — the breathing indicator is the only ambient motion.
 - PWA: installable, standalone display; theme-color follows `background` token per color scheme; recording screen prevents display sleep via Wake Lock API.
 
 ## 5. Route summary
-
-> v2: superseded — rewritten by the **app shell** redesign.
 
 | Route | Screen |
 |---|---|

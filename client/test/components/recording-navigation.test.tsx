@@ -56,52 +56,74 @@ function renderShell(recording: RecordingSession | null, route = "/meetings") {
   );
 }
 
-function bar() {
+function pill() {
   return screen.queryByTestId("recording-bar");
 }
 
-describe("the recording bar", () => {
+/** The idle record action, which the live pill takes the place of. */
+function recordAction() {
+  return screen.queryByRole("button", { name: "Record" });
+}
+
+describe("the live pill in the top bar", () => {
   beforeAll(async () => {
     await useLanguage("en");
   });
 
   it("stays away when nothing is being recorded", () => {
     renderShell(session({ phase: "idle" }));
-    expect(bar()).not.toBeInTheDocument();
+    expect(pill()).not.toBeInTheDocument();
+    expect(recordAction()).toBeInTheDocument();
   });
 
   it("stays away where there is no recording session at all", () => {
     // The sign-in screens live outside the recording scope; an ambient consumer must cope.
     renderShell(null);
-    expect(bar()).not.toBeInTheDocument();
+    expect(pill()).not.toBeInTheDocument();
+    expect(recordAction()).toBeInTheDocument();
   });
 
   it("shows the running recording, with the recorded time", () => {
     renderShell(session({ phase: "recording", elapsedSeconds: 75, level: 0.4 }));
-    expect(bar()).toBeInTheDocument();
+    expect(pill()).toBeInTheDocument();
     expect(screen.getByText("REC", { exact: true })).toBeInTheDocument();
     expect(screen.getByText("01:15")).toBeInTheDocument();
   });
 
-  it("says when the running recording is paused", () => {
-    renderShell(session({ phase: "paused", elapsedSeconds: 75 }));
-    expect(bar()).toBeInTheDocument();
-    expect(screen.getByText("PAUSED", { exact: true })).toBeInTheDocument();
+  it("takes the record action's place rather than sitting beside it", () => {
+    // One slot, one meaning. Offering to start a recording next to one that is already running
+    // is the ambiguity the single top bar exists to remove.
+    renderShell(session({ phase: "recording" }));
+    expect(recordAction()).not.toBeInTheDocument();
   });
 
-  it("shows on the meeting detail, where the tab bar does not", () => {
-    // The tab bar steps aside for that leaf view. A live recording may not step aside with it —
-    // the indicator would then be missing on exactly the screen a user browses to mid-meeting.
+  it("says when the running recording is paused", () => {
+    renderShell(session({ phase: "paused", elapsedSeconds: 75 }));
+    expect(pill()).toBeInTheDocument();
+    expect(screen.getByText("PAUSE", { exact: true })).toBeInTheDocument();
+    expect(recordAction()).not.toBeInTheDocument();
+  });
+
+  it("announces the phase, and only the phase", () => {
+    // The timer ticks every second; inside a live region it would turn the bar into a metronome.
+    renderShell(session({ phase: "recording", elapsedSeconds: 75 }));
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("REC");
+    expect(status).not.toHaveTextContent("01:15");
+  });
+
+  it("shows on the meeting detail, which has no shell exception any more", () => {
+    // The detail used to lose its navigation; a live recording may never be the thing that goes
+    // missing on exactly the screen a user browses to mid-meeting.
     renderShell(session({ phase: "recording" }), MEETING_DETAIL);
-    const tabBar = screen.getAllByRole("navigation").find((nav) => nav.className.includes("fixed"));
-    expect(tabBar).toBeUndefined();
-    expect(bar()).toBeInTheDocument();
+    expect(pill()).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Meetings" })).toBeInTheDocument();
   });
 
   it("stays away once the recording is being finalized", () => {
     // Finalizing is the recording screen's own business, and it navigates away by itself.
     renderShell(session({ phase: "finalizing" }));
-    expect(bar()).not.toBeInTheDocument();
+    expect(pill()).not.toBeInTheDocument();
   });
 
   it("is the way back to the recording", async () => {

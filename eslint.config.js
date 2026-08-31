@@ -14,6 +14,8 @@ export default tseslint.config(
       "**/coverage/**",
       "**/test-results/**",
       "**/playwright-report/**",
+      // Design snapshots handed over for a ticket; foreign code, never shipped.
+      ".design-ref/**",
     ],
   },
   js.configs.recommended,

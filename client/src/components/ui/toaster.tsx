@@ -52,8 +52,8 @@ export function Toaster() {
           closeButton: "border-border bg-popover text-muted-foreground",
         },
       }}
-      // Clear of the mobile tab bar and the meeting detail's playback bar, both of which own the
-      // bottom edge of a small screen.
+      // Clear of the meeting detail's playback bar — the one thing left that rests on the bottom
+      // edge of a small screen.
       mobileOffset={{ bottom: "5.5rem" }}
     />
   );
