@@ -388,7 +388,7 @@ volumes:
   grafana-data:
 
 # Hinweise:
-# - Queue: pg-boss in Postgres — kein separater Redis nötig (siehe OPEN-QUESTIONS.md).
+# - Queue: pg-boss in Postgres — kein separater Redis nötig (siehe docs/OPEN-QUESTIONS.md).
 # - Reverse Proxy (Caddy/Traefik) mit TLS davor schalten, sobald von außen erreichbar;
 #   für die private Phase reicht Tailscale.
 # - Backups: pg_dump + MinIO-Bucket-Sync regelmäßig auf externes Ziel (ADR-001-Pflicht).

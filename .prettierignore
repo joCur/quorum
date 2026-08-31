@@ -6,10 +6,10 @@ playwright-report/
 *.tsbuildinfo
 pnpm-lock.yaml
 
-# Founding documents are still in German and get migrated with issue #13.
-# Reformatting them now would only create review noise.
+# Prose here is wrapped by hand. Prettier's reflow rewrites whole paragraphs for a
+# one-word edit, which buries the actual change in a diff nobody can review.
 *.md
-adr/
+docs/adr/
 .github/pull_request_template.md
 
 # Compose files use hand-aligned trailing comments that Prettier would collapse.

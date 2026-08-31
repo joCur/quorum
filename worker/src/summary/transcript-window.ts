@@ -3,7 +3,7 @@ import type { Segment, Transcript } from "@quorum/shared";
 /**
  * Turning a transcript into prompt text within a token budget.
  *
- * WHY A BUDGET AT ALL: `COST-MODEL.md` assumes 12–15k input tokens per meeting
+ * WHY A BUDGET AT ALL: `docs/COST-MODEL.md` assumes 12–15k input tokens per meeting
  * hour, which is roughly what an hour of speech transcribes to. That assumption
  * is what makes the per-hour marginal cost predictable, so the worker enforces
  * it instead of trusting every meeting to be an hour long. A four-hour workshop

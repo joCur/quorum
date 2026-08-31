@@ -15,7 +15,7 @@ docker compose --profile monitoring up -d
 
 ## Why Prometheus and not OpenTelemetry
 
-`OPEN-QUESTIONS.md` named "OpenTelemetry + Grafana stack" as a candidate. We took the smaller half
+`docs/OPEN-QUESTIONS.md` named "OpenTelemetry + Grafana stack" as a candidate. We took the smaller half
 of it deliberately.
 
 The question worth answering is "why has this meeting had no transcript for twenty minutes?", and

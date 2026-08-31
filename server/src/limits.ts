@@ -2,7 +2,7 @@
  * Abuse and cost protection: what one user is allowed to consume.
  *
  * The GPU worker is the expensive part of this system, and every second of audio that reaches
- * object storage eventually buys GPU time and model tokens (see `COST-MODEL.md`). The limits here
+ * object storage eventually buys GPU time and model tokens (see `docs/COST-MODEL.md`). The limits here
  * bound what a single user can push into that pipeline before anything downstream has a chance to
  * say no — over the recording socket and over the REST API alike.
  *
