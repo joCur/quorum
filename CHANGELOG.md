@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.3](https://github.com/joCur/quorum/compare/v1.0.2...v1.0.3) (2026-08-31)
+
+
+### Bug Fixes
+
+* **client:** translate job failures instead of printing the backend's string ([#162](https://github.com/joCur/quorum/issues/162)) ([763f756](https://github.com/joCur/quorum/commit/763f756c8a0ee8b1ee68e5550362a35203ce1496)), closes [#157](https://github.com/joCur/quorum/issues/157)
+* **infra:** ship valid Whisper model IDs and document installing one ([#161](https://github.com/joCur/quorum/issues/161)) ([d80b1c5](https://github.com/joCur/quorum/commit/d80b1c5a40b6e093a49166845b38c0cc78c6ef0e)), closes [#159](https://github.com/joCur/quorum/issues/159)
+* **worker:** enable the VAD silence filter on transcription requests ([#165](https://github.com/joCur/quorum/issues/165)) ([0de4a84](https://github.com/joCur/quorum/commit/0de4a84751de53b4f211e9c77c602874c131f64f)), closes [#164](https://github.com/joCur/quorum/issues/164)
+
 ## [1.0.2](https://github.com/joCur/quorum/compare/v1.0.1...v1.0.2) (2026-08-31)
 
 
