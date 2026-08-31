@@ -28,31 +28,69 @@ the teardown. The suite never reads your `.env`, so a run behaves the same on a 
 runner. Requirements are Docker and the repository's usual toolchain; the browser is installed on
 first run.
 
-Two files appear on the first run, both gitignored — nothing env-shaped is tracked in this
-repository:
+Three gitignored files appear on the first run — nothing env-shaped is tracked in this repository:
 
-- `e2e/e2e.env` — a copy of the committed `e2e/e2e.env.example`. Change a port here when it
-  collides with something on your machine; the change stays local.
+- `e2e/e2e.env` — a copy of the committed `e2e/e2e.env.example`: the stack's non-secret
+  configuration. No ports live here; see below.
 - `e2e/.stack.env` — the generated passwords and storage encryption key. A test stack needs no
   fixed credentials, and committing throwaway ones only teaches everyone to wave secret scanners
   through. Delete the file to roll them; the stack is recreated with the new ones next run.
+- `e2e/.ports.<project>.json` — the host ports a run took, remembered so a reusing run finds the
+  same stack. Removed when that stack is torn down.
 
 The Keycloak sign-in credentials are the opposite case: `dev.alice` and friends are documented
 fixtures of the committed realm (`infra/keycloak/README.md`), and the suite reads them from there
 rather than inventing its own.
 
-The stack runs as its own compose project (`quorum-e2e`) on its own ports, so it does not collide
-with a development stack.
+| Variable            | Effect                                                                     |
+| ------------------- | -------------------------------------------------------------------------- |
+| `E2E_WHISPER=real`  | Use CPU Whisper (`tiny`) instead of the mock transcription endpoint         |
+| `E2E_KEEP_STACK=1`  | Leave the stack running afterwards, for poking at it                       |
+| `E2E_REUSE_STACK=1` | Assume the stack is already up and skip `compose up` — the fast inner loop   |
+| `E2E_PROJECT=<name>`| Name this run's compose project instead of letting it generate one          |
 
-| Variable            | Effect                                                                   |
-| ------------------- | ------------------------------------------------------------------------ |
-| `E2E_WHISPER=real`  | Use CPU Whisper (`tiny`) instead of the mock transcription endpoint       |
-| `E2E_KEEP_STACK=1`  | Leave the stack running afterwards, for poking at it                     |
-| `E2E_REUSE_STACK=1` | Assume the stack is already up and skip `compose up` — the fast inner loop |
+Debugging a failure: `E2E_KEEP_STACK=1 pnpm run e2e`, then open a trace with
+`pnpm --filter @quorum/e2e exec playwright show-trace e2e/test-results/<project>/<test>/trace.zip`
+— the run prints the project name and that path when it starts. In CI the HTML report is under
+`e2e/playwright-report/<project>/`.
 
-Debugging a failure: `E2E_KEEP_STACK=1 pnpm run e2e`, then read
-`e2e/playwright-report/`, or open a trace with
-`pnpm --filter @quorum/e2e exec playwright show-trace e2e/test-results/<test>/trace.zip`.
+## Isolation: a run owns everything it touches
+
+Two suite runs on one machine — two agents, two worktrees, a rerun started before the last one
+finished — must not be able to see each other, and neither must the demo or development stack a
+laptop already has up. So a run namespaces both halves of what it occupies.
+
+**Its own compose project.** Every run generates a name (`quorum-e2e-<random>`) and passes it as
+`-p`. Teardown is `down -v` against that name, so it can never reach another run's containers or
+volumes. Two exceptions, both deliberate, because a stack you intend to find again needs a name
+decided in advance:
+
+- `E2E_PROJECT=<name>` names the project yourself.
+- `E2E_KEEP_STACK=1` and `E2E_REUSE_STACK=1` fall back to the fixed name `quorum-e2e-keep` — one
+  obvious slot per machine for the inner loop, which a run with a generated name never picks by
+  accident. Keep one stack (`E2E_KEEP_STACK=1 pnpm run e2e`), then iterate against it
+  (`E2E_REUSE_STACK=1 pnpm run e2e recording`). Two _concurrent_ reuse loops need two names; give
+  them one with `E2E_PROJECT`.
+
+**Its own ports.** Every host port — the published container ports plus the PWA, the mock backend
+and the worker's metrics endpoint on the host — is taken from the free/ephemeral range as the run
+starts, held open together so no two land on the same number, and passed to compose through the
+environment (which outranks `--env-file`). There is no fixed default left for a demo stack to be
+holding. A reusing run reads the ports back out of `e2e/.ports.<project>.json`, because the
+containers already publish them.
+
+Pin one when a predictable URL helps — `CLIENT_PORT=4173 pnpm run e2e`. A pinned port that
+something else holds still fails the run immediately and names the process holding it, which is
+the only honest answer: the alternative is a suite that quietly tests whatever answered.
+
+The PWA's origin is the interesting case. The committed realm lists fixed redirect URIs, and a run
+on a free port is not on that list, so the run patches the `quorum-pwa` client in **its own
+throwaway Keycloak** to allow the origin it is actually serving from. The shared realm file stays a
+description of the product rather than a list of ports.
+
+One thing a run does not isolate is the checkout it builds from: `dist/` is shared, and a second
+run rebuilding it would pull the ground out from under the first. Concurrent runs therefore need
+separate worktrees — which is how they arise in practice anyway.
 
 ### Transcription and summaries: mocked by default
 
@@ -87,8 +125,8 @@ Nothing extra: the suite always uses the CPU Whisper image, which is exactly the
 meaningless in Docker on macOS and the suite never uses it. On Apple silicon everything in the
 stack is multi-arch, so no Rosetta emulation is involved.
 
-The one macOS-specific note is ports: the defaults deliberately avoid 5432, 8080 and 9000, which
-are the ones most likely to be taken already.
+Ports are no longer a macOS note either: the run takes free ones, so 5000 and 7000 (AirPlay) and
+whatever else a Mac has claimed are simply never picked.
 
 ## Layout
 
@@ -97,7 +135,7 @@ e2e/
   playwright.config.ts    one Chromium project, serial, fake microphone
   fixtures.ts             sign-in, the record controls, the WebSocket watcher, polling helpers
   e2e.env.example         template for the stack configuration; the working copy is gitignored
-  docker-compose.e2e.yml  compose override: published ports plus CPU Whisper
+  docker-compose.e2e.yml  compose override: the ports the run publishes plus CPU Whisper
   scripts/run.mjs         the orchestrator behind `pnpm run e2e`
   scripts/mock-whisper.mjs  stub transcription and summary endpoints
   support/env.ts          where the stack is reachable, and the dev users
