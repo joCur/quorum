@@ -189,6 +189,7 @@ Four tables, created with `CREATE TABLE IF NOT EXISTS` under an advisory lock on
 | `WHISPER_MODEL`              | `small`                     | Model name sent with every request                            |
 | `WHISPER_API_KEY`            | unset                       | Bearer token; self-hosted backends need none                  |
 | `WHISPER_LANGUAGE`           | unset                       | BCP-47 hint; unset means the backend detects the language     |
+| `WHISPER_VAD_FILTER`         | `true`                      | Send `vad_filter=true`; silence is skipped, not transcribed   |
 | `WHISPER_TIMEOUT_MS`         | `1800000`                   | Whole-request timeout for one transcription                   |
 | `SUMMARY_BASE_URL`           | `https://openrouter.ai/api/v1` | OpenAI-compatible chat base URL, including `/v1`           |
 | `SUMMARY_MODEL`              | `openai/gpt-4o-mini`        | Model name sent with every summary request                    |
@@ -204,6 +205,8 @@ Four tables, created with `CREATE TABLE IF NOT EXISTS` under an advisory lock on
 | `WORKER_RETRY_DELAY_SECONDS` | `30`                        | Base delay of the exponential backoff                         |
 | `WORKER_JOB_EXPIRE_SECONDS`  | `7200`                      | Budget per attempt; must exceed `WHISPER_TIMEOUT_MS`          |
 | `LOG_LEVEL`                  | `info`                      |                                                               |
+
+`WHISPER_VAD_FILTER` is on by default, and the reason is a failure mode rather than a preference: a recording that contains a long speechless stretch — a room recorded before anyone speaks — makes every Whisper size lock onto a repeated phrase, and the loop then runs on through the rest of the transcript. Running the backend's Silero VAD first means the model only ever sees audio with speech in it. The trade-off is that audio the VAD hears as silence is not transcribed at all; word and segment timestamps stay relative to the start of the submitted recording, so nothing downstream changes. A backend that does not implement the field ignores it, which keeps the ADR-005 swap free.
 
 Switching the summary provider is those first three variables and nothing else — OpenRouter today, LM Studio, vLLM or Ollama later (ADR-005 §2). `SUMMARY_JSON_MODE` stays off by default because several self-hosted servers reject a `response_format` they do not implement, which would make the swap cost a code change; the prompt asks for JSON regardless and the parser is written for models that ignore the instruction.
 

@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { loadConfig } from "../src/config.js";
 import { errorCodeForHttpStatus, toJobError, JobError } from "../src/errors.js";
 import { OpenAiTranscriptionClient } from "../src/whisper/client.js";
 import { VERBOSE_RESPONSE_WITH_WORDS } from "./helpers.js";
 
-function client(fetchImpl: typeof fetch, apiKey?: string): OpenAiTranscriptionClient {
+function client(
+  fetchImpl: typeof fetch,
+  apiKey?: string,
+  options: { vadFilter?: boolean } = {},
+): OpenAiTranscriptionClient {
   return new OpenAiTranscriptionClient({
     baseUrl: "http://whisper:8000/v1/",
     model: "small",
     fetchImpl,
     ...(apiKey ? { apiKey } : {}),
+    ...options,
   });
 }
 
@@ -36,6 +42,32 @@ describe("OpenAI-compatible transcription client", () => {
     expect(form.get("language")).toBe("de");
     expect((form.get("file") as File).name).toBe("recording.webm");
     expect(response.segments?.[0]?.words).toHaveLength(3);
+  });
+
+  it("asks the backend to filter silence by default", async () => {
+    let form: FormData | null = null;
+    await client(async (_url, init) => {
+      form = init?.body as FormData;
+      return Response.json(VERBOSE_RESPONSE_WITH_WORDS);
+    }).transcribe(audio);
+    // Without this, a recording with a long speechless stretch comes back as a
+    // repetition loop instead of a transcript.
+    expect(form!.get("vad_filter")).toBe("true");
+  });
+
+  it("leaves the silence filter out entirely when it is turned off", async () => {
+    let form: FormData | null = null;
+    await client(
+      async (_url, init) => {
+        form = init?.body as FormData;
+        return Response.json(VERBOSE_RESPONSE_WITH_WORDS);
+      },
+      undefined,
+      { vadFilter: false },
+    ).transcribe(audio);
+    // Absent rather than `false`: a backend that does not know the field never
+    // has to answer for it.
+    expect(form!.get("vad_filter")).toBeNull();
   });
 
   it("omits the language when none is configured, letting the backend detect it", async () => {
@@ -86,6 +118,31 @@ describe("OpenAI-compatible transcription client", () => {
     await expect(
       client(async () => new Response("<html>gateway</html>", { status: 200 })).transcribe(audio),
     ).rejects.toMatchObject({ code: "TRANSCRIPTION_RESPONSE_INVALID" });
+  });
+});
+
+describe("silence filter configuration", () => {
+  const minimal = {
+    DATABASE_URL: "postgres://quorum@localhost:5432/quorum",
+    S3_ENDPOINT: "http://localhost:9000",
+    S3_BUCKET: "recordings",
+    S3_ACCESS_KEY: "key",
+    S3_SECRET_KEY: "secret",
+  };
+
+  it("is on when the environment says nothing", () => {
+    expect(loadConfig(minimal).WHISPER_VAD_FILTER).toBe(true);
+  });
+
+  it("can be turned off explicitly", () => {
+    expect(loadConfig({ ...minimal, WHISPER_VAD_FILTER: "false" }).WHISPER_VAD_FILTER).toBe(false);
+    expect(loadConfig({ ...minimal, WHISPER_VAD_FILTER: "true" }).WHISPER_VAD_FILTER).toBe(true);
+  });
+
+  it("refuses a value that is neither, rather than guessing", () => {
+    expect(() => loadConfig({ ...minimal, WHISPER_VAD_FILTER: "yes" })).toThrow(
+      /WHISPER_VAD_FILTER/,
+    );
   });
 });
 

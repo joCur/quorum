@@ -24,6 +24,17 @@ export interface OpenAiTranscriptionClientOptions {
   model: string;
   apiKey?: string | undefined;
   timeoutMs?: number;
+  /**
+   * Send `vad_filter=true`, which makes the backend run Silero VAD and hand the
+   * model only the parts that contain speech. On by default: a recording with a
+   * long speechless stretch otherwise drives every Whisper size into a
+   * repetition loop that contaminates the rest of the transcript. The cost is
+   * that audio the VAD considers silence is never transcribed.
+   *
+   * Backends that do not implement the field ignore it, so this stays inside the
+   * OpenAI-compatible surface of ADR-005.
+   */
+  vadFilter?: boolean;
   fetchImpl?: typeof fetch;
 }
 
@@ -35,12 +46,18 @@ export interface OpenAiTranscriptionClientOptions {
  * Word-level timestamps are requested unconditionally — ADR-003 §4 makes them a
  * day-one requirement, and the backends that cannot produce them simply return
  * segments without words, which the mapping handles.
+ *
+ * The silence filter (`vad_filter`) is on unless configuration turns it off; see
+ * `OpenAiTranscriptionClientOptions.vadFilter`. It changes only which audio the
+ * model is shown — the timestamps that come back stay relative to the start of
+ * the submitted recording, so nothing downstream has to compensate for it.
  */
 export class OpenAiTranscriptionClient implements TranscriptionClient {
   readonly model: string;
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly timeoutMs: number;
+  private readonly vadFilter: boolean;
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: OpenAiTranscriptionClientOptions) {
@@ -48,6 +65,7 @@ export class OpenAiTranscriptionClient implements TranscriptionClient {
     this.model = options.model;
     this.apiKey = options.apiKey;
     this.timeoutMs = options.timeoutMs ?? 30 * 60_000;
+    this.vadFilter = options.vadFilter ?? true;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
@@ -63,6 +81,9 @@ export class OpenAiTranscriptionClient implements TranscriptionClient {
     form.append("timestamp_granularities[]", "segment");
     form.append("timestamp_granularities[]", "word");
     if (request.language) form.append("language", request.language);
+    // Omitted rather than sent as `false` when off, so a backend that does not
+    // know the field never sees it at all.
+    if (this.vadFilter) form.append("vad_filter", "true");
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
