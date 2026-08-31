@@ -1,8 +1,10 @@
 # Quorum — the self-hosting skeleton (Docker Compose)
 # The Whisper model, GPU use and the summary backend are pure env configuration (.env):
-#   Development (GTX 1050):  WHISPER_MODEL=small, INT8
-#   After the GPU upgrade:   WHISPER_MODEL=large-v3, FP16 — everything else unchanged
+#   Development (GTX 1050):  WHISPER_MODEL=Systran/faster-whisper-small, INT8
+#   After the GPU upgrade:   WHISPER_MODEL=Systran/faster-whisper-large-v3, FP16 — nothing else changes
 #   CPU fallback:            start compose without the GPU override (see below)
+# WHISPER_MODEL is always a full model ID, and the model has to be downloaded into the whisper
+# container once — see "Install the transcription model" in docs/deployment.md.
 
 name: quorum
 
@@ -216,7 +218,9 @@ services:
       WHISPER__COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE}   # int8 (1050) | float16 (4070 Ti S)
       WHISPER__DEVICE: ${WHISPER_DEVICE}               # cuda | cpu
     volumes:
-      - whisper-models:/home/ubuntu/.cache/huggingface  # model cache across restarts
+      # Where downloaded models live, so they survive a restart or a recreate. The download itself
+      # is a one-time manual step — see "Install the transcription model" in docs/deployment.md.
+      - whisper-models:/home/ubuntu/.cache/huggingface
     # GPU access: enabled via `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up`
     # Host requirement: the NVIDIA driver + nvidia-container-toolkit
 

@@ -26,7 +26,11 @@ export const WorkerConfigSchema = z.object({
 
   /** OpenAI-compatible base URL, including the `/v1` suffix. */
   WHISPER_BASE_URL: z.string().min(1).default("http://whisper:8000/v1"),
-  WHISPER_MODEL: z.string().min(1).default("small"),
+  /**
+   * A full model ID, not a size: the backend serves only models it has on disk
+   * under that exact ID and rejects a short name like `small` with a 404.
+   */
+  WHISPER_MODEL: z.string().min(1).default("Systran/faster-whisper-small"),
   /** Optional bearer token — self-hosted backends usually need none. */
   WHISPER_API_KEY: z.string().optional(),
   /**

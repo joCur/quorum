@@ -49,12 +49,20 @@ Consumed from the `transcribe` queue; failures land on `transcribe-dead-letter`.
 | `MANIFEST_NOT_FOUND`             | no      | The session was never finalized                 |
 | `AUDIO_EMPTY`                    | no      | Nothing was recorded                            |
 | `AUDIO_DECODE_FAILED`            | no      | The backend refused these bytes (400/415/422)   |
-| `TRANSCRIPTION_REJECTED`         | no      | Bad model name, unauthorized, too large         |
+| `TRANSCRIPTION_REJECTED`         | no      | Model not installed or misnamed, 401, 413       |
 | `TRANSCRIPTION_RESPONSE_INVALID` | no      | Backend answered in a shape we do not accept    |
 | `TRANSCRIPT_INVALID`             | no      | Result fails the schema                         |
 | `JOB_PAYLOAD_INVALID`            | no      | The queued payload is not one we understand     |
 
 The retry budget exists mainly for a Whisper container that is slow to load a model.
+
+`TRANSCRIPTION_REJECTED` on every attempt is almost always the model, not the audio: Whisper
+serves only models it has downloaded, and answers `404 Model '…' is not installed locally` for a
+model that was never installed or for a short name where a full ID belongs
+(`Systran/faster-whisper-small`, not `small`).
+[Install the transcription model](../deployment.md#6-install-the-transcription-model) lists the
+valid IDs and the install and verify calls; the fix is to install the configured model, then
+redrive what dead-lettered.
 
 ### `summarize`
 
@@ -209,7 +217,9 @@ answer, and the tables above say whether it is transient or terminal.
 
 **2. Transcription codes** (`TRANSCRIPTION_UNAVAILABLE`, `AUDIO_DECODE_FAILED`, …): check the
 `whisper` container. A model still loading produces a burst of `TRANSCRIPTION_UNAVAILABLE` that
-resolves itself; a wrong `WHISPER_MODEL` produces `TRANSCRIPTION_REJECTED` that never will.
+resolves itself; a `WHISPER_MODEL` that is misnamed or was never downloaded produces
+`TRANSCRIPTION_REJECTED` that never will — verify it against `GET /v1/models` as described in
+[install the transcription model](../deployment.md#6-install-the-transcription-model).
 
 **3. Summary codes** (`SUMMARY_UNAVAILABLE`, `SUMMARY_REJECTED`, …): check the configured
 `SUMMARY_BASE_URL`. `SUMMARY_UNAVAILABLE` in a steady stream is usually a rate limit; sustained
