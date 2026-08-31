@@ -12,7 +12,9 @@
 
 adr
 design
-scripts
-infra
 *.md
 docker-compose*.yml
+
+# scripts/ and infra/ are NOT excluded: the bootstrap and edge images bake those files in, which
+# is what lets a deployment be one compose file with nothing mounted from the host. They are a
+# few hundred kilobytes of text and configuration.

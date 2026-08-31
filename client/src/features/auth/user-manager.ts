@@ -1,5 +1,5 @@
 import { UserManager, WebStorageStateStore } from "oidc-client-ts";
-import { env } from "@/env";
+import { env, oidcIssuerUrl } from "@/env";
 
 /**
  * OIDC Authorization Code flow with PKCE against the configured issuer.
@@ -13,7 +13,7 @@ export const AUTH_CALLBACK_PATH = "/auth/callback";
 export function createUserManager(): UserManager {
   const origin = window.location.origin;
   return new UserManager({
-    authority: env.VITE_OIDC_ISSUER_URL,
+    authority: oidcIssuerUrl(),
     client_id: env.VITE_OIDC_CLIENT_ID,
     redirect_uri: `${origin}${AUTH_CALLBACK_PATH}`,
     post_logout_redirect_uri: origin,

@@ -41,6 +41,13 @@ jobs:
       - name: Realm drift guard
         run: pnpm run check:realm-drift
 
+      # The same idea for the two release compose files, which are deliberate duplicates differing
+      # only in GPU access. A port, hardening flag or service added to one and not the other fails
+      # here rather than reaching a deployment that behaves differently depending on which file
+      # the operator picked.
+      - name: Release compose parity
+        run: ./scripts/check-compose-parity.sh
+
   docker:
     name: Docker image (${{ matrix.image }})
     runs-on: ubuntu-latest
@@ -54,6 +61,18 @@ jobs:
             dockerfile: server/Dockerfile
           - image: worker
             dockerfile: worker/Dockerfile
+          - image: client
+            dockerfile: client/Dockerfile
+          - image: init
+            dockerfile: infra/init/Dockerfile
+          - image: edge
+            dockerfile: infra/edge/Dockerfile
+          - image: prometheus
+            dockerfile: infra/monitoring/prometheus.Dockerfile
+          - image: alertmanager
+            dockerfile: infra/monitoring/alertmanager.Dockerfile
+          - image: grafana
+            dockerfile: infra/monitoring/grafana.Dockerfile
           - image: keycloak
             dockerfile: infra/keycloak/Dockerfile
     steps:

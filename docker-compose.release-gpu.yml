@@ -1,21 +1,29 @@
 # Quorum — production stack.
 #
 # INSTALL:
-#   curl -fsSLO https://raw.githubusercontent.com/joCur/quorum/main/docker-compose.release.yml
+#   curl -fsSLO https://raw.githubusercontent.com/joCur/quorum/main/docker-compose.release-gpu.yml
 #   curl -fsSL  https://raw.githubusercontent.com/joCur/quorum/main/.env.example -o .env
 #   # fill in the mandatory values in .env, then:
-#   docker compose -f docker-compose.release.yml up -d
+#   docker compose -f docker-compose.release-gpu.yml up -d
 #
 # UPDATE:
-#   docker compose -f docker-compose.release.yml pull
-#   docker compose -f docker-compose.release.yml up -d
+#   docker compose -f docker-compose.release-gpu.yml pull
+#   docker compose -f docker-compose.release-gpu.yml up -d
 #
 # That is the whole thing. There is nothing to clone, unpack or mount: every script, every
 # configuration file and the production realm are baked into the images. This file plus your .env
 # is the entire deployment.
 #
-# GPU: use docker-compose.release-gpu.yml instead of this file. It is a complete, standalone
-# alternative — pick one, not both.
+# This is the GPU variant. It is identical to docker-compose.release.yml except that Whisper is
+# given an NVIDIA GPU. Use one file or the other — never both, and never chained with -f.
+#
+# Host requirements: NVIDIA drivers and the NVIDIA container toolkit. Without them this file will
+# not start Whisper; use docker-compose.release.yml instead.
+#
+# The duplication between the two files is deliberate. Composing them with -f overlays would save
+# a hundred lines and cost every operator a decision about which files to combine and in what
+# order, and every command in the guide would carry the chain. One file you can read top to
+# bottom is worth more than the lines it repeats.
 #
 # VERSIONS: images default to `latest`, so `pull` moves you to the current release. Set
 # QUORUM_VERSION in .env to pin a specific one. The trade-off is stated plainly: `latest` gets you
@@ -527,9 +535,8 @@ services:
     logging: *logging
 
   # ---------------------------------------------------------------------------------------------
-  # Transcription — a third-party image, pinned by tag. This file runs it on the CPU: set
-  # WHISPER_DEVICE=cpu and WHISPER_IMAGE_TAG=latest-cpu in .env. For a GPU, use
-  # docker-compose.release-gpu.yml instead of this file.
+  # Transcription on an NVIDIA GPU — the only difference between this file and
+  # docker-compose.release.yml. Set WHISPER_DEVICE=cuda and a CUDA image tag in .env.
   # ---------------------------------------------------------------------------------------------
   whisper:
     image: ghcr.io/speaches-ai/speaches:${WHISPER_IMAGE_TAG:-latest-cuda}
@@ -549,6 +556,11 @@ services:
     # is passed in per request, and it has no route to the object store or the database.
     deploy:
       resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
         limits:
           cpus: "${WHISPER_CPU_LIMIT:-4}"
           memory: ${WHISPER_MEMORY_LIMIT:-8g}

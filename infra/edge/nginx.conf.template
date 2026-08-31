@@ -1,0 +1,127 @@
+# Edge proxy for the release stack — the single front door.
+#
+# WHAT IT IS FOR: the app, the API and Keycloak have to appear on ONE origin. The app is built
+# that way (an empty API base URL and a same-origin OIDC issuer), the browser prefers it (no CORS,
+# no third-party cookie questions), and it collapses the operator's job to TLS plus
+# "forward everything to one upstream" — no routing table to reproduce, and no way to get that
+# table subtly wrong. A missing WebSocket upgrade header breaks recording; a dropped
+# X-Forwarded-Proto breaks every login. Both are decided here, once, in a versioned file.
+#
+# WHY A DEDICATED SERVICE RATHER THAN THE CLIENT CONTAINER DOING DOUBLE DUTY: nginx resolves the
+# hosts named in `upstream` blocks when it starts, and refuses to start when it cannot. A client
+# image carrying this routing table would therefore fail to run anywhere but inside the full
+# compose stack — measured, not assumed: that image exits immediately with no `api` service on the
+# network. The published client image stays a plain static server that runs standalone, and the
+# stack's topology lives here, next to the compose file it belongs to. It also means the edge is
+# a stock upstream image with a mounted config: there is no fourth image to build and publish.
+#
+# WHAT IS DELIBERATELY NOT HERE: TLS. Certificates and their renewal are the operator's concern,
+# terminated in their own reverse proxy in front of this one. docs/deployment.md shows the
+# one-liner for nginx and for Caddy.
+#
+# Rendered at container start by the base image's envsubst step.
+
+# Trust the outer proxy's forwarded headers when they are present, and describe our own connection
+# when they are not. `map` rather than plain variables because nginx has no conditional
+# assignment; at http level, which works because /etc/nginx/conf.d/*.conf is included there.
+#
+# This is the chain that has to stay intact: operator's TLS proxy -> edge -> Keycloak. Keycloak
+# only ever sees plain HTTP and requires HTTPS for the realm, so whether a login works comes down
+# to whether the original scheme survives both hops.
+map $http_x_forwarded_proto $quorum_forwarded_proto {
+    default $http_x_forwarded_proto;
+    ''      $scheme;
+}
+
+map $http_x_forwarded_host $quorum_forwarded_host {
+    default $http_x_forwarded_host;
+    ''      $host;
+}
+
+map $http_x_forwarded_port $quorum_forwarded_port {
+    default $http_x_forwarded_port;
+    ''      $server_port;
+}
+
+upstream quorum_client {
+    server ${QUORUM_CLIENT_UPSTREAM};
+}
+
+upstream quorum_api {
+    server ${QUORUM_API_UPSTREAM};
+}
+
+upstream quorum_keycloak {
+    server ${QUORUM_KEYCLOAK_UPSTREAM};
+}
+
+server {
+    listen 8080;
+    server_name _;
+
+    server_tokens off;
+    client_max_body_size 64m;
+
+    # Own liveness, answered here rather than passed on, so the healthcheck reports whether the
+    # edge is serving and not whether something behind it is.
+    location = /healthz/edge {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 'ok';
+    }
+
+    # ---- API ---------------------------------------------------------------------------------
+    location /api/ {
+        proxy_pass http://quorum_api;
+        include /etc/nginx/quorum-proxy-headers.conf;
+    }
+
+    location = /healthz {
+        proxy_pass http://quorum_api;
+        include /etc/nginx/quorum-proxy-headers.conf;
+    }
+
+    # ---- Recording WebSocket ------------------------------------------------------------------
+    # Held open for the length of a meeting and idle across a pause, so the read timeout is hours
+    # rather than the default minute.
+    location /ws {
+        proxy_pass http://quorum_api;
+        include /etc/nginx/quorum-proxy-headers.conf;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+        # Streaming, not batching: chunk acknowledgements have to reach the browser promptly.
+        proxy_buffering off;
+    }
+
+    # ---- Keycloak -----------------------------------------------------------------------------
+    # Only the paths a browser needs. The management port, where the health and metrics endpoints
+    # live, is not reachable from out here at all.
+    location /realms/ {
+        proxy_pass http://quorum_keycloak;
+        include /etc/nginx/quorum-proxy-headers.conf;
+    }
+
+    location /resources/ {
+        proxy_pass http://quorum_keycloak;
+        include /etc/nginx/quorum-proxy-headers.conf;
+    }
+
+    location /admin/ {
+        proxy_pass http://quorum_keycloak;
+        include /etc/nginx/quorum-proxy-headers.conf;
+    }
+
+    location /js/ {
+        proxy_pass http://quorum_keycloak;
+        include /etc/nginx/quorum-proxy-headers.conf;
+    }
+
+    # ---- Everything else is the app ------------------------------------------------------------
+    location / {
+        proxy_pass http://quorum_client;
+        include /etc/nginx/quorum-proxy-headers.conf;
+    }
+}

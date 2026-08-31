@@ -11,8 +11,15 @@ import { z } from "zod";
 const EnvSchema = z.object({
   /** Base URL of the Quorum API. Empty means "same origin as the app". */
   VITE_API_BASE_URL: z.string().default(""),
-  /** OIDC issuer, e.g. https://auth.example.com/realms/quorum */
-  VITE_OIDC_ISSUER_URL: z.string().url(),
+  /**
+   * Absolute OIDC issuer, e.g. https://auth.example.com/realms/quorum. Empty means "same origin
+   * as the app", with the realm reached under `VITE_OIDC_ISSUER_PATH` — which is what the
+   * published client image is built for, because an absolute issuer is deployment-specific and
+   * cannot be baked into an image anyone else runs.
+   */
+  VITE_OIDC_ISSUER_URL: z.union([z.string().url(), z.literal("")]).default(""),
+  /** Path of the realm when the issuer is served from the app's own origin. */
+  VITE_OIDC_ISSUER_PATH: z.string().default("/realms/quorum"),
   VITE_OIDC_CLIENT_ID: z.string().min(1),
   /** Space-separated scopes requested during the Authorization Code flow. */
   VITE_OIDC_SCOPE: z.string().default("openid profile email"),
@@ -39,6 +46,19 @@ export const APP_VERSION = __APP_VERSION__;
 export function apiUrl(path: string): string {
   const base = env.VITE_API_BASE_URL || window.location.origin;
   return new URL(path, base.endsWith("/") ? base : `${base}/`).toString();
+}
+
+/**
+ * Absolute URL of the OIDC issuer.
+ *
+ * Same rule as `apiUrl`: an explicit `VITE_OIDC_ISSUER_URL` wins, and otherwise the issuer is on
+ * the app's own origin. Resolved lazily rather than at module load, because it reads
+ * `window.location` and the value has to be the origin the app is actually being served from.
+ */
+export function oidcIssuerUrl(): string {
+  if (env.VITE_OIDC_ISSUER_URL) return env.VITE_OIDC_ISSUER_URL;
+  const path = env.VITE_OIDC_ISSUER_PATH.replace(/\/+$/, "");
+  return new URL(path, window.location.origin).toString();
 }
 
 /** Same as `apiUrl`, converted to the matching WebSocket scheme. */

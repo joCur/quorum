@@ -12,6 +12,7 @@ Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, gepl
   - ADR-004: Summary-Templates (Vererbung, Snapshot, strukturierter Output)
   - ADR-005: Self-hosted Whisper + OpenAI-kompatible Summary-API
   - ADR-006: Stack decision (Fastify, React + Vite PWA, pg-boss, PostgreSQL, MinIO, whisperX, Keycloak)
+  - ADR-007: Authentication stays on Keycloak; realm configuration becomes declarative
 - `PITCH.md` — Warum wir das bauen, V1-Demo-Definition, rechtliche Haltung
 - `ROADMAP.md` — V1 → V2 → später (wird bei Projektstart zu GitHub-Issues)
 - `OPEN-QUESTIONS.md` — Stack-Vorschläge, Observability, Missbrauchsschutz (bewusst offen)
@@ -25,6 +26,10 @@ Meetingaufzeichnung (live & online) mit konfigurierbaren Zusammenfassungen, gepl
 - `infra/monitoring/` — Prometheus, Alertmanager and Grafana as code, behind the opt-in
   `monitoring` compose profile
 - `docker-compose.yml` + `docker-compose.gpu.yml` + `.env.example` — Self-Hosting-Skeleton, Hardware-Wechsel rein per Env
+- `docker-compose.release.yml` / `docker-compose.release-gpu.yml` + `docs/deployment.md` — the
+  production stack. Installing it is one compose file plus a `.env`: every script, configuration
+  file and the production realm is baked into the published images, and nothing is mounted from
+  the host. Pick the CPU or the GPU file, never both.
 - `shared/src/` — Zod-Schemas als Single Source of Truth für Client & Server
   - `recording-protocol.ts` — WebSocket-Control-Messages + binäres Chunk-Format
   - `transcript.ts` — Transcript, Segmente, Sprecher, Wort-Timestamps
