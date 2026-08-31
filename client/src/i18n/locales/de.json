@@ -160,9 +160,10 @@
     "create": "Vorlage erstellen",
     "system": "System",
     "default": "Standard",
-    "setDefault": "{{template}} für neue Aufnahmen verwenden",
-    "unsetDefault": "{{template}} nicht mehr für neue Aufnahmen verwenden",
-    "edit": "{{template}} bearbeiten",
+    "setDefault": "Standard — {{template}} für neue Aufnahmen verwenden",
+    "unsetDefault": "Standard — {{template}} nicht mehr für neue Aufnahmen verwenden",
+    "edit": "Bearbeiten — {{template}}",
+    "editShort": "Bearbeiten",
     "delete": "{{template}} löschen",
     "deleteDialog": {
       "title": "Diese Vorlage löschen?",

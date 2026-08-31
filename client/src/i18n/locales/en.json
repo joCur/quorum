@@ -160,9 +160,10 @@
     "create": "Create a template",
     "system": "System",
     "default": "Default",
-    "setDefault": "Use {{template}} for new recordings",
-    "unsetDefault": "Stop using {{template}} for new recordings",
+    "setDefault": "Default — use {{template}} for new recordings",
+    "unsetDefault": "Default — stop using {{template}} for new recordings",
     "edit": "Edit {{template}}",
+    "editShort": "Edit",
     "delete": "Delete {{template}}",
     "deleteDialog": {
       "title": "Delete this template?",

@@ -7,11 +7,12 @@ import { DeleteTemplateDialog } from "@/components/templates/delete-template-dia
 import { TemplateEditor } from "@/components/templates/template-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MeetingApiError } from "@/features/meetings/api";
 import { useTemplates } from "@/features/templates/use-templates";
 import { notify } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 
 type Mode = { kind: "list" } | { kind: "create" } | { kind: "edit"; templateId: string };
 
@@ -128,7 +129,7 @@ export function TemplatesRoute() {
       {own.length === 0 ? (
         <EmptyState
           icon={ListChecks}
-          accent="plum"
+          accent="honey"
           title={t("templates.empty.title")}
           body={t("templates.empty.body")}
         >
@@ -136,7 +137,10 @@ export function TemplatesRoute() {
         </EmptyState>
       ) : null}
 
-      <div className="flex flex-col gap-3">
+      {/* Cards side by side from the width where a second column still leaves each one readable.
+          The lower bound is `min(100%, 300px)` rather than a flat 300px so a 320px-wide phone
+          gets one full-width column instead of a card wider than the screen. */}
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))]">
         {templates.templates.map((view) => (
           <TemplateCard
             key={view.template.id}
@@ -182,64 +186,69 @@ function TemplateCard({
   const { t } = useTranslation();
 
   return (
-    <Card data-testid="template-card">
-      <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
-        <div className="flex min-w-0 flex-col gap-1">
-          <CardTitle className="flex items-center gap-2">
-            {/* Transitional: `plum` no longer exists in v2 and resolves to honey through the
-                Tailwind color mapping. This marker becomes a honey underline when the
-                templates area ticket restyles this screen. */}
-            <span aria-hidden="true" className="h-5 w-1 rounded-full bg-plum" />
-            <span className="truncate">{view.template.name}</span>
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {t("templates.sectionCount", { count: view.resolvedSections.length })}
-          </p>
+    <Card data-testid="template-card" className="flex h-full flex-col gap-3 p-4 md:p-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <CardTitle className="min-w-0 break-words text-base">{view.template.name}</CardTitle>
+        {view.isDefault ? (
+          <Badge variant="honey" data-testid="template-default-badge">
+            {t("templates.default")}
+          </Badge>
+        ) : null}
+        {view.editable ? null : <Badge>{t("templates.system")}</Badge>}
+      </div>
+
+      {/* The sections in the order a summary will carry them. Numbering them is the point: a
+          template is a sequence, and the chip row it replaces said nothing about order. */}
+      <ol
+        aria-label={t("templates.sectionCount", { count: view.resolvedSections.length })}
+        className="flex list-decimal flex-col gap-1 pl-5 text-sm text-muted-foreground marker:font-mono marker:text-xs marker:text-honey-strong"
+      >
+        {view.resolvedSections.map((section) => (
+          <li key={section.id}>{section.title}</li>
+        ))}
+      </ol>
+
+      {view.editable ? (
+        <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+          {/* The pills say what they do. Each accessible name starts with the word on the pill,
+              so speech input can reach a control by the label the user can see (WCAG 2.5.3). */}
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "rounded-full",
+              view.isDefault && "border-honey-strong bg-honey-subtle text-honey-strong",
+            )}
+            onClick={onToggleDefault}
+            aria-pressed={view.isDefault}
+            aria-label={t(view.isDefault ? "templates.unsetDefault" : "templates.setDefault", {
+              template: view.template.name,
+            })}
+          >
+            <Star aria-hidden="true" className={cn("size-4", view.isDefault && "fill-current")} />
+            {t("templates.default")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full"
+            onClick={onEdit}
+            aria-label={t("templates.edit", { template: view.template.name })}
+          >
+            <Pencil aria-hidden="true" className="size-4" />
+            {t("templates.editShort")}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full px-3 hover:text-destructive"
+            onClick={onDelete}
+            aria-label={t("templates.delete", { template: view.template.name })}
+          >
+            <Trash2 aria-hidden="true" className="size-4" />
+          </Button>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {view.isDefault ? <Badge variant="plum">{t("templates.default")}</Badge> : null}
-          {view.editable ? (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onToggleDefault}
-                aria-pressed={view.isDefault}
-                aria-label={t(view.isDefault ? "templates.unsetDefault" : "templates.setDefault", {
-                  template: view.template.name,
-                })}
-              >
-                <Star aria-hidden="true" className={view.isDefault ? "fill-current" : undefined} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onEdit}
-                aria-label={t("templates.edit", { template: view.template.name })}
-              >
-                <Pencil aria-hidden="true" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onDelete}
-                aria-label={t("templates.delete", { template: view.template.name })}
-              >
-                <Trash2 aria-hidden="true" />
-              </Button>
-            </>
-          ) : (
-            <Badge>{t("templates.system")}</Badge>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        <ul className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground">
-          {view.resolvedSections.map((section) => (
-            <li key={section.id}>{section.title}</li>
-          ))}
-        </ul>
-      </CardContent>
+      ) : null}
     </Card>
   );
 }
@@ -248,9 +257,10 @@ function TemplatesSkeleton() {
   return (
     <div className="flex flex-col gap-6">
       <Skeleton className="h-7 w-40" />
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-28 w-full" />
-        <Skeleton className="h-28 w-full" />
+      {/* Same grid as the real list, so nothing reflows when the templates arrive. */}
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr))]">
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-48 w-full" />
       </div>
     </div>
   );

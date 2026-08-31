@@ -215,10 +215,7 @@ function TemplatePreview({
         <CardContent className="flex flex-col gap-3 pt-6">
           {sections.map((section) => (
             <div key={section.id} className="flex items-baseline gap-2">
-              {/* Transitional: `plum` no longer exists in v2 and resolves to honey through the
-                  Tailwind color mapping. This marker becomes a honey underline when the
-                  templates area ticket restyles this screen. */}
-              <span aria-hidden="true" className="h-4 w-1 shrink-0 rounded-full bg-plum" />
+              <span aria-hidden="true" className="h-4 w-1 shrink-0 rounded-full bg-honey-strong" />
               <span className="text-base font-semibold">
                 {section.title.trim() || t("templates.editor.untitledSection")}
               </span>
@@ -266,9 +263,18 @@ function SectionCard({
   return (
     <Card className="animate-pop-in overflow-hidden">
       <div className="flex">
-        <span aria-hidden="true" className="w-1 shrink-0 bg-plum-subtle" />
+        <span aria-hidden="true" className="w-1 shrink-0 bg-honey-subtle" />
         <CardContent className="flex flex-1 flex-col gap-4 pt-6">
           <div className="flex items-end gap-2">
+            {/* Where this section sits in the summary, in the mono figures the app uses for
+                every other number. Decorative — the fields beside it already name the section. */}
+            <span
+              aria-hidden="true"
+              data-testid="section-number"
+              className="pb-2.5 font-mono text-xs tabular-figures text-honey-strong"
+            >
+              {String(index + 1).padStart(2, "0")}
+            </span>
             <div className="flex flex-1 flex-col gap-2">
               <Label htmlFor={titleId}>{t("templates.editor.sectionTitle")}</Label>
               <Input

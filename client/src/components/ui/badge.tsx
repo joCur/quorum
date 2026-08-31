@@ -18,10 +18,10 @@ const badgeVariants = cva(
         warning: "bg-warning-subtle text-warning",
         destructive: "bg-destructive/10 text-destructive",
         recording: "bg-recording-subtle text-recording",
-        // Expressive, not status. v2 has no plum — honey is the single
-        // expressive accent — so this variant resolves to honey through the
-        // Tailwind color mapping. The name survives only until the templates
-        // and meeting-detail area tickets rename it.
+        // Expressive, not status: honey is the single expressive accent of v2.
+        honey: "bg-honey-subtle text-honey-strong",
+        // The same accent reached through the transitional `plum` mapping. The
+        // name survives only until the meeting-detail area ticket renames it.
         plum: "bg-plum-subtle text-plum",
       },
     },
