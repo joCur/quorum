@@ -104,13 +104,19 @@ body#keycloak-bg::after {
  * grid tracks and the gutter both have to go: with `box-sizing: border-box` and a 380px cap, that
  * inherited padding was eating 196px of the card and crushing it to 184px — which is what turned
  * the heading into one word per line and pushed "forgot password?" off the edge.
+ *
+ * 440px is the design system's width for a centred card that carries more than a couple of lines —
+ * the width its confirmation and explainer cards are drawn at. The prototype's login artboard is
+ * narrower, but it holds two fields and nothing else: no language picker, no remember/forgot row,
+ * no error slot, no reset-page help text. This card seats all of them, so it takes the wider of the
+ * system's two card widths.
  */
 .pf-v5-c-login__container {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 26px;
-  max-width: 380px;
+  max-width: 440px;
   width: 100%;
   margin: auto;
   padding-inline: 0;
@@ -209,7 +215,7 @@ body#keycloak-bg::after {
 
 /**
  * The card header: the step's title, and — when the realm speaks more than one language — the
- * locale picker beside it.
+ * locale picker.
  *
  * The parent theme lays this out as a grid, and from 768px up it re-cuts the tracks with
  * `div.pf-v5-c-login__main-header { grid-template-columns: 70% 30% }` and pins the picker into the
@@ -218,24 +224,25 @@ body#keycloak-bg::after {
  * The selector below matches its specificity and clears the grid outright, rather than relying on
  * `display: flex` to keep the leftovers inert.
  *
- * The row wraps: the title asks for a readable measure first, and the picker drops onto its own
- * line when a card this narrow cannot seat both.
+ * They are stacked rather than set side by side. Choosing a language is a utility, not a step in
+ * signing in: it belongs quietly in the card's top corner, the way the app parks its settings
+ * control, and it has no business competing with the title for the same line. Stacking also gives
+ * the title the card's full measure, which is what keeps a long German heading on one line.
  */
 div.pf-v5-c-login__main-header {
   /* PatternFly draws a 4px accent stripe across the top of the card. Quorum's accent is the
      header above it, not a rule inside it. */
   border-top: none;
-  padding-top: 28px;
+  padding-top: 26px;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
   grid-template-columns: none;
 }
 
 .pf-v5-c-login__main-body {
-  padding-top: 18px;
+  padding-top: 20px;
   padding-bottom: 28px;
 }
 
@@ -246,24 +253,36 @@ div.pf-v5-c-login__main-header {
  */
 #kc-page-title {
   font-family: var(--quorum-font-display);
-  font-size: 16px;
+  /* The card-title size from the design system's other centred cards. */
+  font-size: 19px;
   font-weight: 800;
   line-height: 1.3;
+  letter-spacing: -0.01em;
   color: var(--quorum-ink);
   margin: 0;
-  /* Enough room for a readable line before the picker gets any; below that the two stop sharing a
-     row. `flex-basis` rather than `min-width`, so a card narrower than the measure still fits. */
-  flex: 1 1 10rem;
-  min-width: 0;
   /* PatternFly sets `word-break: break-word` on its titles. A German heading is long enough that
      this splits words down the middle the moment the column tightens ("anmel / den"). Words stay
      whole; only a word longer than the line itself is broken. */
   word-break: normal;
   overflow-wrap: break-word;
   hyphens: none;
+  text-wrap: balance;
 }
 
 /* ---- Fields ------------------------------------------------------------------------------ */
+
+/**
+ * The vertical rhythm of the form, taken from the design system's card: 6px from a label to its
+ * field, 18px from one field group to the next. PatternFly's own spacing is looser than the
+ * product's and was leaving the card airier at the top than at the bottom.
+ */
+.pf-v5-c-form {
+  row-gap: 18px;
+}
+
+.pf-v5-c-form__group-label {
+  padding-bottom: 6px;
+}
 
 .pf-v5-c-form__label,
 .pf-v5-c-form__label-text {
@@ -386,30 +405,45 @@ div.pf-v5-c-login__main-header {
  * It never shrinks. The parent theme places it in a grid track it no longer has (see the header
  * above), and PatternFly's form control is itself a grid — a select spanning every track, with the
  * caret in the last one. Left free to shrink, that select's track collapses and the pill shows a
- * clipped letter instead of a language. `flex: 0 0 auto` sizes it to the widest language name it
- * has to offer, and the header wraps around it when the card is too narrow for both.
+ * clipped letter instead of a language. Sitting on its own line, it is sized by the widest language
+ * name it has to offer and nothing competes with it for the room.
  */
 .pf-v5-c-login__main-header-utilities {
   grid-area: auto;
-  flex: 0 0 auto;
+  /* Above the title, in the card's top corner. */
+  order: -1;
+  align-self: flex-end;
   max-width: 100%;
 }
 
 .pf-v5-c-login__main-header-utilities .pf-v5-c-form-control {
   border-radius: 999px;
-  background: var(--quorum-paper);
-  font-size: 13px;
-  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--quorum-line);
+  font-size: 12.5px;
+  padding: 1px 2px 1px 6px;
   width: auto;
   max-width: 100%;
+  /* The caret sits closer to the language name than PatternFly's default, so the pill stays a
+     label with a caret rather than a button with a lot of air in it. */
+  --pf-v5-c-form-control__toggle-icon--PaddingLeft: 2px;
+  --pf-v5-c-form-control__toggle-icon--PaddingRight: 8px;
 }
 
 /* The select and its options carry a fixed near-black in the parent theme, which the dark scheme
-   leaves unreadable. Both follow the theme's ink and ground instead. */
+   leaves unreadable. Both follow the theme's colors instead — the closed pill in the muted ink a
+   quiet utility gets, the open list in full ink on paper, where it has to be read. */
 .pf-v5-c-login__main-header-utilities select,
+.pf-v5-c-login__main-header-utilities .pf-v5-c-form-control__toggle-icon {
+  color: var(--quorum-muted-ink);
+  background-color: transparent;
+  font-weight: 600;
+}
+
 .pf-v5-c-login__main-header-utilities option {
   color: var(--quorum-ink);
   background-color: var(--quorum-paper);
+  font-weight: 400;
 }
 
 /**
@@ -440,7 +474,12 @@ div.pf-v5-c-login__main-header {
  */
 .pf-v5-c-form__helper-text .pf-v5-c-helper-text {
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px 16px;
+}
+
+.pf-v5-c-form__helper-text {
+  margin-top: 10px;
 }
 
 /* ---- The one action ---------------------------------------------------------------------- */
@@ -455,6 +494,13 @@ div.pf-v5-c-login__main-header {
   font-size: 15px;
   font-weight: 700;
   transition: opacity 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Same pseudo-element border PatternFly draws on every button; on the primary it read as a faint
+   ring floating just outside the pill. */
+.pf-v5-c-button.pf-m-primary::before,
+.pf-v5-c-button.pf-m-primary::after {
+  border: none;
 }
 
 .pf-v5-c-button.pf-m-primary:hover,
@@ -522,6 +568,34 @@ a {
 .pf-v5-c-login__main-footer-band,
 .pf-v5-u-color-200 {
   color: var(--quorum-muted-ink) !important;
+}
+
+/**
+ * The band under the reset form, which explains what submitting will do.
+ *
+ * PatternFly centres it and rules it off with a full-width line. Body copy reads from the left in
+ * this product, and the card is already a container — so the text aligns with the field above it
+ * and the divider softens to the theme's own line.
+ */
+/* The footer already carries the card's 28px inset; the band adds a second one, which pushed this
+   paragraph out of line with everything above it. The band also arrives with a rule of its own on
+   top of the one drawn below, so only one divider is left standing.
+   Spacing lives on the band, not on the footer, because the footer is present and empty on pages
+   that have no band at all. */
+.pf-v5-c-login__main-footer-band {
+  padding-inline: 0;
+  border-top: none;
+  margin-top: 22px;
+  margin-bottom: 26px;
+  text-align: left;
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.pf-v5-c-login__main-footer-band-item {
+  border-top: 1px solid var(--quorum-line);
+  padding-top: 18px;
+  text-align: left;
 }
 
 :focus-visible {
