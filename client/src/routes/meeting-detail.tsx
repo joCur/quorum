@@ -81,15 +81,14 @@ function MeetingDetailScreen({
       when the page does not scroll, and `sticky` holds it at the identical offset when it does —
       so the bar never jumps between the two cases.
     */
-    <div className="-mb-28 flex flex-1 flex-col gap-5 pb-4 md:-mb-10">
+    <div className="-mb-20 flex flex-1 flex-col gap-5 pb-4">
       {/*
-        Below `md` this block is the screen's title bar: with the tab bar gone, the back link is
-        the only way out, so it stays at the top edge instead of scrolling away. The negative
-        insets let the band span the full width and start at y=0 while the content keeps the
-        same resting position it had before. From `md` up the sidebar does the navigating and
-        the header is an ordinary block again.
+        An ordinary block at every width. This used to pin itself to the top edge below `md`,
+        because the shell dropped its tab bar here and the back link was then the only way out.
+        The top bar is on this screen now like every other, so the header can scroll away with
+        the content it belongs to.
       */}
-      <div className="sticky top-0 z-30 -mx-4 -mt-6 flex flex-col gap-2 bg-background px-4 pb-2 pt-6 md:static md:mx-0 md:mt-0 md:px-0 md:pb-0 md:pt-0">
+      <div className="flex flex-col gap-2">
         <Link
           to="/meetings"
           className="flex w-fit items-center gap-1 rounded-sm text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -144,19 +143,18 @@ function MeetingDetailScreen({
       )}
 
       {/*
-        Sticky rather than fixed: a fixed bar is positioned against the viewport, so once the
-        sidebar appears at `md` it reaches underneath it and centers on the wrong axis. Sticking
-        the last element of the content column keeps the player exactly as wide as the column at
-        every breakpoint, with no offset to keep in sync with the sidebar's width.
+        Sticky rather than fixed: a fixed bar is positioned against the viewport rather than the
+        content column, so it would centre on the wrong axis as soon as the column stops filling
+        the width. Sticking the last element of the column keeps the player exactly as wide as
+        the column at every breakpoint, with no offset to keep in sync.
 
         `mt-auto` handles the short-content case: with nothing to scroll, sticky alone would
         leave the bar floating directly under the last segment, so the auto margin eats the free
         space and pushes it to the bottom of the column instead.
 
-        The offset is the same at every width: this screen is shown without the mobile tab bar,
-        so there is nothing left to clear and the bar keeps a plain margin from the bottom edge.
-        It matches the column's padding above, which is what keeps the resting and pinned
-        positions identical.
+        The offset is the same at every width — nothing is anchored to the bottom edge of the
+        app any more — and it matches the column's padding above, which is what keeps the resting
+        and pinned positions identical.
       */}
       {meeting.hasAudio ? (
         <div className="sticky bottom-4 z-20 mt-auto">
