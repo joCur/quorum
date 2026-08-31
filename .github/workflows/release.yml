@@ -38,9 +38,10 @@ jobs:
       # Configured by `release-please-config.json` and `.release-please-manifest.json` at the
       # repository root rather than by a `release-type` here, because the release has to reach
       # more than the changelog: one version is written to the root package.json and copied into
-      # the client, server and worker manifests, so the version the client displays is the version
-      # that was tagged. The manifest file is the version the next release counts from; the action
-      # rewrites it as part of the release commit.
+      # every workspace manifest, so the version the client displays is the version that was
+      # tagged and no package is left behind declaring an old one. The manifest file is the
+      # version the next release counts from; the action rewrites it as part of the release
+      # commit.
       #
       # Two settings in that config exist only to keep the release shaped the way it already is:
       # the empty component keeps the release branch and the tag free of a package prefix, so the
