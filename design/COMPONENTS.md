@@ -96,7 +96,7 @@ Derivation from data: meeting status = live session state, else latest `Job` per
 
 - **`Dialog`** (shadcn `dialog`): forms and detail overlays on desktop. On mobile (< md), prefer **`Sheet`** (bottom sheet) for the same content. Sheets slide with `--ease-enter` over 320ms.
 - **`ConfirmDialog`** (shadcn `alert-dialog`): all destructive confirmations. Title states the consequence ("Delete this meeting?"), body lists exactly what is destroyed (audio, transcripts, summaries — cascade per ADR-001), destructive action button right-aligned, `Cancel` is the initially-focused default. No playfulness here — serious moments are rendered straight.
-- **`ConsentNotice`**: specialized `AlertDialog` before recording starts — see STATES.md §1. Not dismissible by outside-click or Escape; explicit choice required.
+- **`ConsentCard`**: the consent notice as a honey-outlined region on the recording screen's start stage — see STATES.md §1. Not a dialog and not dismissible; the primary button below it carries the acknowledgement.
 
 ## 8. Forms (shadcn `form` + `input`, `textarea`, `label`, `select`, `switch`)
 

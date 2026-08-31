@@ -105,15 +105,12 @@ way rather than invented, so a component asking for either lands on a real surfa
 | `honey-subtle` | hsl(44 95% 90%) | hsl(40 40% 17%) | Tinted surfaces: selection, icon tiles, the "Default" chip |
 | `brand-dot` | hsl(42 92% 55%) | hsl(26 30% 10%) | The dot on the Q mark. Honey on espresso in light, espresso on honey in dark |
 
-### On-air room
+### On-air identity
 
-The recording screen is a fixed dark room in **both** themes, so these two tokens intentionally do
-not vary:
-
-| Token | Value | Use |
-|---|---|---|
-| `on-air` | hsl(26 25% 10%) | The recording screen background |
-| `on-air-foreground` | hsl(40 45% 94%) | Text in that room |
+The recording screen follows the theme like every other screen — a light-theme user gets a light
+recording screen. There is therefore no dedicated on-air surface token: the screen stands on
+`background` / `foreground`, and what marks it as a different place is its layout, the `REC` pill,
+the level bars and the hold-to-stop ring.
 
 ### Status colors (state, and only state)
 
@@ -209,7 +206,7 @@ black in light mode) give surfaces a gentle lift. Hairline borders remain for de
 |---|---|---|
 | `--shadow-sm` | Cards, list rows, the player bar | `0 1px 3px hsl(26 30% 12% / 0.07), 0 1px 2px hsl(26 30% 12% / 0.05)` |
 | `--shadow-md` | Popovers, dropdowns, hover lift, the brand mark | `0 6px 16px hsl(26 30% 12% / 0.10)` |
-| `--shadow-lg` | Dialogs, sheets, the on-air tile | `0 16px 40px hsl(26 30% 12% / 0.16)` |
+| `--shadow-lg` | Dialogs and sheets | `0 16px 40px hsl(26 30% 12% / 0.16)` |
 
 Dark mode: elevation is expressed primarily by lighter surface color; shadows fall back to plain
 black at higher alpha (`0 4px 12px hsl(0 0% 0% / 0.4)` for `--shadow-md`).

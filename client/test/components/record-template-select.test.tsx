@@ -132,8 +132,11 @@ describe("record screen template choice", () => {
     renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     await user.type(screen.getByLabelText(TITLE_LABEL), "Weekly sync");
-    await user.click(screen.getByRole("button", { name: "Record" }));
-    await user.click(screen.getByRole("button", { name: "I have informed the participants" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "I have informed the participants — start recording",
+      }),
+    );
 
     // The template travels as an explicit id rather than as "send nothing", the prefilled default
     // included: what the screen showed when the recording started is what the summary is made
@@ -146,8 +149,11 @@ describe("record screen template choice", () => {
     setTemplates([], "ready");
     renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
-    await user.click(screen.getByRole("button", { name: "Record" }));
-    await user.click(screen.getByRole("button", { name: "I have informed the participants" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "I have informed the participants — start recording",
+      }),
+    );
 
     // Nothing was shown, so nothing is claimed; the server applies its own default.
     expect(startSpy).toHaveBeenCalledWith(null, null, null);

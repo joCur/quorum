@@ -132,8 +132,11 @@ describe("record screen microphone choice", () => {
 
     const select = await screen.findByLabelText<HTMLSelectElement>(MIC_LABEL);
     await user.selectOptions(select, HEADSET);
-    await user.click(screen.getByRole("button", { name: "Record" }));
-    await user.click(screen.getByRole("button", { name: "I have informed the participants" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "I have informed the participants — start recording",
+      }),
+    );
 
     expect(startSpy).toHaveBeenCalledWith(null, null, HEADSET);
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe(HEADSET);
@@ -145,8 +148,11 @@ describe("record screen microphone choice", () => {
     renderWithProviders(<RecordRoute />, { recording: stubRecordingSession({ start: startSpy }) });
 
     await screen.findByLabelText(MIC_LABEL);
-    await user.click(screen.getByRole("button", { name: "Record" }));
-    await user.click(screen.getByRole("button", { name: "I have informed the participants" }));
+    await user.click(
+      screen.getByRole("button", {
+        name: "I have informed the participants — start recording",
+      }),
+    );
 
     // No id travels rather than one guessed from the list: the system default is the browser's
     // to decide, and it can change between recordings.

@@ -151,7 +151,9 @@ describe("returning to the recording screen", () => {
     expect(screen.getByTestId("recording-timer")).toHaveTextContent("01:15");
     expect(screen.getByText("REC", { exact: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Stop" })).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByRole("button", { name: "Stop recording — press and hold" }),
+    ).toBeInTheDocument();
     // No title field: this recording has already started.
     expect(screen.queryByLabelText("Meeting title")).not.toBeInTheDocument();
     expect(start).not.toHaveBeenCalled();
@@ -163,7 +165,7 @@ describe("returning to the recording screen", () => {
       recording: session({ phase: "paused", elapsedSeconds: 75 }),
     });
 
-    expect(screen.getByText("PAUSED", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("PAUSE", { exact: true })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
   });
