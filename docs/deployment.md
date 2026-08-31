@@ -111,8 +111,11 @@ same value into `resetPasswordAllowed`, so while mail is off the sign-in page sh
 password?" link at all. A door that opens onto a mail nobody can send is worse than no door: the
 user waits, retries, and concludes the account is broken.
 
-Switching it on is a change to `.env` and a redeploy. The realm is reconciled on every start, so
-the link appears on the next one.
+Switching it on is a change to `.env` and a redeploy. So is changing relay later, or rotating the
+relay password: the realm is reconciled on **every** deploy, not only the first, so each `SMTP_*`
+value — the password included — is re-read from `.env` and written to the realm every time. A
+setting changed by hand in the admin console is reverted by that same run, like any other piece of
+realm configuration.
 
 ### Which version you get
 

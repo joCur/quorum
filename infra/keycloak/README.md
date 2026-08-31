@@ -34,6 +34,17 @@ sender, TLS flags and the relay credentials. There is no mail container in the r
 there should not be: delivering mail from a fresh IP address is a job for a relay that has spent
 years building a reputation.
 
+These are not first-start-only settings. `keycloak-config-cli` reconciles the realm on every
+deploy, so a changed `SMTP_*` value in `.env` — including the password — is written to the realm on
+the next `up`, and an SMTP setting edited by hand in the admin console is reverted by that same run.
+The admin API masks the stored password as `**********`, so reading it back through the console
+tells you nothing about whether it changed; `realm_smtp_config` in Keycloak's own database is where
+the actual value lives.
+
+The development realm behaves differently on purpose, and the difference bites: `--import-realm`
+imports a realm that does not exist yet and does nothing otherwise, so an edit to
+`realm-quorum.json` needs Keycloak's state dropped as well. See "Changing the realm" below.
+
 ### Why `resetPasswordAllowed` is a substituted value
 
 Password reset is only reachable through mail. A realm with reset enabled and no relay behind it
