@@ -62,6 +62,99 @@ export async function startRecording(page: Page): Promise<void> {
   await expect(stopButton(page)).toBeVisible();
 }
 
+/** The mode pills on the start stage. */
+export function captureModeButton(page: Page, mode: "in-person" | "online") {
+  return page.getByTestId(`capture-mode-${mode}`);
+}
+
+/** The start button of an online recording, which names the share it is about to ask for. */
+export function shareAndRecordButton(page: Page) {
+  return page.getByRole("button", {
+    name: "I have informed the participants — share and start recording",
+  });
+}
+
+/**
+ * Watches what the app does with a display share, from inside the page.
+ *
+ * The sound-only promise is a claim about tracks, not about pixels, so it is checked where the
+ * tracks are: `getDisplayMedia` is wrapped, a reference to the video track it returns is kept, and
+ * the test can afterwards ask what became of that track. Chromium's fake device answers the call
+ * without a picker (`--use-fake-ui-for-media-stream`) and hands back both a screen video track and
+ * a synthetic audio track, which is the shape the real API returns.
+ */
+export async function watchDisplayCapture(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const record = {
+      calls: 0,
+      constraints: [] as unknown[],
+      videoTracks: [] as MediaStreamTrack[],
+      audioTracks: [] as MediaStreamTrack[],
+    };
+    (window as unknown as Record<string, unknown>)["__displayCapture"] = record;
+
+    const media = navigator.mediaDevices;
+    const original = media.getDisplayMedia?.bind(media);
+    if (!original) return;
+    media.getDisplayMedia = async (constraints?: DisplayMediaStreamOptions) => {
+      record.calls += 1;
+      record.constraints.push(constraints ?? null);
+      const stream = await original(constraints);
+      record.videoTracks.push(...stream.getVideoTracks());
+      record.audioTracks.push(...stream.getAudioTracks());
+      return stream;
+    };
+  });
+}
+
+/**
+ * Ends the shared audio the way the browser's own "Stop sharing" control does.
+ *
+ * That control is browser chrome, outside the page and out of Playwright's reach, but what it does
+ * to the page is exactly this: the track ends and an `ended` event fires. Driving it from here
+ * tests the app's reaction, which is the part that belongs to the app.
+ */
+export async function stopSharing(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const record = (window as unknown as Record<string, unknown>)["__displayCapture"] as
+      { audioTracks: MediaStreamTrack[] } | undefined;
+    for (const track of record?.audioTracks ?? []) {
+      track.stop();
+      track.dispatchEvent(new Event("ended"));
+    }
+  });
+}
+
+/** What the page did with the display share: how it asked, and what became of the video. */
+export async function displayCaptureReport(page: Page): Promise<{
+  calls: number;
+  constraints: Record<string, unknown>[];
+  videoTracks: { readyState: string }[];
+}> {
+  return await page.evaluate(() => {
+    const record = (window as unknown as Record<string, unknown>)["__displayCapture"] as
+      | { calls: number; constraints: Record<string, unknown>[]; videoTracks: MediaStreamTrack[] }
+      | undefined;
+    return {
+      calls: record?.calls ?? 0,
+      constraints: record?.constraints ?? [],
+      videoTracks: (record?.videoTracks ?? []).map((track) => ({ readyState: track.readyState })),
+    };
+  });
+}
+
+/**
+ * Starts an online recording: the mode is chosen, then the same consent-carrying button is
+ * pressed, and the browser's share picker is answered by the fake device.
+ */
+export async function startOnlineRecording(page: Page): Promise<void> {
+  await expect(page.getByTestId("consent-card")).toBeVisible();
+  await captureModeButton(page, "online").click();
+  await expect(captureModeButton(page, "online")).toHaveAttribute("aria-checked", "true");
+  await shareAndRecordButton(page).click();
+  await expect(stopButton(page)).toBeVisible();
+}
+
 /**
  * Pauses a running recording and waits until the screen says so.
  *

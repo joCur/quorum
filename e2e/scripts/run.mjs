@@ -16,10 +16,11 @@
 //                           CPU Whisper container with the smallest model
 //   E2E_KEEP_STACK=1        leave the stack running after the tests, for debugging
 //   E2E_REUSE_STACK=1       assume the stack is already up and skip `compose up`
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
@@ -27,6 +28,12 @@ import process from "node:process";
 const here = dirname(fileURLToPath(import.meta.url));
 const e2eDir = resolve(here, "..");
 const repoRoot = resolve(e2eDir, "..");
+
+/**
+ * True when this run wrote `.stack.env` itself. Volumes left over from an earlier run carry the
+ * previous credentials, so the combination is unusable and must be refused rather than debugged.
+ */
+let credentialsAreNew = false;
 
 const credentials = loadCredentials();
 const stack = { ...parseEnvFile(localEnvFile()), ...credentials };
@@ -39,6 +46,9 @@ const keepStack = process.env.E2E_KEEP_STACK === "1";
 const reuseStack = process.env.E2E_REUSE_STACK === "1";
 
 const mockWhisperPort = Number.parseInt(process.env.MOCK_WHISPER_PORT ?? "8123", 10);
+// Mirrors the worker's own default (`WORKER_METRICS_PORT` in worker/src/config.ts): the worker
+// binds this port, so the run must find it free even though nothing here polls it.
+const workerMetricsPort = Number.parseInt(process.env.WORKER_METRICS_PORT ?? "9091", 10);
 const clientPort = stack.CLIENT_PORT ?? "4173";
 const apiUrl = `http://localhost:${stack.API_PORT}`;
 const keycloakUrl = `http://localhost:${stack.KEYCLOAK_PORT}`;
@@ -68,10 +78,17 @@ if (whisperMode === "real") composeServices.push("whisper");
 
 /** Long-running child processes this script owns and must clean up. */
 const children = [];
+/** Set once teardown starts killing children, so their exits stop counting as failures. */
+let tearingDown = false;
+/**
+ * Rejects as soon as an essential background process dies. The run races it against every wait,
+ * because a dead child plus a port an orphan still holds looks exactly like a healthy stack.
+ */
+const backgroundDeath = deferred();
 let exitCode = 0;
 
 try {
-  await main();
+  await Promise.race([main(), backgroundDeath.promise]);
 } catch (error) {
   console.error(`[e2e] ${error instanceof Error ? error.message : String(error)}`);
   exitCode = 1;
@@ -87,6 +104,7 @@ async function main() {
   if (reuseStack) {
     console.log("[e2e] reusing the running stack");
   } else {
+    await step("checking for stale stack volumes", assertVolumesMatchCredentials);
     await step("starting the stack", () =>
       run("docker", [...composeArgs, "up", "-d", "--build", ...composeServices], {
         cwd: repoRoot,
@@ -119,6 +137,7 @@ async function main() {
 
   // The stub backend serves the summary endpoint in both modes, so it always runs.
   await step("starting the mock backend", async () => {
+    await assertPortFree(mockWhisperPort, "the mock backend");
     background("mock-backend", process.execPath, [resolve(here, "mock-whisper.mjs")], {
       cwd: e2eDir,
       env: { ...process.env, MOCK_WHISPER_PORT: String(mockWhisperPort) },
@@ -127,6 +146,7 @@ async function main() {
   });
 
   await step("starting the transcription worker", async () => {
+    await assertPortFree(workerMetricsPort, "the worker metrics endpoint");
     background("worker", process.execPath, ["worker/dist/index.js"], {
       cwd: repoRoot,
       env: {
@@ -169,6 +189,7 @@ async function main() {
   );
 
   await step("serving the PWA", async () => {
+    await assertPortFree(Number(clientPort), "the PWA");
     background(
       "client",
       "pnpm",
@@ -216,6 +237,7 @@ async function main() {
 }
 
 async function teardown() {
+  tearingDown = true;
   for (const child of children.reverse()) {
     if (child.process.exitCode === null && child.process.signalCode === null) {
       child.process.kill("SIGTERM");
@@ -261,12 +283,90 @@ function run(command, args, options = {}) {
 function background(name, command, args, options = {}) {
   const child = spawn(command, args, { stdio: "inherit", ...options });
   children.push({ name, process: child });
+  child.on("error", (error) => {
+    backgroundDeath.reject(new Error(`${name} could not be started: ${error.message}`));
+  });
   child.on("exit", (code, signal) => {
-    if (code !== 0 && signal !== "SIGTERM") {
-      console.error(`[e2e] ${name} exited unexpectedly (${signal ?? code})`);
-    }
+    if (tearingDown || signal === "SIGTERM") return;
+    // A background process that dies mid-run fails the run: the alternative is polling whatever
+    // else holds its port and testing a stale build.
+    backgroundDeath.reject(new Error(`${name} exited unexpectedly (${signal ?? code})`));
   });
   return child;
+}
+
+/** A promise plus its settle functions, so an event handler can fail the run from outside. */
+function deferred() {
+  let reject;
+  const promise = new Promise((_, rejectPromise) => {
+    reject = rejectPromise;
+  });
+  // Nothing awaits this promise before the race in the entry block, and the race keeps a handler
+  // attached afterwards, so a late rejection is never unhandled.
+  return { promise, reject };
+}
+
+/**
+ * Refuses to start a process on a port something else already holds. Without this the new child
+ * dies with EADDRINUSE while the health check happily answers from the leftover one.
+ */
+async function assertPortFree(port, what) {
+  const server = createServer();
+  try {
+    await new Promise((resolvePromise, reject) => {
+      server.once("error", reject);
+      server.listen({ port, host: "127.0.0.1", exclusive: true }, resolvePromise);
+    });
+  } catch (error) {
+    const owner = describePortOwner(port);
+    throw new Error(
+      `port ${port} (${what}) is already in use${owner}. ` +
+        `A leftover process from an earlier run answers there, so the suite would test it instead ` +
+        `of this build. Kill it (\`kill $(lsof -ti :${port})\`) and run again. [${error.code ?? error.message}]`,
+      { cause: error },
+    );
+  }
+  await new Promise((resolvePromise) => server.close(resolvePromise));
+}
+
+/** Best effort: `lsof` is absent on plenty of machines, and an unnamed port is still an error. */
+function describePortOwner(port) {
+  const pids = capture("lsof", ["-ti", `:${port}`]);
+  if (pids === null || pids.trim() === "") return "";
+  const list = pids.trim().split("\n").join(", ");
+  const command = capture("ps", ["-o", "command=", "-p", pids.trim().split("\n")[0]]);
+  const name = command === null || command.trim() === "" ? "" : ` — ${command.trim()}`;
+  return ` (pid ${list}${name})`;
+}
+
+/**
+ * Volumes of the `quorum-e2e` project outlive a run left up with `E2E_KEEP_STACK=1` or a failed
+ * teardown. They carry the credentials of that run, so pairing them with freshly generated ones
+ * only makes Keycloak report a password failure against a database it cannot open.
+ */
+async function assertVolumesMatchCredentials() {
+  if (!credentialsAreNew) return;
+  const volumes = capture("docker", [
+    "volume",
+    "ls",
+    "--filter",
+    "label=com.docker.compose.project=quorum-e2e",
+    "--quiet",
+  ]);
+  if (volumes === null || volumes.trim() === "") return;
+  throw new Error(
+    `the \`quorum-e2e\` stack still has volumes (${volumes.trim().split("\n").join(", ")}) from an ` +
+      `earlier run, but e2e/.stack.env was regenerated this run, so their credentials no longer ` +
+      `match and Keycloak would fail to open its database. Remove them with ` +
+      `\`docker compose ${composeArgs.slice(1).join(" ")} down -v\` and run again.`,
+  );
+}
+
+/** Synchronous command output, or null when the command is missing or fails. */
+function capture(command, args) {
+  const result = spawnSync(command, args, { encoding: "utf8" });
+  if (result.error || result.status !== 0) return null;
+  return result.stdout;
 }
 
 async function waitForHttp(url, what, timeoutMs = 180_000) {
@@ -311,6 +411,7 @@ function loadCredentials() {
   const path = resolve(e2eDir, ".stack.env");
   if (existsSync(path)) return parseEnvFile(path);
 
+  credentialsAreNew = true;
   const secret = () => randomBytes(24).toString("base64url");
   const generated = {
     POSTGRES_PASSWORD: secret(),

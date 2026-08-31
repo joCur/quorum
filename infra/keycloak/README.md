@@ -18,6 +18,62 @@ working login without a single click in the admin console (ADR-006 §7).
 | Client `quorum-provisioner`        | Service account the API uses to give a self-registered account a tenant. See "Signing up" below.   |
 | Dev users                          | See below.                                                                                        |
 
+## Mail
+
+Keycloak is what sends password-reset and address-verification mail, so the relay is a realm
+setting rather than an application one. The two realms answer that differently, and the difference
+is the point.
+
+**Development** sends everything to the `mailpit` container in `docker-compose.yml`. Nothing leaves
+the machine, no credentials are involved, and every message is readable in the web inbox at
+<http://localhost:8025> (`MAILPIT_UI_PORT`). That is what makes the reset flow something a developer
+can walk end to end rather than only configure: click "Forgot Password?", open the inbox, follow the
+link. It is also how the end-to-end suite reads a mail it has to act on.
+
+**Production** takes the whole `smtpServer` block from the environment at import time — host, port,
+sender, TLS flags and the relay credentials. There is no mail container in the release stack, and
+there should not be: delivering mail from a fresh IP address is a job for a relay that has spent
+years building a reputation.
+
+These are not first-start-only settings. `keycloak-config-cli` reconciles the realm on every
+deploy, so a changed `SMTP_*` value in `.env` — including the password — is written to the realm on
+the next `up`, and an SMTP setting edited by hand in the admin console is reverted by that same run.
+The admin API masks the stored password as `**********`, so reading it back through the console
+tells you nothing about whether it changed; `realm_smtp_config` in Keycloak's own database is where
+the actual value lives.
+
+The development realm behaves differently on purpose, and the difference bites: `--import-realm`
+imports a realm that does not exist yet and does nothing otherwise, so an edit to
+`realm-quorum.json` needs Keycloak's state dropped as well. See "Changing the realm" below.
+
+### Why `resetPasswordAllowed` is a substituted value
+
+Two more settings ride on the same switch for the same reason — `registrationAllowed` and
+`verifyEmail`; see "Signing up" below.
+
+Password reset is only reachable through mail. A realm with reset enabled and no relay behind it
+puts a "Forgot password?" link on the sign-in page that produces "you should receive an email
+shortly" and then nothing at all — the user waits, retries, and concludes the account is broken.
+
+So the production realm sets `resetPasswordAllowed` to `$(env:QUORUM_SMTP_ENABLED)`, the same switch
+that makes the `SMTP_*` values mandatory in `scripts/secrets-preflight.sh`. One variable governs
+both, and the two cannot disagree: a deployment either has a relay and offers the link, or has
+neither. Turning mail on is a change to `.env` and a redeploy, not a change to this file.
+
+Two alternatives were considered and rejected. A second production realm file (one with reset, one
+without) doubles every future realm change and doubles the drift the guard below exists to catch. A
+documented "run this `kcadm` command after deploying" is configuration that lives in a runbook
+instead of in a reviewed file, and the next deploy reverts it — `keycloak-config-cli` runs with
+`IMPORT_CACHE_ENABLED=false` precisely so that hand-made changes do not survive.
+
+The value crosses from string to boolean on the way in: the substitution happens on the file text,
+so the realm carries `"false"`, and Jackson coerces it to the boolean the representation declares.
+That is verified behavior on the pinned `keycloak-config-cli` version, not an assumption — both
+`true` and `false` were applied against a live Keycloak and read back from the admin API.
+
+None of the three is a first-start-only setting. `keycloak-config-cli` reconciles the realm on every
+deploy, so flipping the switch in `.env` takes effect on the next `up`.
+
 ## Signing up
 
 Self-registration is the way in: `registrationAllowed` with `verifyEmail`, so an account is created
@@ -79,56 +135,6 @@ It used to be. It cannot be: the person filling in the registration form has no 
 it and nothing to write there, and a service account has no tenant at all. Requiring it in the user
 profile makes both of those a special case for the sake of an invariant the API already enforces on
 every single request.
-
-## Mail
-
-Keycloak is what sends password-reset and address-verification mail, so the relay is a realm
-setting rather than an application one. The two realms answer that differently, and the difference
-is the point.
-
-**Development** sends everything to the `mailpit` container in `docker-compose.yml`. Nothing leaves
-the machine, no credentials are involved, and every message is readable in the web inbox at
-<http://localhost:8025> (`MAILPIT_UI_PORT`). That is what makes the reset flow something a developer
-can walk end to end rather than only configure: click "Forgot Password?", open the inbox, follow the
-link. It is also how the end-to-end suite reads a mail it has to act on.
-
-**Production** takes the whole `smtpServer` block from the environment at import time — host, port,
-sender, TLS flags and the relay credentials. There is no mail container in the release stack, and
-there should not be: delivering mail from a fresh IP address is a job for a relay that has spent
-years building a reputation.
-
-These are not first-start-only settings. `keycloak-config-cli` reconciles the realm on every
-deploy, so a changed `SMTP_*` value in `.env` — including the password — is written to the realm on
-the next `up`, and an SMTP setting edited by hand in the admin console is reverted by that same run.
-The admin API masks the stored password as `**********`, so reading it back through the console
-tells you nothing about whether it changed; `realm_smtp_config` in Keycloak's own database is where
-the actual value lives.
-
-The development realm behaves differently on purpose, and the difference bites: `--import-realm`
-imports a realm that does not exist yet and does nothing otherwise, so an edit to
-`realm-quorum.json` needs Keycloak's state dropped as well. See "Changing the realm" below.
-
-### Why `resetPasswordAllowed` is a substituted value
-
-Password reset is only reachable through mail. A realm with reset enabled and no relay behind it
-puts a "Forgot password?" link on the sign-in page that produces "you should receive an email
-shortly" and then nothing at all — the user waits, retries, and concludes the account is broken.
-
-So the production realm sets `resetPasswordAllowed` to `$(env:QUORUM_SMTP_ENABLED)`, the same switch
-that makes the `SMTP_*` values mandatory in `scripts/secrets-preflight.sh`. One variable governs
-both, and the two cannot disagree: a deployment either has a relay and offers the link, or has
-neither. Turning mail on is a change to `.env` and a redeploy, not a change to this file.
-
-Two alternatives were considered and rejected. A second production realm file (one with reset, one
-without) doubles every future realm change and doubles the drift the guard below exists to catch. A
-documented "run this `kcadm` command after deploying" is configuration that lives in a runbook
-instead of in a reviewed file, and the next deploy reverts it — `keycloak-config-cli` runs with
-`IMPORT_CACHE_ENABLED=false` precisely so that hand-made changes do not survive.
-
-The value crosses from string to boolean on the way in: the substitution happens on the file text,
-so the realm carries `"false"`, and Jackson coerces it to the boolean the representation declares.
-That is verified behavior on the pinned `keycloak-config-cli` version, not an assumption — both
-`true` and `false` were applied against a live Keycloak and read back from the admin API.
 
 ## Transport security: `sslRequired`
 

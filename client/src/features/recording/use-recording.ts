@@ -8,6 +8,17 @@ import {
   selectRecordingFormat,
 } from "@/features/recording/audio-format";
 import {
+  createAudioMixer,
+  setCaptureEnabled,
+  type AudioMixer,
+} from "@/features/recording/audio-mixer";
+import type { CaptureMode } from "@/features/recording/capture-mode";
+import {
+  DisplayCaptureError,
+  requestDisplayAudio,
+  type DisplayCaptureFailure,
+} from "@/features/recording/display-capture";
+import {
   openChunkBuffer,
   storageHeadroom,
   type BufferedSession,
@@ -46,8 +57,44 @@ export type RecordingPhase =
 
 export interface RecordingError {
   /** Distinguishes the cases the UI must explain differently. */
-  kind: "permission-denied" | "unsupported" | "storage" | "connection" | "input-lost" | "unknown";
+  kind:
+    | "permission-denied"
+    | "unsupported"
+    | "storage"
+    | "connection"
+    | "input-lost"
+    | "unknown"
+    /** The share picker was dismissed or refused. */
+    | "display-denied"
+    /** A share came back without sound — the checkbox, or a platform that has none to give. */
+    | "display-no-audio"
+    /** This browser has no screen capture at all. */
+    | "display-unsupported";
   detail?: string | undefined;
+}
+
+/** Maps a display-capture failure onto the error the screen explains. */
+function displayErrorKind(reason: DisplayCaptureFailure): RecordingError["kind"] {
+  if (reason === "no-audio") return "display-no-audio";
+  if (reason === "unsupported") return "display-unsupported";
+  return "display-denied";
+}
+
+/**
+ * Everything one capture owns, so it can be rebuilt in one piece.
+ *
+ * The microphone can be swapped and the shared audio can be re-picked while a session runs; both
+ * mean tearing the audio graph down and building another one. Keeping the parts together is what
+ * makes those two operations the same operation.
+ */
+interface Capture {
+  /** What `MediaRecorder` records — the mixed track online, the raw microphone in person. */
+  recordStream: MediaStream;
+  mic: MediaStream;
+  /** The display audio, video already discarded. `null` for an in-person recording. */
+  display: MediaStream | null;
+  /** Present exactly when there is more than one source to sum. */
+  mixer: AudioMixer | null;
 }
 
 /** Audio constraints every capture asks for, whichever input it uses. */
@@ -58,6 +105,20 @@ function audioConstraints(deviceId: string | null): MediaTrackConstraints {
     autoGainControl: true,
     ...(deviceId === null ? {} : { deviceId: { exact: deviceId } }),
   };
+}
+
+/**
+ * Assembles a capture from the sources it has.
+ *
+ * With a display share present the two sources are summed into one track, so the recorder, the
+ * chunk protocol and the server see the same single-track recording they always have. Without one,
+ * the microphone stream is recorded directly — no graph, no resampling, nothing between the
+ * microphone and the file that was not there before this mode existed.
+ */
+function buildCapture(mic: MediaStream, display: MediaStream | null): Capture {
+  if (!display) return { recordStream: mic, mic, display: null, mixer: null };
+  const mixer = createAudioMixer([mic, display]);
+  return { recordStream: mixer.stream, mic, display, mixer };
 }
 
 export interface RecordingState {
@@ -80,6 +141,16 @@ export interface RecordingState {
    * loud rather than swallowed (STATES.md §9).
    */
   inputFallback: boolean;
+  /** Which kind of meeting the running (or last) session captures. */
+  mode: CaptureMode;
+  /**
+   * True while an online recording is paused because the shared audio stopped arriving.
+   *
+   * The user pressed the browser's own "Stop sharing", or the shared window closed. Continuing on
+   * the microphone alone would be the recording quietly becoming a different recording than the
+   * one the user asked for, so capture pauses instead and says so; resuming asks to share again.
+   */
+  displayEnded: boolean;
   meetingId: string | null;
   recoverable: BufferedSession | null;
   /**
@@ -103,6 +174,8 @@ const INITIAL_STATE: RecordingState = {
   wakeLockActive: false,
   storageLow: false,
   inputFallback: false,
+  mode: "in-person",
+  displayEnded: false,
   meetingId: null,
   recoverable: null,
   limit: null,
@@ -122,7 +195,7 @@ export function useRecording() {
   const bufferRef = React.useRef<ChunkBuffer | null>(null);
   const clientRef = React.useRef<RecordingClient | null>(null);
   const recorderRef = React.useRef<MediaRecorder | null>(null);
-  const streamRef = React.useRef<MediaStream | null>(null);
+  const captureRef = React.useRef<Capture | null>(null);
   const audioContextRef = React.useRef<AudioContext | null>(null);
   const analyserRef = React.useRef<AnalyserNode | null>(null);
   const wakeLockRef = React.useRef<WakeLockHandle | null>(null);
@@ -134,6 +207,7 @@ export function useRecording() {
   // is not mistaken for a second device loss.
   const swappingRef = React.useRef(false);
   const phaseRef = React.useRef<RecordingPhase>("idle");
+  const modeRef = React.useRef<CaptureMode>("in-person");
 
   const patch = React.useCallback((changes: Partial<RecordingState>) => {
     setState((current) => ({ ...current, ...changes }));
@@ -187,19 +261,34 @@ export function useRecording() {
     patch({ wakeLockActive: handle !== null });
   }, [patch]);
 
-  const teardownCapture = React.useCallback(() => {
+  /**
+   * Releases the audio graph and every input feeding it.
+   *
+   * Both sources are stopped, not just the one the recorder was reading: a display share that
+   * outlived its recording would leave the browser's "sharing your screen" strip on screen with
+   * nothing behind it, which is the opposite of what this mode promises.
+   */
+  const releaseCapture = React.useCallback(() => {
     if (frameRef.current !== null) {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     }
-    recorderRef.current = null;
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
+    const capture = captureRef.current;
+    captureRef.current = null;
+    capture?.mic.getTracks().forEach((track) => track.stop());
+    capture?.display?.getTracks().forEach((track) => track.stop());
+    capture?.recordStream.getTracks().forEach((track) => track.stop());
+    void capture?.mixer?.close().catch(() => undefined);
     void audioContextRef.current?.close().catch(() => undefined);
     audioContextRef.current = null;
     analyserRef.current = null;
+  }, []);
+
+  const teardownCapture = React.useCallback(() => {
+    recorderRef.current = null;
+    releaseCapture();
     releaseWakeLock();
-  }, [releaseWakeLock]);
+  }, [releaseCapture, releaseWakeLock]);
 
   const monitorLevel = React.useCallback(() => {
     const analyser = analyserRef.current;
@@ -258,19 +347,25 @@ export function useRecording() {
    * lives outside this function on purpose: capture can be rebuilt on another microphone without
    * the session noticing, which is what keeps a chunk sequence gap-free across a device swap.
    */
-  const attachCapture = React.useCallback((stream: MediaStream, client: RecordingClient) => {
+  const attachCapture = React.useCallback((capture: Capture, client: RecordingClient) => {
     const format = formatRef.current;
     if (!format) return;
-    streamRef.current = stream;
+    captureRef.current = capture;
 
-    const context = new AudioContext();
-    const analyser = context.createAnalyser();
-    analyser.fftSize = 1024;
-    context.createMediaStreamSource(stream).connect(analyser);
-    audioContextRef.current = context;
-    analyserRef.current = analyser;
+    if (capture.mixer) {
+      // The mixed signal is what is being recorded, so it is what the meter reads.
+      audioContextRef.current = capture.mixer.context;
+      analyserRef.current = capture.mixer.analyser;
+    } else {
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      context.createMediaStreamSource(capture.recordStream).connect(analyser);
+      audioContextRef.current = context;
+      analyserRef.current = analyser;
+    }
 
-    const recorder = new MediaRecorder(stream, { mimeType: format.mimeType });
+    const recorder = new MediaRecorder(capture.recordStream, { mimeType: format.mimeType });
     recorder.ondataavailable = (event: BlobEvent) => {
       if (event.data.size === 0) return;
       const offset = audioSecondsRef.current;
@@ -309,16 +404,22 @@ export function useRecording() {
           previous.stop();
         });
       }
+      // The shared audio survives a microphone swap: it is a different source with a different
+      // lifetime, and losing the call because a headset was unplugged would be absurd.
+      const capture = captureRef.current;
+      const display = capture?.display ?? null;
       if (frameRef.current !== null) {
         cancelAnimationFrame(frameRef.current);
         frameRef.current = null;
       }
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      void audioContextRef.current?.close().catch(() => undefined);
+      captureRef.current = null;
+      capture?.mic.getTracks().forEach((track) => track.stop());
+      void capture?.mixer?.close().catch(() => undefined);
+      if (!capture?.mixer) void audioContextRef.current?.close().catch(() => undefined);
       audioContextRef.current = null;
       analyserRef.current = null;
 
-      attachCapture(stream, client);
+      attachCapture(buildCapture(stream, display), client);
       patch({ inputFallback: true });
       monitorLevel();
     } catch (cause) {
@@ -340,8 +441,17 @@ export function useRecording() {
       meetingTitle: string | null,
       summaryTemplateId: string | null = null,
       inputDeviceId: string | null = null,
+      mode: CaptureMode = "in-person",
     ) => {
-      patch({ phase: "requesting", error: null, limit: null, inputFallback: false });
+      modeRef.current = mode;
+      patch({
+        phase: "requesting",
+        error: null,
+        limit: null,
+        inputFallback: false,
+        displayEnded: false,
+        mode,
+      });
 
       const format = selectRecordingFormat();
       if (!format) {
@@ -350,10 +460,28 @@ export function useRecording() {
       }
       formatRef.current = format;
 
+      // The share picker is opened first, while the click that led here is still the browser's
+      // idea of a user gesture, and before anything else has been set up: an online recording that
+      // cannot get the meeting's sound must fail before it has opened a socket or a buffer.
+      let display: MediaStream | null = null;
+      if (mode === "online") {
+        try {
+          display = await requestDisplayAudio();
+        } catch (cause) {
+          const reason: DisplayCaptureFailure =
+            cause instanceof DisplayCaptureError ? cause.reason : "denied";
+          patch({ phase: "error", error: { kind: displayErrorKind(reason) } });
+          return;
+        }
+      }
+
+      const abandonDisplay = () => display?.getTracks().forEach((track) => track.stop());
+
       let buffer: ChunkBuffer;
       try {
         buffer = await openBuffer();
       } catch (cause) {
+        abandonDisplay();
         patch({
           phase: "error",
           error: { kind: "storage", detail: cause instanceof Error ? cause.message : undefined },
@@ -377,6 +505,7 @@ export function useRecording() {
             .catch(() => null);
         }
         if (!fallback) {
+          abandonDisplay();
           patch({
             phase: "error",
             error: {
@@ -392,11 +521,14 @@ export function useRecording() {
 
       const track = stream.getAudioTracks().at(0);
       if (!track) {
+        abandonDisplay();
         stream.getTracks().forEach((each) => each.stop());
         patch({ phase: "error", error: { kind: "unsupported" } });
         return;
       }
-      streamRef.current = stream;
+
+      const capture = buildCapture(stream, display);
+      captureRef.current = capture;
 
       const client = new RecordingClient({
         url: webSocketUrl(RECORDING_PATH),
@@ -433,12 +565,16 @@ export function useRecording() {
       });
       clientRef.current = client;
 
-      const audioFormat = describeAudioFormat(format, track);
+      // The format announced to the server describes the track that is actually recorded. For a
+      // mixed capture that is the graph's output, not the microphone that is one of its inputs —
+      // the sum can carry a different rate and channel count than either source.
+      const recordedTrack = capture.recordStream.getAudioTracks().at(0) ?? track;
+      const audioFormat = describeAudioFormat(format, recordedTrack, capture.mixer?.context);
       await client.start({ meetingTitle, summaryTemplateId }, audioFormat);
 
       audioSecondsRef.current = 0;
       silentSinceRef.current = null;
-      attachCapture(stream, client);
+      attachCapture(capture, client);
 
       patch({ phase: "recording", elapsedSeconds: 0, inputFallback: usedFallbackInput });
       await acquireWakeLock();
@@ -450,16 +586,97 @@ export function useRecording() {
   const pause = React.useCallback(() => {
     recorderRef.current?.pause();
     clientRef.current?.pause();
+    // Both sources go quiet, not just the recorder: a pause that left the microphone light on and
+    // the call still being listened to would be a pause only on the screen.
+    const capture = captureRef.current;
+    setCaptureEnabled([capture?.mic ?? null, capture?.display ?? null], false);
     releaseWakeLock();
     patch({ phase: "paused", level: 0, silent: false });
   }, [patch, releaseWakeLock]);
 
-  const resume = React.useCallback(() => {
+  /**
+   * Continues after a pause — asking to share again first, if the share is what ended it.
+   *
+   * Resuming is a button press, which is the user gesture the share picker requires, so an online
+   * recording whose share was stopped can be picked up exactly where it left off. A picker that is
+   * dismissed, or a share that comes back without sound, leaves the recording paused and the
+   * notice standing: the alternative would be resuming into a microphone-only capture of a call
+   * the user cannot hear, which is the one thing this mode must never do quietly.
+   */
+  const resume = React.useCallback(async () => {
+    const client = clientRef.current;
+    const capture = captureRef.current;
+
+    if (phaseRef.current === "paused" && modeRef.current === "online" && client && capture) {
+      const needsShare = capture.display === null || capture.display.getAudioTracks().length === 0;
+      if (needsShare) {
+        let display: MediaStream;
+        try {
+          display = await requestDisplayAudio();
+        } catch {
+          // Still paused, still explained. Nothing was lost and nothing was faked.
+          return;
+        }
+
+        const previous = recorderRef.current;
+        if (previous && previous.state !== "inactive") {
+          await new Promise<void>((settle) => {
+            previous.onstop = () => settle();
+            previous.stop();
+          });
+        }
+        if (frameRef.current !== null) {
+          cancelAnimationFrame(frameRef.current);
+          frameRef.current = null;
+        }
+        captureRef.current = null;
+        void capture.mixer?.close().catch(() => undefined);
+        audioContextRef.current = null;
+        analyserRef.current = null;
+
+        setCaptureEnabled([capture.mic], true);
+        attachCapture(buildCapture(capture.mic, display), client);
+        client.resumeMark();
+        void acquireWakeLock();
+        patch({ phase: "recording", displayEnded: false });
+        monitorLevel();
+        return;
+      }
+    }
+
+    setCaptureEnabled([capture?.mic ?? null, capture?.display ?? null], true);
     recorderRef.current?.resume();
     clientRef.current?.resumeMark();
     void acquireWakeLock();
     patch({ phase: "recording" });
-  }, [acquireWakeLock, patch]);
+  }, [acquireWakeLock, attachCapture, monitorLevel, patch]);
+
+  /**
+   * The shared audio stopped arriving — the browser's own "Stop sharing", or the window closed.
+   *
+   * This pauses rather than finalizes. Finalizing would end a meeting the user is very likely
+   * still in, over what is often a misclick, and there is nothing to gain from it: paused audio is
+   * as safe as finalized audio, the buffer is untouched, and stopping remains one hold away. What
+   * it must not do is carry on: red leaves the screen, the timer stops, and the notice says the
+   * call's sound is no longer being captured.
+   */
+  const onDisplayEnded = React.useCallback(() => {
+    if (phaseRef.current !== "recording" && phaseRef.current !== "paused") return;
+    const capture = captureRef.current;
+    if (!capture?.display) return;
+    // A recording that is already paused is not paused twice: the mark stream has to stay
+    // balanced, or the pipeline maps audio time back to the wrong wall clock.
+    if (phaseRef.current === "recording") {
+      recorderRef.current?.pause();
+      clientRef.current?.pause();
+    }
+    capture.display.getTracks().forEach((track) => track.stop());
+    // Dropped from the capture, so resuming knows it has to ask for the share again.
+    captureRef.current = { ...capture, display: null };
+    setCaptureEnabled([capture.mic], false);
+    releaseWakeLock();
+    patch({ phase: "paused", level: 0, silent: false, displayEnded: true });
+  }, [patch, releaseWakeLock]);
 
   const stop = React.useCallback(() => {
     patch({ phase: "finalizing" });
@@ -545,6 +762,7 @@ export function useRecording() {
       wakeLockActive: false,
       storageLow: false,
       inputFallback: false,
+      displayEnded: false,
       meetingId: null,
       limit: null,
     });
@@ -569,7 +787,7 @@ export function useRecording() {
    */
   React.useEffect(() => {
     if (state.phase !== "recording" && state.phase !== "paused") return;
-    const track = streamRef.current?.getAudioTracks().at(0);
+    const track = captureRef.current?.mic.getAudioTracks().at(0);
     if (!track) return;
 
     const onEnded = () => void continueOnDefaultInput();
@@ -584,6 +802,23 @@ export function useRecording() {
       navigator.mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
     };
   }, [state.phase, captureGeneration, continueOnDefaultInput]);
+
+  /**
+   * Watches the shared audio of an online recording.
+   *
+   * The browser gives the user a stop-sharing control of its own, outside the app, and pressing it
+   * ends the track without telling anything else. This is the only place that finds out, so it is
+   * the place that has to be honest about it.
+   */
+  React.useEffect(() => {
+    if (state.phase !== "recording" && state.phase !== "paused") return;
+    const track = captureRef.current?.display?.getAudioTracks().at(0);
+    if (!track) return;
+
+    const handle = () => onDisplayEnded();
+    track.addEventListener("ended", handle);
+    return () => track.removeEventListener("ended", handle);
+  }, [state.phase, captureGeneration, onDisplayEnded]);
 
   // Wake locks are dropped when a tab is hidden and must be taken again.
   React.useEffect(() => {

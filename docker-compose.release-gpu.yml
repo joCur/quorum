@@ -77,8 +77,9 @@ services:
       QUORUM_PUBLIC_URL: ${QUORUM_PUBLIC_URL}
       # Mail relay for verification and password-reset messages. QUORUM_SMTP_ENABLED is the one
       # switch: the preflight makes the SMTP_* values mandatory when it is on, and the realm
-      # substitutes the same value into `resetPasswordAllowed`, so a deployment cannot offer a
-      # password-reset link it has no way to deliver.
+      # substitutes the same value into `resetPasswordAllowed`, `registrationAllowed` and
+      # `verifyEmail` — so a deployment can neither offer a password-reset link it cannot deliver
+      # nor create sign-ups that can never be verified.
       QUORUM_SMTP_ENABLED: ${QUORUM_SMTP_ENABLED:-false}
       # Secret of the service account the API uses to give a self-registered account
       # its own tenant. Substituted into the realm here and handed to the API below,
@@ -134,8 +135,9 @@ services:
       QUORUM_PUBLIC_URL: ${QUORUM_PUBLIC_URL}
       # Mail relay for verification and password-reset messages. QUORUM_SMTP_ENABLED is the one
       # switch: the preflight makes the SMTP_* values mandatory when it is on, and the realm
-      # substitutes the same value into `resetPasswordAllowed`, so a deployment cannot offer a
-      # password-reset link it has no way to deliver.
+      # substitutes the same value into `resetPasswordAllowed`, `registrationAllowed` and
+      # `verifyEmail` — so a deployment can neither offer a password-reset link it cannot deliver
+      # nor create sign-ups that can never be verified.
       QUORUM_SMTP_ENABLED: ${QUORUM_SMTP_ENABLED:-false}
       # Secret of the service account the API uses to give a self-registered account
       # its own tenant. Substituted into the realm here and handed to the API below,
@@ -190,8 +192,9 @@ services:
       QUORUM_PUBLIC_URL: ${QUORUM_PUBLIC_URL}
       # Mail relay for verification and password-reset messages. QUORUM_SMTP_ENABLED is the one
       # switch: the preflight makes the SMTP_* values mandatory when it is on, and the realm
-      # substitutes the same value into `resetPasswordAllowed`, so a deployment cannot offer a
-      # password-reset link it has no way to deliver.
+      # substitutes the same value into `resetPasswordAllowed`, `registrationAllowed` and
+      # `verifyEmail` — so a deployment can neither offer a password-reset link it cannot deliver
+      # nor create sign-ups that can never be verified.
       QUORUM_SMTP_ENABLED: ${QUORUM_SMTP_ENABLED:-false}
       # Secret of the service account the API uses to give a self-registered account
       # its own tenant. Substituted into the realm here and handed to the API below,

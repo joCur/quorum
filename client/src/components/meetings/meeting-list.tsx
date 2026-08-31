@@ -78,7 +78,7 @@ export function MeetingList({
               // `font-sans` on purpose: this is a heading element for the sake of the document
               // outline, not a display line. At 12px, letter-spaced and uppercase, the display
               // face reads as a wordmark rather than as a quiet label.
-              className="px-0.5 pt-1.5 font-sans text-xs font-extrabold uppercase tracking-[0.08em] text-muted-foreground"
+              className="px-0.5 pt-1.5 font-sans text-section-label uppercase text-muted-foreground"
             >
               {bucket.group.kind === "week" || bucket.group.kind === "month"
                 ? formatGroupRange(bucket.group, i18n.language)

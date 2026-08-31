@@ -27,7 +27,7 @@ const LENGTHS: readonly SummaryOptions["length"][] = ["brief", "standard", "deta
 const LANGUAGES = ["auto", "en", "de"] as const;
 
 /** The uppercase micro-label that names a group of fields, as on the settings panel. */
-const GROUP_LABEL = "text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground";
+const GROUP_LABEL = "text-section-label uppercase text-muted-foreground";
 
 export interface TemplateEditorProps {
   /** Name of the template being edited, empty for a new one. */

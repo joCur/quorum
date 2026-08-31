@@ -21,7 +21,9 @@
   "consent": {
     "title": "Bevor du aufnimmst",
     "body": "Du bist dafür verantwortlich, alle Teilnehmenden darüber zu informieren, dass dieses Meeting aufgezeichnet wird, und die an deinem Ort erforderliche Einwilligung einzuholen. Quorum kann Teilnehmende außerhalb dieser App nicht benachrichtigen.",
-    "confirm": "Ich habe die Teilnehmenden informiert — Aufnahme starten"
+    "confirm": "Ich habe die Teilnehmenden informiert — Aufnahme starten",
+    "confirmOnline": "Ich habe die Teilnehmenden informiert — freigeben und Aufnahme starten",
+    "bodyOnline": "Du bist dafür verantwortlich, alle Teilnehmenden im Call darüber zu informieren, dass dieses Meeting aufgezeichnet wird, und die an deinem Ort erforderliche Einwilligung einzuholen. Quorum kann die anderen Teilnehmenden nicht benachrichtigen — sag es im Call."
   },
   "recording": {
     "title": "Neue Aufnahme",
@@ -31,7 +33,7 @@
     "pause": "Pausieren",
     "finishing": "Wird abgeschlossen…",
     "noAudio": "Kein Ton erkannt — prüfe dein Mikrofon.",
-    "levelMeter": "Eingangspegel des Mikrofons",
+    "levelMeter": "Eingangspegel",
     "wakeLockUnsupported": "Dieser Browser kann den Bildschirm nicht wachhalten. Die Aufnahme läuft weiter, wenn der Bildschirm ausgeht — lass den Tab aber geöffnet.",
     "indicator": {
       "recording": "REC"
@@ -70,7 +72,10 @@
       "storage": "Die Aufnahme wurde gestoppt, weil Audio nicht auf diesem Gerät gespeichert werden konnte.",
       "connection": "Die Verbindung ist fehlgeschlagen. Dein Audio liegt sicher auf diesem Gerät.",
       "input-lost": "Die Aufnahme wurde beendet, weil kein Mikrofon mehr verfügbar ist. Alles bisher Aufgenommene liegt sicher auf diesem Gerät.",
-      "unknown": "Die Aufnahme konnte nicht gestartet werden."
+      "unknown": "Die Aufnahme konnte nicht gestartet werden.",
+      "display-denied": "Für ein Online-Meeting braucht Quorum den Ton deines Meetings. Es wurde nichts freigegeben, also wurde auch nichts aufgenommen. Versuch es noch einmal und wähle das Meeting-Fenster oder deinen Bildschirm.",
+      "display-no-audio": "Diese Freigabe enthielt keinen Ton, deshalb wurde die Aufnahme nicht gestartet. Gib erneut frei und aktiviere im Dialog des Browsers „Audio des Tabs teilen“ bzw. „Systemaudio teilen“. Bietet dein Browser das nicht an, nimm dieses Meeting stattdessen vor Ort auf.",
+      "display-unsupported": "Dieser Browser kann den Ton anderer Apps nicht aufnehmen. Nutze Chrome oder Edge unter Windows oder macOS 14.2 oder neuer, oder nimm dieses Meeting vor Ort auf."
     },
     "limit": {
       "toMeetings": "Zu den Meetings"
@@ -86,7 +91,21 @@
       "hint": "Zum Beenden halten",
       "holding": "Weiter halten…",
       "armed": "Zum Beenden noch einmal drücken"
-    }
+    },
+    "mode": {
+      "label": "Um welche Art von Meeting geht es?",
+      "in-person": {
+        "label": "Vor Ort",
+        "note": "Nimmt dein Mikrofon auf — alle im Raum über eine Quelle."
+      },
+      "online": {
+        "label": "Online-Meeting",
+        "note": "Nimmt dein Mikrofon zusammen mit dem Ton der Meeting-App auf diesem Computer auf. Dein Browser fragt, welches Fenster oder welchen Bildschirm du teilst, und ob „Audio des Tabs teilen“ bzw. „Systemaudio teilen“ aktiviert wird. Quorum nimmt ausschließlich den Ton: Das Bild wird verworfen, sobald die Freigabe beginnt, und niemals aufgezeichnet, gespeichert oder übertragen.",
+        "unsupported": "Dieser Browser kann den Ton anderer Apps nicht aufnehmen. Nutze Chrome oder Edge unter Windows oder macOS 14.2 oder neuer. In diesem Browser kannst du weiterhin ein Meeting vor Ort aufnehmen oder den Call über die Lautsprecher wiedergeben und mit dem Mikrofon aufzeichnen."
+      }
+    },
+    "displayEnded": "Der freigegebene Ton wurde beendet — die Aufnahme ist pausiert, alles bisher Aufgenommene ist sicher. Gib erneut frei, um fortzufahren, oder beende die Aufnahme.",
+    "resumeShare": "Erneut freigeben und fortsetzen"
   },
   "limits": {
     "sessionDuration": "Diese Aufnahme hat die maximale Länge erreicht und wurde beendet. Alles bis dahin ist gesichert und abgeschlossen — Transkript und Zusammenfassung folgen wie gewohnt.",

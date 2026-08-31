@@ -21,7 +21,9 @@
   "consent": {
     "title": "Before you record",
     "body": "You are responsible for informing all participants that this meeting is being recorded, and for obtaining any consent required where you are. Quorum cannot notify participants outside this app.",
-    "confirm": "I have informed the participants — start recording"
+    "confirm": "I have informed the participants — start recording",
+    "confirmOnline": "I have informed the participants — share and start recording",
+    "bodyOnline": "You are responsible for informing everyone in the call that this meeting is being recorded, and for obtaining any consent required where you are. Quorum cannot notify the other participants — say it in the call."
   },
   "recording": {
     "title": "New recording",
@@ -31,7 +33,7 @@
     "pause": "Pause",
     "finishing": "Finishing…",
     "noAudio": "No audio detected — check your microphone.",
-    "levelMeter": "Microphone input level",
+    "levelMeter": "Input level",
     "wakeLockUnsupported": "This browser cannot keep the screen awake. Recording continues if the screen turns off, but keep the tab open.",
     "indicator": {
       "recording": "REC"
@@ -70,7 +72,10 @@
       "storage": "The recording was stopped because audio could not be stored on this device.",
       "connection": "The connection failed. Your audio is safe on this device.",
       "input-lost": "The recording stopped because no microphone is available any more. Everything captured so far is safe on this device.",
-      "unknown": "Recording could not be started."
+      "unknown": "Recording could not be started.",
+      "display-denied": "Quorum needs the sound of your meeting to record an online meeting. Nothing was shared, so nothing was recorded. Try again and pick the meeting window or your screen.",
+      "display-no-audio": "That share carried no sound, so the recording was not started. Share again and tick “Also share tab audio” or “Share system audio” in the browser's dialog. If your browser offers no such option, record this meeting in person instead.",
+      "display-unsupported": "This browser cannot capture the sound of another app. Use Chrome or Edge on Windows or macOS 14.2 or newer, or record this meeting in person."
     },
     "limit": {
       "toMeetings": "Back to meetings"
@@ -86,7 +91,21 @@
       "hint": "Hold to stop",
       "holding": "Keep holding…",
       "armed": "Press again to stop the recording"
-    }
+    },
+    "mode": {
+      "label": "What kind of meeting is this?",
+      "in-person": {
+        "label": "In person",
+        "note": "Records the microphone — everyone in the room, on one input."
+      },
+      "online": {
+        "label": "Online meeting",
+        "note": "Records the microphone together with the sound of the meeting app on this computer. Your browser will ask which window or screen to share, and to tick “Also share tab audio” or “Share system audio”. Quorum takes only the sound: the picture is discarded the instant the share begins and is never recorded, stored or transmitted.",
+        "unsupported": "This browser cannot capture the sound of another app. Use Chrome or Edge on Windows or macOS 14.2 or newer. On this browser you can still record an in-person meeting, or play the call through your speakers and record it with the microphone."
+      }
+    },
+    "displayEnded": "The shared sound stopped — the recording is paused and everything so far is safe. Share again to carry on, or stop to keep what you have.",
+    "resumeShare": "Share again and resume"
   },
   "limits": {
     "sessionDuration": "This recording reached the maximum length and was stopped. Everything up to that point is finalized and safe — transcript and summary follow as usual.",

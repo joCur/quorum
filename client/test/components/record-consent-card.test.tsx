@@ -101,7 +101,7 @@ describe("the consent card on the start stage", () => {
     await user.type(screen.getByLabelText("Meeting title"), "Weekly sync");
     await user.click(screen.getByRole("button", { name: START_BUTTON }));
 
-    expect(start).toHaveBeenCalledWith("Weekly sync", null, null);
+    expect(start).toHaveBeenCalledWith("Weekly sync", null, null, "in-person");
   });
 
   it("keeps the notice on screen for the next recording", () => {

@@ -1,18 +1,23 @@
 import {
+  captureModeButton,
   capturedAudioConstraints,
+  displayCaptureReport,
   expect,
   fakeAudioInputs,
   pauseRecording,
   recordingBar,
   recordingTimer,
   resumeRecording,
+  startOnlineRecording,
   startRecording,
   stopButton,
   stopRecording,
+  stopSharing,
   test,
   useFakeInputDevices,
   waitFor,
   waitForValue,
+  watchDisplayCapture,
   watchRecordingProtocol,
 } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
@@ -323,4 +328,125 @@ test("keeps recording while the user browses the rest of the app", async ({ page
   // And nothing is left over on the device asking to be finished — the recovery card is the
   // symptom of the bug this test exists for.
   await expect(page.getByText("A recording was interrupted")).toBeHidden();
+});
+
+/**
+ * Critical path: an online meeting reaches the same pipeline as one in the room.
+ *
+ * What a browser can be made to prove here is the plumbing, and the plumbing is the risky part:
+ * the mode reaches capture, the share is asked for with the constraints that make sound available
+ * at all, the video track that the API forces on us is dead before a frame of it is read, and the
+ * mixed result streams and finalizes through the unchanged protocol — one session, one gap-free
+ * chunk sequence, one meeting.
+ *
+ * What it cannot prove is the sound itself. Chromium's synthetic display source hands back a
+ * generated tone rather than the audio of a real meeting app, so "the remote voices are audible in
+ * the recording" stays a manual check on a real machine with a real call.
+ */
+test("records an online meeting as sound only, through the unchanged pipeline", async ({
+  page,
+  signIn,
+}) => {
+  const alice = await fetchToken(devUsers.alice);
+  const protocol = watchRecordingProtocol(page);
+  await watchDisplayCapture(page);
+
+  await signIn(devUsers.alice);
+  await page.goto("/record");
+
+  // The mode is a choice on the stage, next to the consent notice rather than instead of it.
+  await expect(captureModeButton(page, "in-person")).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("capture-mode-note")).toContainText(
+    "Records the microphone — everyone in the room",
+  );
+  await captureModeButton(page, "online").click();
+
+  // The promise the mode is asking to be believed, on screen before anything is shared.
+  await expect(page.getByTestId("capture-mode-note")).toContainText("Quorum takes only the sound");
+  await expect(page.getByTestId("consent-card")).toContainText("everyone in the call");
+
+  await startOnlineRecording(page);
+  const sessionId = await protocol.waitForSessionId();
+
+  // The share was asked for once, and asked for the sound of a window or a screen — the hints
+  // without which a native meeting app is inaudible on Chromium.
+  const share = await displayCaptureReport(page);
+  expect(share.calls).toBe(1);
+  expect(share.constraints[0]).toMatchObject({
+    systemAudio: "include",
+    windowAudio: "system",
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  });
+
+  // And the video the API insisted on is already stopped, while the recording runs.
+  expect(share.videoTracks).toHaveLength(1);
+  expect(share.videoTracks[0]?.readyState).toBe("ended");
+
+  // From here the protocol has no idea this recording had two sources.
+  await protocol.waitForAck(3);
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+  await expect(page).toHaveURL(/\/meetings$/);
+
+  const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
+  const seqs = await chunkSeqs(scope);
+  expect(seqs.length).toBeGreaterThanOrEqual(4);
+  expect(seqs).toEqual(seqs.map((_value, index) => index));
+
+  const manifest = await readManifest(scope);
+  expect(manifest?.tenantId).toBe(alice.tenantId);
+  expect(manifest?.userId).toBe(alice.userId);
+  expect(manifest?.chunkCount).toBe(seqs.length);
+  expect(manifest?.persistedSeq).toBe(seqs.length - 1);
+
+  // One audio-only meeting, indistinguishable downstream from one recorded in a room.
+  const job = await waitForValue(
+    () => findTranscribeJob(sessionId),
+    30_000,
+    "the transcribe job on the queue",
+  );
+  expect(job.tenantId).toBe(alice.tenantId);
+});
+
+/**
+ * The one thing the mode must never do quietly: carry on without the call.
+ *
+ * Stopping the share is a control the browser owns and the app cannot see coming. Ending the track
+ * from inside the page is the closest a test can get to the user pressing it, and the assertion is
+ * the honest half of the behavior — capture stops, red leaves the screen, the audio so far is
+ * still there, and the screen says what happened instead of recording a call it can no longer
+ * hear. Re-sharing from the resume button needs a real user gesture on a real picker and stays a
+ * manual check.
+ */
+test("pauses honestly when the shared sound is stopped from the browser", async ({
+  page,
+  signIn,
+}) => {
+  const protocol = watchRecordingProtocol(page);
+  await watchDisplayCapture(page);
+
+  await signIn(devUsers.alice);
+  await page.goto("/record");
+  await startOnlineRecording(page);
+
+  await protocol.waitForSessionId();
+  await protocol.waitForAck(2);
+  const capturedBeforeStop = protocol.persistedSeq;
+
+  // The browser's own "Stop sharing", as the page experiences it: the track simply ends.
+  await stopSharing(page);
+
+  // The recording is paused, not failed and not silently continued on the microphone alone.
+  await expect(page.getByTestId("display-ended-notice")).toBeVisible();
+  await expect(page.getByText("PAUSE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+
+  // Nothing captured while paused, and everything captured before it is still on its way.
+  await page.waitForTimeout(2_000);
+  expect(protocol.persistedSeq).toBeLessThanOrEqual(capturedBeforeStop + 1);
+
+  // Stopping from here keeps what was recorded — the meeting is finalized, not discarded.
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+  await expect(page).toHaveURL(/\/meetings$/);
 });
