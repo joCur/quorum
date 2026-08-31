@@ -121,10 +121,15 @@ Playback of finished recordings, synced with the transcript. One pill bar, round
   `font-mono text-[11px] tabular-nums`, 5px below — then −10s / +10s as bare 12.5px/700 labels
   (≥ sm), and the playback rate as an outlined 12px/700 mono pill that steps through
   0.75× 1× 1.25× 1.5× 2× and wraps.
-- **Vertical rhythm:** the play button and the track-plus-times column are each centred in the bar,
-  which puts the track above the bar's centre line and the times below it. The column is the taller
-  reference, not the track: centring the *track* on the play button instead is what makes the bar
-  read as tilted.
+- **Vertical rhythm — the groove is the axis.** The play button, −10s, +10s and the rate pill all
+  centre on the progress groove's centreline (32px in the 64px bar); the times hang 5px under the
+  groove, out of the centred flow, and end level with the bottom of the play button.
+
+  > **Deviation from the prototype, decided by the PO.** The prototype centres the *groove-plus-times
+  > stack* instead, which leaves the bar's midline in the gap between the two and gives the play
+  > button nothing to line up with — read as "the player is tilted" in review. The eye takes the
+  > groove for the bar's axis and the times for a secondary caption hanging off it. The prototype in
+  > the design project should be updated to match. (Same precedent as the paused stop button.)
 - The track stays a real `input[type=range]`: the honey fill is painted onto it as a gradient, which
   keeps keyboard seeking and the announced position that a decorative bar would throw away. Its
   thumb is the width of the groove and the color of the fill, so it reads as the end of the bar

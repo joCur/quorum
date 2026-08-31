@@ -176,9 +176,19 @@ export const AudioPlayer = React.forwardRef<
         )}
       </button>
 
-      {/* Track and times are one column: the bar reads as a single progress object rather than a
-          row of separate controls with numbers wedged between them. */}
-      <div className="flex min-w-0 flex-1 flex-col gap-[5px]">
+      {/*
+        The groove is what the bar is aligned on.
+
+        The obvious arrangement — stack the groove and the times, then centre the stack — puts the
+        bar's midline in the gap between them, so the play button lines up with nothing and the
+        whole row reads as tilted. The design prototype does exactly that, and the PO called it:
+        the eye takes the groove for the bar's axis and expects the round control to sit on it,
+        with the times hanging underneath as the smaller, secondary thing.
+
+        So only the groove is in the centred flow, and the times are hung off it. Everything else
+        in the row is centred too, which now means every control shares the groove's centreline.
+      */}
+      <div className="relative flex min-w-0 flex-1 items-center">
         <input
           type="range"
           min={0}
@@ -209,7 +219,12 @@ export const AudioPlayer = React.forwardRef<
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           )}
         />
-        <div className="flex justify-between font-mono text-[11px] tabular-nums text-muted-foreground">
+        {/*
+          Hung five pixels under the groove — `50%` of this box is the groove's centreline, plus
+          the groove's own half-height. Out of flow on purpose: in the flow they would drag the
+          centre of the column down and take the groove off the bar's axis with them.
+        */}
+        <div className="absolute inset-x-0 top-[calc(50%+10px)] flex justify-between font-mono text-[11px] leading-none tabular-nums text-muted-foreground">
           <span>{formatDuration(currentTime)}</span>
           <span>{total > 0 ? formatDuration(total) : "--:--"}</span>
         </div>
