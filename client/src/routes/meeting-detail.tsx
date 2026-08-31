@@ -23,7 +23,13 @@ import { useSummaryRegeneration } from "@/features/templates/use-regenerate";
 import { useTemplates } from "@/features/templates/use-templates";
 import { cn } from "@/lib/utils";
 
-type TabKey = "transcript" | "summary";
+/**
+ * Which half of the meeting a narrow screen is showing.
+ *
+ * Only narrow screens have to choose: from the shell breakpoint up, the transcript and the
+ * summary stand side by side and this state stops deciding anything.
+ */
+type ViewKey = "summary" | "transcript";
 
 export function MeetingDetailRoute() {
   const { meetingId = "" } = useParams();
@@ -58,30 +64,24 @@ function MeetingDetailScreen({
 }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const [tab, setTab] = React.useState<TabKey>("transcript");
+  // The summary is what most people open a finished meeting for, so it is the half a narrow
+  // screen starts on; the transcript is one tap away and is the whole record, not the answer.
+  const [view, setView] = React.useState<ViewKey>("summary");
   const [confirming, setConfirming] = React.useState(false);
   const [currentTime, setCurrentTime] = React.useState(0);
   const player = React.useRef<PlayerHandle>(null);
 
-  const { meeting, transcript, summaries } = detail;
+  const { meeting } = detail;
   const audio = useMeetingAudio(meeting.id, meeting.hasAudio);
   const duration = formatMeetingDuration(meeting);
   const title = meeting.title?.trim() || t("meetings.untitled");
-  const summary = summaries[0] ?? null;
 
   const seek = React.useCallback((seconds: number) => {
     player.current?.seekTo(seconds);
   }, []);
 
   return (
-    /*
-      The column fills the height `main` gives it and cancels `main`'s bottom padding, replacing
-      it with padding equal to the player's own resting offset. That makes the content box end
-      exactly where the bar belongs: `mt-auto` then drops the bar onto the viewport's bottom edge
-      when the page does not scroll, and `sticky` holds it at the identical offset when it does —
-      so the bar never jumps between the two cases.
-    */
-    <div className="-mb-20 flex flex-1 flex-col gap-5 pb-4">
+    <div className="flex flex-1 flex-col gap-[18px]">
       {/*
         An ordinary block at every width. This used to pin itself to the top edge below `md`,
         because the shell dropped its tab bar here and the back link was then the only way out.
@@ -129,35 +129,14 @@ function MeetingDetailScreen({
           report and disappears rather than standing there saying so (STATES.md §9). */}
       {isPipelineComplete(detail) ? null : <PipelineStepper detail={detail} />}
 
-      <Tabs
-        value={tab}
-        onValueChange={setTab}
-        transcriptReady={transcript !== null}
-        summaryReady={summary !== null}
-      />
-
-      {tab === "transcript" ? (
-        <TranscriptPanel detail={detail} currentTime={currentTime} onSeek={seek} />
-      ) : (
-        <SummaryPanel detail={detail} onReload={onReload} />
-      )}
-
       {/*
-        Sticky rather than fixed: a fixed bar is positioned against the viewport rather than the
-        content column, so it would centre on the wrong axis as soon as the column stops filling
-        the width. Sticking the last element of the column keeps the player exactly as wide as
-        the column at every breakpoint, with no offset to keep in sync.
-
-        `mt-auto` handles the short-content case: with nothing to scroll, sticky alone would
-        leave the bar floating directly under the last segment, so the auto margin eats the free
-        space and pushes it to the bottom of the column instead.
-
-        The offset is the same at every width — nothing is anchored to the bottom edge of the
-        app any more — and it matches the column's padding above, which is what keeps the resting
-        and pinned positions identical.
+        The player sits directly under the top bar rather than on the bottom edge: the transcript
+        scrolls past it, so the control that moves the playhead stays next to the words it moves
+        through. Both offsets come from the same tokens the bar sets its own height from, which
+        is what keeps them from overlapping.
       */}
       {meeting.hasAudio ? (
-        <div className="sticky bottom-4 z-20 mt-auto">
+        <div className="sticky top-[calc(var(--top-bar-height)_+_12px)] z-20">
           <AudioPlayer
             ref={player}
             url={audio.url}
@@ -168,6 +147,45 @@ function MeetingDetailScreen({
           />
         </div>
       ) : null}
+
+      <ViewSwitch value={view} onValueChange={setView} />
+
+      {/*
+        Side by side from the shell breakpoint up, one at a time below it. The two halves keep
+        independent state, because partial readiness is the normal case: a finished transcript
+        next to a summary still being written (STATES.md §4).
+      */}
+      <div className="flex flex-wrap items-start gap-7">
+        <section
+          aria-labelledby="transcript-heading"
+          className={cn(
+            "min-w-0 flex-[1_1_380px] flex-col gap-4 shell:flex",
+            view === "transcript" ? "flex" : "hidden",
+          )}
+        >
+          <ColumnHeading id="transcript-heading">{t("meeting.view.transcript")}</ColumnHeading>
+          <TranscriptPanel detail={detail} currentTime={currentTime} onSeek={seek} />
+        </section>
+
+        {/*
+          The summary is a rail: it is the shorter half and the one people read while scanning
+          the transcript, so it stays put while the transcript scrolls past it. It rests below
+          the player when there is one, and directly under the top bar when there is not.
+        */}
+        <section
+          aria-labelledby="summary-heading"
+          className={cn(
+            "min-w-0 flex-[1_1_320px] flex-col gap-3.5 shell:sticky shell:flex",
+            view === "summary" ? "flex" : "hidden",
+            meeting.hasAudio
+              ? "shell:top-[calc(var(--top-bar-height)_+_var(--player-bar-height)_+_30px)]"
+              : "shell:top-[calc(var(--top-bar-height)_+_18px)]",
+          )}
+        >
+          <ColumnHeading id="summary-heading">{t("meeting.view.summary")}</ColumnHeading>
+          <SummaryPanel detail={detail} onReload={onReload} />
+        </section>
+      </div>
 
       <DeleteMeetingDialog
         open={confirming}
@@ -183,70 +201,64 @@ function MeetingDetailScreen({
 }
 
 /**
- * Tab strip. The panels carry independent state, because partial readiness is the normal case:
- * a finished transcript next to a summary still being written (STATES.md §4).
+ * The switch between the two halves, on the screens that can only show one.
+ *
+ * It is a pair of toggles rather than a tab strip, and it disappears above the shell breakpoint:
+ * wider screens show both halves at once, and a tab pattern there would claim that one of two
+ * visible panels is hidden. Both halves stay mounted at every width, so switching costs nothing
+ * and neither of them loses its place.
  */
-function Tabs({
+function ViewSwitch({
   value,
   onValueChange,
-  transcriptReady,
-  summaryReady,
 }: {
-  value: TabKey;
-  onValueChange: (value: TabKey) => void;
-  transcriptReady: boolean;
-  summaryReady: boolean;
+  value: ViewKey;
+  onValueChange: (value: ViewKey) => void;
 }) {
   const { t } = useTranslation();
-  const tabs: readonly { key: TabKey; ready: boolean }[] = [
-    { key: "transcript", ready: transcriptReady },
-    { key: "summary", ready: summaryReady },
-  ];
+  const views: readonly ViewKey[] = ["summary", "transcript"];
 
   return (
     <div
-      role="tablist"
-      aria-label={t("meeting.tabs.label")}
-      className="flex gap-1 border-b border-border"
+      role="group"
+      aria-label={t("meeting.view.label")}
+      className="flex gap-0.5 self-start rounded-pill border border-border bg-card p-[3px] shell:hidden"
     >
-      {tabs.map((tab) => (
+      {views.map((key) => (
         <button
-          key={tab.key}
-          role="tab"
+          key={key}
           type="button"
-          id={`tab-${tab.key}`}
-          aria-selected={value === tab.key}
-          aria-controls={`panel-${tab.key}`}
-          onClick={() => onValueChange(tab.key)}
-          onKeyDown={(event) => {
-            // Arrow keys move between tabs, as the tab pattern requires.
-            if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-            event.preventDefault();
-            onValueChange(tab.key === "transcript" ? "summary" : "transcript");
-          }}
+          aria-pressed={value === key}
+          onClick={() => onValueChange(key)}
           className={cn(
-            "-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition-colors duration-micro ease-enter focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            value === tab.key
-              ? "border-primary text-foreground"
-              : "border-transparent text-muted-foreground hover:text-foreground",
+            "rounded-pill px-[18px] py-2 text-[13.5px] font-bold transition-colors duration-micro ease-enter focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            value === key
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {t(`meeting.tabs.${tab.key}`)}
-          {tab.ready ? (
-            <span
-              aria-hidden="true"
-              className={cn(
-                "size-1.5 animate-pop-in rounded-full",
-                // Transitional: `plum` no longer exists in v2 and resolves to honey through the
-                // Tailwind color mapping. The section marker becomes a honey underline when the
-                // meeting-detail area ticket restyles this screen.
-                tab.key === "summary" ? "bg-plum" : "bg-success",
-              )}
-            />
-          ) : null}
+          {t(`meeting.view.${key}`)}
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * The name of a half.
+ *
+ * Visible only where both halves are on screen and need telling apart; below that the switch
+ * above already says which one is showing, so the heading stays for assistive technology and
+ * takes no room.
+ */
+function ColumnHeading({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <h2
+      id={id}
+      className="sr-only text-xs font-extrabold uppercase tracking-[0.08em] text-muted-foreground shell:not-sr-only"
+    >
+      {children}
+    </h2>
   );
 }
 
@@ -263,7 +275,7 @@ function TranscriptPanel({
   const failure = detail.meeting.failure;
 
   return (
-    <div role="tabpanel" id="panel-transcript" aria-labelledby="tab-transcript">
+    <div>
       {failure?.stage === "transcribe" ? (
         <FailurePanel
           title={t("meeting.transcript.failed")}
@@ -306,22 +318,7 @@ function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: (
   const regeneration = useSummaryRegeneration(detail.meeting.id, forSelected?.id ?? null, onReload);
 
   return (
-    <div
-      role="tabpanel"
-      id="panel-summary"
-      aria-labelledby="tab-summary"
-      className="flex flex-col gap-4"
-    >
-      {detail.transcript ? (
-        <RegenerateSummary
-          templates={templates.templates}
-          templateId={selected}
-          onTemplateChange={setTemplateId}
-          pending={regeneration.pending}
-          onRegenerate={regeneration.start}
-        />
-      ) : null}
-
+    <div className="flex flex-col gap-4">
       {regeneration.errorMessage ? (
         <p role="alert" className="text-sm text-destructive">
           {regenerationMessage(t, regeneration.errorCode) ?? regeneration.errorMessage}
@@ -351,6 +348,18 @@ function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: (
       ) : (
         <WaitingPanel message={t("meeting.summary.working")} />
       )}
+
+      {/* Making the summary again is what you reach for after reading it, so the control sits
+          under the sections rather than above them. */}
+      {detail.transcript ? (
+        <RegenerateSummary
+          templates={templates.templates}
+          templateId={selected}
+          onTemplateChange={setTemplateId}
+          pending={regeneration.pending}
+          onRegenerate={regeneration.start}
+        />
+      ) : null}
     </div>
   );
 }

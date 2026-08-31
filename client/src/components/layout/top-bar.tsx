@@ -142,7 +142,12 @@ export function TopBar() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-background/[0.92] backdrop-blur-lg">
-      <div className="mx-auto flex w-full max-w-3xl items-center gap-2 px-5 py-3 shell:gap-[14px]">
+      {/*
+        The bar's height is a declared number rather than whatever its contents add up to: the
+        meeting detail sticks its playback bar directly underneath, and an offset computed from a
+        height that drifts with the font or the controls inside would overlap sooner or later.
+      */}
+      <div className="mx-auto flex h-top-bar w-full max-w-3xl items-center gap-2 px-5 shell:gap-[14px]">
         <BrandMark />
 
         <nav

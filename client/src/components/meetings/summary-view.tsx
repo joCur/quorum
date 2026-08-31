@@ -32,14 +32,8 @@ export function SummaryView({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
         {templateName ? (
-          <p className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
-            {/* Transitional: `plum` no longer exists in v2 and resolves to honey through the
-                Tailwind color mapping. This marker becomes a honey underline when the
-                meeting-detail area ticket restyles this screen. */}
-            <span aria-hidden="true" className="h-4 w-1 shrink-0 rounded-full bg-plum" />
-            <span className="truncate">
-              {t("meeting.summary.madeWith", { template: templateName })}
-            </span>
+          <p className="min-w-0 truncate text-sm text-muted-foreground">
+            {t("meeting.summary.madeWith", { template: templateName })}
           </p>
         ) : (
           <span />
@@ -50,12 +44,16 @@ export function SummaryView({
       {summary.sections.map((section, index) => (
         <Card
           key={section.sectionId}
-          className="animate-rise-in"
+          className="animate-rise-in rounded-card"
           style={{ animationDelay: `${Math.min(index, 9) * 30}ms` }}
         >
-          <CardHeader className="flex-row items-center justify-between gap-2 space-y-0">
-            <CardTitle className="flex items-center gap-2">
-              <span aria-hidden="true" className="h-5 w-1 rounded-full bg-plum" />
+          <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
+            {/*
+              The section title is underlined with honey rather than flagged with a marker beside
+              it: an inset shadow sits behind the words themselves, so the accent is the width of
+              the title and belongs to it, at any length and on either theme.
+            */}
+            <CardTitle className="w-fit font-display text-base font-bold leading-6 shadow-[inset_0_-0.32em_hsl(var(--honey)/0.4)]">
               {section.title}
             </CardTitle>
             <CopyButton
@@ -83,7 +81,7 @@ export function SummaryView({
 function SectionContent({ section }: { section: SummarySection }) {
   if (section.format === "bullets") {
     return (
-      <ul className="flex list-disc flex-col gap-1.5 pl-5 text-base leading-relaxed">
+      <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm leading-relaxed">
         {section.content.map((line, index) => (
           <li key={`${section.sectionId}-${String(index)}`}>{line}</li>
         ))}
@@ -110,7 +108,7 @@ function SectionContent({ section }: { section: SummarySection }) {
   }
 
   return (
-    <div className="flex max-w-[65ch] flex-col gap-3 text-base leading-relaxed">
+    <div className="flex max-w-[65ch] flex-col gap-3 text-sm leading-relaxed">
       {section.content.map((paragraph, index) => (
         <p key={`${section.sectionId}-${String(index)}`}>{paragraph}</p>
       ))}

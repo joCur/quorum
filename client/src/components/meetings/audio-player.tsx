@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Loader2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
+import { Pause, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -7,13 +7,32 @@ import { formatDuration } from "@/lib/duration";
 import type { AudioStatus } from "@/features/meetings/use-meeting-audio";
 import { cn } from "@/lib/utils";
 
-/** Skip step for the ±15s controls and the arrow keys. */
-const SKIP_SECONDS = 15;
+/** Skip step for the ±10s controls, and the smaller one the arrow keys use. */
+const SKIP_SECONDS = 10;
 const ARROW_SECONDS = 5;
 const RATES = [0.75, 1, 1.25, 1.5, 2] as const;
 
 export interface PlayerHandle {
   seekTo: (seconds: number) => void;
+}
+
+/** Shared shell so the loading, error and ready bars are one shape at one height. */
+function PlayerBar({
+  className,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>): React.ReactElement {
+  return (
+    <div
+      className={cn(
+        "flex h-player-bar items-center gap-3 rounded-pill border border-border bg-card px-4 shadow-sm",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -22,6 +41,11 @@ export interface PlayerHandle {
  * The element is the source of truth for time: React state follows `timeupdate` rather than
  * driving it, so a seek from the transcript, a keyboard shortcut and the system's own media
  * controls all end up in the same place.
+ *
+ * The bar is a pill that sits directly under the top bar (COMPONENTS.md §9): a round play button,
+ * a honey progress track with the two mono times under it, ±10s, and the rate as a mono pill. Its
+ * height is the `--player-bar-height` token, because the summary rail beside it sticks below it
+ * and computes its own offset from that number.
  */
 export const AudioPlayer = React.forwardRef<
   PlayerHandle,
@@ -51,6 +75,7 @@ export const AudioPlayer = React.forwardRef<
 
   const total = duration ?? fallbackDuration ?? 0;
   const ready = status === "ready" && url !== null;
+  const elapsed = total > 0 ? Math.min(currentTime / total, 1) : 0;
 
   const toggle = (): void => {
     const element = audioRef.current;
@@ -63,6 +88,13 @@ export const AudioPlayer = React.forwardRef<
     const element = audioRef.current;
     if (!element) return;
     seekTo(element.currentTime + delta);
+  };
+
+  /** The rate control is one button that steps through the list and wraps, as the design shows. */
+  const cycleRate = (): void => {
+    const next = RATES[(RATES.indexOf(rate as (typeof RATES)[number]) + 1) % RATES.length] ?? 1;
+    setRate(next);
+    if (audioRef.current) audioRef.current.playbackRate = next;
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -83,34 +115,34 @@ export const AudioPlayer = React.forwardRef<
 
   if (status === "loading" || status === "idle") {
     return (
-      <div className="flex items-center gap-3 rounded-full border border-border bg-card p-2 pr-4">
-        <Skeleton className="size-11 rounded-full" />
+      <PlayerBar>
+        <Skeleton className="size-[42px] shrink-0 rounded-full" />
         <Skeleton className="h-2 flex-1 rounded-full" />
-        <Skeleton className="h-4 w-20" />
-      </div>
+        <Skeleton className="h-4 w-16" />
+      </PlayerBar>
     );
   }
 
   if (status === "error" || !ready) {
     return (
-      <div className="flex items-center justify-between gap-3 rounded-full border border-border bg-card py-2 pl-5 pr-2">
-        <span className="text-sm text-destructive">{t("meeting.player.unavailable")}</span>
-        <Button variant="ghost" size="sm" onClick={onRetry}>
+      <PlayerBar className="justify-between gap-3 pr-2">
+        <span className="truncate text-sm text-destructive">{t("meeting.player.unavailable")}</span>
+        <Button variant="ghost" size="sm" className="rounded-pill" onClick={onRetry}>
           {t("common.retry")}
         </Button>
-      </div>
+      </PlayerBar>
     );
   }
 
   return (
     // The shortcuts live on the group rather than on any single control: they belong to the
     // player as a whole, which is what the design describes as "when the player is focused".
-    <div
+    <PlayerBar
       role="group"
       tabIndex={-1}
       aria-label={t("meeting.player.label")}
       onKeyDown={onKeyDown}
-      className="flex items-center gap-2 rounded-full border border-border bg-card p-2 shadow-sm md:gap-3 md:pr-4"
+      className="gap-3 shell:gap-3.5"
     >
       <audio
         ref={audioRef}
@@ -131,82 +163,80 @@ export const AudioPlayer = React.forwardRef<
         }}
       />
 
-      <Button
-        size="icon"
-        className="rounded-full"
+      <button
+        type="button"
         onClick={toggle}
         aria-label={playing ? t("meeting.player.pause") : t("meeting.player.play")}
+        className="grid size-[42px] shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-transform duration-micro ease-spring active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
-        {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-      </Button>
+        {playing ? (
+          <Pause aria-hidden="true" className="size-4 fill-current" />
+        ) : (
+          <Play aria-hidden="true" className="size-4 fill-current" />
+        )}
+      </button>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        className="hidden rounded-full sm:inline-flex"
+      {/* Track and times are one column: the bar reads as a single progress object rather than a
+          row of separate controls with numbers wedged between them. */}
+      <div className="flex min-w-0 flex-1 flex-col gap-[5px]">
+        <input
+          type="range"
+          min={0}
+          max={total || 0}
+          step={0.1}
+          value={Math.min(currentTime, total || 0)}
+          disabled={total === 0}
+          onChange={(event) => seekTo(Number(event.target.value))}
+          aria-label={t("meeting.player.seek")}
+          aria-valuetext={formatDuration(currentTime)}
+          // The honey fill is painted as a gradient on the track itself rather than with
+          // `accent-color`: the design's progress is a filled bar, and a native accent only
+          // colors the thumb in the browsers that honor it at all. Keeping the real range input
+          // is what preserves keyboard seeking and the announced position.
+          style={{
+            backgroundImage: `linear-gradient(to right, hsl(var(--honey-strong)) ${String(elapsed * 100)}%, transparent ${String(elapsed * 100)}%)`,
+          }}
+          className={cn(
+            "h-2 w-full cursor-pointer appearance-none rounded-[4px] border border-border bg-background bg-no-repeat",
+            "[&::-webkit-slider-thumb]:size-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-honey-strong",
+            "[&::-moz-range-thumb]:size-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-honey-strong",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          )}
+        />
+        <div className="flex justify-between font-mono text-[11px] tabular-nums text-muted-foreground">
+          <span>{formatDuration(currentTime)}</span>
+          <span>{total > 0 ? formatDuration(total) : "--:--"}</span>
+        </div>
+      </div>
+
+      <button
+        type="button"
         onClick={() => skip(-SKIP_SECONDS)}
         aria-label={t("meeting.player.back", { seconds: SKIP_SECONDS })}
+        className="hidden shrink-0 rounded-pill p-1.5 text-[12.5px] font-bold text-muted-foreground transition-colors duration-micro ease-enter hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:block"
       >
-        <RotateCcw aria-hidden="true" />
-      </Button>
+        {t("meeting.player.backShort", { seconds: SKIP_SECONDS })}
+      </button>
 
-      <span className="font-mono text-xs tabular-nums text-muted-foreground">
-        {formatDuration(currentTime)}
-      </span>
-
-      <input
-        type="range"
-        min={0}
-        max={total || 0}
-        step={0.1}
-        value={Math.min(currentTime, total || 0)}
-        disabled={total === 0}
-        onChange={(event) => seekTo(Number(event.target.value))}
-        aria-label={t("meeting.player.seek")}
-        aria-valuetext={formatDuration(currentTime)}
-        className={cn(
-          "h-1 flex-1 cursor-pointer appearance-none rounded-full bg-muted accent-primary",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-        )}
-      />
-
-      <span className="font-mono text-xs tabular-nums text-muted-foreground">
-        {total > 0 ? formatDuration(total) : "--:--"}
-      </span>
-
-      <Button
-        variant="ghost"
-        size="icon"
-        className="hidden rounded-full sm:inline-flex"
+      <button
+        type="button"
         onClick={() => skip(SKIP_SECONDS)}
         aria-label={t("meeting.player.forward", { seconds: SKIP_SECONDS })}
+        className="hidden shrink-0 rounded-pill p-1.5 text-[12.5px] font-bold text-muted-foreground transition-colors duration-micro ease-enter hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:block"
       >
-        <RotateCw aria-hidden="true" />
-      </Button>
+        {t("meeting.player.forwardShort", { seconds: SKIP_SECONDS })}
+      </button>
 
-      <label className="sr-only" htmlFor="playback-rate">
-        {t("meeting.player.rate")}
-      </label>
-      <select
-        id="playback-rate"
-        value={rate}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          setRate(next);
-          if (audioRef.current) audioRef.current.playbackRate = next;
-        }}
-        className="h-9 rounded-full border border-input bg-background px-2 text-xs tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      {/* One button that steps through the rates rather than a select: the value is its own
+          label, and the name it is announced with carries both the control and the current rate. */}
+      <button
+        type="button"
+        onClick={cycleRate}
+        aria-label={`${t("meeting.player.rate")}: ${t("meeting.player.rateValue", { rate })}`}
+        className="shrink-0 rounded-pill border border-border px-2.5 py-1.5 font-mono text-xs font-bold tabular-nums text-muted-foreground transition-colors duration-micro ease-enter hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        {RATES.map((value) => (
-          <option key={value} value={value}>
-            {value}×
-          </option>
-        ))}
-      </select>
-
-      {status !== "ready" ? (
-        <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
-      ) : null}
-    </div>
+        {t("meeting.player.rateValue", { rate })}
+      </button>
+    </PlayerBar>
   );
 });

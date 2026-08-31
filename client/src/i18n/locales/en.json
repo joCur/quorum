@@ -259,7 +259,7 @@
     "back": "Back to meetings",
     "loadError": "This meeting could not be loaded.",
     "deleted": "This meeting was deleted.",
-    "tabs": {
+    "view": {
       "label": "Meeting content",
       "transcript": "Transcript",
       "summary": "Summary"
@@ -280,6 +280,9 @@
       "seek": "Seek",
       "back": "Back {{seconds}} seconds",
       "forward": "Forward {{seconds}} seconds",
+      "backShort": "−{{seconds}} s",
+      "forwardShort": "+{{seconds}} s",
+      "rateValue": "{{rate}}×",
       "rate": "Playback speed",
       "unavailable": "This recording could not be loaded."
     },

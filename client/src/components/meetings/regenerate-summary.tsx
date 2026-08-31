@@ -38,8 +38,8 @@ export function RegenerateSummary({
   if (templates.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-end justify-end gap-2">
-      <div className="flex min-w-[12rem] flex-col gap-2">
+    <div className="flex flex-wrap items-end gap-2">
+      <div className="flex min-w-[12rem] flex-1 flex-col gap-2">
         <Label htmlFor="regenerate-template">{t("meeting.summary.template")}</Label>
         <Select
           id="regenerate-template"

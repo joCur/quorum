@@ -110,24 +110,29 @@ Used in: meeting rename, template editor, settings.
 - Selects: shadcn `select`; on mobile it renders in a popover — acceptable for V1.
 - Template section editor rows: `Card` per section with plum section marker (`bg-plum-subtle` accent strip), `Input` (title), `Textarea` (instruction), `Select` (format: prose/bullets/table), reorder via up/down buttons in V1, hide/remove per override semantics (`shared/src/summary.ts`). Adding a section pops the new card in (`animate-pop-in`).
 
-## 9. AudioPlayer (custom; composed from shadcn `slider` + `Button` + `DropdownMenu`)
+## 9. AudioPlayer (custom)
 
-> v2: superseded — rewritten by the **meeting detail** redesign.
+Playback of finished recordings, synced with the transcript. One pill bar, round controls.
 
-Playback of finished recordings, synced with the transcript. Round, friendly controls — pill-shaped bar, circular buttons.
-
-- **Anatomy:** play/pause (circular icon button, 44px, springs on press), seek slider (shadcn `slider` restyled: 4px track, `primary` fill, thumb grows on touch), current time / total duration in `font-mono text-sm tabular-nums`, playback-rate menu (0.75× 1× 1.25× 1.5× 2×), skip ±15s buttons (desktop and ≥ sm).
-- **Placement:** sticky bottom bar within meeting detail so it stays visible while scrolling the transcript.
-- **States:** loading (skeleton bar, controls disabled), ready, playing, paused, seeking (thumb enlarges, time tooltip), error (bar shows "Audio unavailable" + retry, `destructive` text), audio deleted (bar replaced by muted note).
+- **Anatomy:** a `rounded-pill` bar on `card` with a hairline border and `shadow-sm`, at the
+  `--player-bar-height` token. In it: a 42px round play/pause button in the action color (springs on
+  press), then the progress column — an 8px honey track (`honey-strong` fill on a `background`
+  groove) with the elapsed and total times under it in `font-mono text-[11px] tabular-nums` — then
+  −10s / +10s as bare mono-weight labels (≥ sm), and the playback rate as an outlined mono pill
+  that steps through 0.75× 1× 1.25× 1.5× 2× and wraps.
+- The track stays a real `input[type=range]`: the honey fill is painted onto it as a gradient, which
+  keeps keyboard seeking and the announced position that a decorative bar would throw away.
+- **Placement:** sticky under the top bar in meeting detail, offset from `--top-bar-height`, so the
+  control that moves the playhead stays beside the words it moves through. Nothing sits on the
+  bottom edge of the app.
+- **States:** loading (skeleton in the same pill at the same height, so nothing shifts when it resolves), ready, playing, paused, error (bar shows "Audio unavailable" + retry, `destructive` text), audio deleted (bar replaced by muted note).
 - **Transcript sync contract:** exposes `currentTime` (throttled ~4Hz) and `seekTo(seconds)`. Transcript view highlights the active segment/word from `currentTime`; clicking a word calls `seekTo(word.start)` (word timestamps from `shared/src/transcript.ts`).
-- Keyboard: Space play/pause, ←/→ ±5s, ↑/↓ rate (when player focused). Media Session API for lockscreen controls (PWA).
+- Keyboard: Space play/pause and ←/→ ±5s when the player is focused; the range keeps its own arrow behavior while the focus is inside it. Media Session API for lockscreen controls is V2.
 
 ## 10. TranscriptView (custom)
 
-> v2: superseded — rewritten by the **meeting detail** redesign.
-
-- Segment blocks: speaker label (when present) `text-sm font-semibold`, text `text-base leading-relaxed max-w-[65ch]`, timestamp `font-mono text-xs text-muted-foreground` in the gutter (tap segment to reveal on mobile).
-- Active segment during playback: `bg-accent` block highlight (the highlight glides between segments, 220ms); active word: underline/darker weight — never color alone.
+- Segment blocks: speaker label (when present) `text-sm font-semibold`, text `text-base leading-relaxed max-w-[65ch]`, timestamp as a seek button in `font-mono text-[11.5px] text-honey-strong`.
+- Active segment during playback: `bg-accent` block highlight (the highlight glides between segments, 220ms); the word being spoken is tinted honey (`bg-honey/45`, rounded) — a block of background rather than a change of ink, so it reads as a mark and not only as a color.
 - **Arrival moment:** when the transcript first flips to Ready in view, the first ~8 segments rise in staggered (`animate-rise-in`), then everything is static. One warm beat, then business. Strictly visual — celebrations never play sound (PO decision; also: the user may still be in a meeting).
 - Displays `editedText ?? text` (overlay model, ADR-003); V1 is read-only, edits are V2.
 - Low-confidence segments (`confidence < 0.5`): dotted underline + tooltip "Low transcription confidence".
@@ -135,14 +140,17 @@ Playback of finished recordings, synced with the transcript. Round, friendly con
 
 ## 11. SummaryView (custom, `Card` per section)
 
-> v2: superseded — rewritten by the **meeting detail** redesign.
+The summary is the "thinking" side of the product, and honey is what marks it — there is no second
+accent to carry an identity of its own.
 
-The summary is the "thinking" side of the product — it carries the plum identity: section title row gets a small plum marker, the tab's ready-dot pops in plum/honey.
-
-- Renders `Summary.sections` in template order: section title `text-lg font-semibold`, content per `format` (prose paragraphs / `ul` bullets / simple table in `overflow-x-auto`). Sections rise in staggered on arrival.
+- Renders `Summary.sections` in template order, one `rounded-card` panel per section. The section
+  title is display-face `text-base font-bold` with a honey underline drawn as an inset shadow
+  (`inset 0 -0.32em hsl(var(--honey)/0.4)`) behind the words themselves, so the accent is exactly as
+  wide as the title — never a marker standing beside it. Content per `format` (prose paragraphs /
+  `ul` bullets / simple table in `overflow-x-auto`) at `text-sm`. Sections rise in staggered on arrival.
 - Footer meta: template name + version snapshot, model, generated-at, in `text-xs text-muted-foreground`.
 - Copy-to-clipboard button per section and for the whole summary (Markdown); copy confirms with a springy `Check` swap on the button itself.
-- **Regenerate (V1):** `outline` button with `RefreshCw` icon in the summary header. Creates a new summarize job with the currently selected template (cheap by design — ADR-003/004 reprocessing); the tab flips back to the processing state with the stepper at "Summarizing". The previous summary remains visible (dimmed, labeled "Previous version") until the new one arrives — no data vanishes optimistically. No confirm dialog: regenerating destroys nothing.
+- **Regenerate (V1):** template picker plus an `outline` button with a `RefreshCw` icon, under the sections rather than above them — it is what you reach for after reading them. Creates a new summarize job with the currently selected template (cheap by design — ADR-003/004 reprocessing); the stepper returns to "Summarizing". The previous summary remains visible (dimmed, labeled "Previous version") until the new one arrives — no data vanishes optimistically. No confirm dialog: regenerating destroys nothing.
 
 ## 12. EmptyState (custom) — where playfulness lives
 

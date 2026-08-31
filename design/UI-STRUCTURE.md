@@ -49,12 +49,25 @@ Auth (OIDC redirect) wraps everything; unauthenticated users only see the sign-i
 
 ### 2.3 Meeting detail (`/meetings/:id`)
 
-> v2: superseded — rewritten by the **meeting detail** redesign.
-- Header: title (inline-editable), date, duration, `StatusBadge`, overflow (Rename / Delete).
-- **Tabs: Transcript | Summary** (shadcn `tabs`), each with independent processing/failed/ready states.
-  - Transcript tab: `TranscriptView` with word timestamps; playback-synced highlighting; tap word → seek.
-  - Summary tab: `SummaryView` (sections per template snapshot) + **Regenerate** action (in V1: creates a new summarize job with the current template; button shows the `RefreshCw` icon, flips the tab back into the processing state — stepper at "Summarizing") + copy actions.
-- **Sticky bottom `AudioPlayer`** (available as soon as audio is finalized, independent of transcript state).
+- Header: title, date, duration, `StatusBadge`, delete control.
+- **`AudioPlayer` as a pill bar, sticky directly under the top bar** (COMPONENTS.md §9), available as
+  soon as audio is finalized and independent of transcript state. It sits above the content rather
+  than on the bottom edge, so the control that moves the playhead stays next to the words it moves
+  through while the transcript scrolls.
+- **No tabs.** From the shell breakpoint up the two halves stand side by side: the transcript on the
+  left (flex basis 380px, scrolls with the page) and the summary on the right as a sticky rail (flex
+  basis 320px, 28px gutter). Both are always mounted, and each carries its own processing / failed /
+  ready state — partial readiness is normal (STATES.md §4).
+  - Transcript half: `TranscriptView` with word timestamps; playback-synced highlighting in honey;
+    tap word → seek.
+  - Summary half: `SummaryView` (sections per template snapshot) + copy actions, with the template
+    picker and **Regenerate** under the sections — the thing you reach for after reading them.
+- Below the shell breakpoint one half shows at a time, chosen with a pill switcher
+  **Summary | Transcript** with the summary first: it is what people open a finished meeting for,
+  and the transcript is the whole record rather than the answer. The switch is a pair of toggle
+  buttons, not a tab strip — above the breakpoint both halves are visible and nothing is hidden.
+- Each half carries its name as a heading: an uppercase label where both are shown, screen-reader
+  only below that, where the switch already says which one is on screen.
 
 ### 2.4 Templates (`/templates`)
 
@@ -97,8 +110,8 @@ flowchart TD
     Finalize --> Detail
 
     List -- open meeting --> Detail[Meeting detail]
-    Detail --> T[Transcript tab]
-    Detail --> S[Summary tab]
+    Detail --> T[Transcript]
+    Detail --> S[Summary]
     Detail -- delete + confirm --> Deleted[Cascade delete] --> List
 
     Templates --> Editor[Template editor]
@@ -114,7 +127,8 @@ flowchart TD
 - `< 760px` (the shell breakpoint): the bar sheds words and keeps every control — the wordmark next
   to the Q mark and the label on the record pill drop, leaving Q and the microphone. Sheets instead
   of dialogs for forms.
-- `≥ 760px`: wordmark and record label are shown; dialogs.
+- `≥ 760px`: wordmark and record label are shown; dialogs. The meeting detail shows its transcript
+  and its summary side by side; below the breakpoint they take turns behind a pill switcher.
 - Recording screen is always full-screen and distraction-free on all sizes — the breathing indicator is the only ambient motion.
 - PWA: installable, standalone display; theme-color follows `background` token per color scheme; recording screen prevents display sleep via Wake Lock API.
 
@@ -125,7 +139,7 @@ flowchart TD
 | `/login` | Auth |
 | `/meetings` | Meeting list (home) |
 | `/record` | Recording flow |
-| `/meetings/:id` | Meeting detail (`?tab=transcript\|summary`) |
+| `/meetings/:id` | Meeting detail |
 | `/templates` | Template list |
 | `/templates/:id` | Template editor |
 | `/settings` | Settings |
