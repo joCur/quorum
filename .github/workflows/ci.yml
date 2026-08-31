@@ -51,6 +51,16 @@ jobs:
             dockerfile: worker/Dockerfile
           - image: client
             dockerfile: client/Dockerfile
+          - image: init
+            dockerfile: infra/init/Dockerfile
+          - image: edge
+            dockerfile: infra/edge/Dockerfile
+          - image: prometheus
+            dockerfile: infra/monitoring/prometheus.Dockerfile
+          - image: alertmanager
+            dockerfile: infra/monitoring/alertmanager.Dockerfile
+          - image: grafana
+            dockerfile: infra/monitoring/grafana.Dockerfile
           - image: keycloak
             dockerfile: infra/keycloak/Dockerfile
     steps:

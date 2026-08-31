@@ -24,55 +24,41 @@ Everything else, the browser app included, is a service in the compose file.
 ## Prerequisites
 
 - A Linux host with Docker Engine and the Compose plugin.
-- A domain with two names pointing at it — one for the app, one for Keycloak — and certificates
-  for both. Caddy or Traefik will obtain them for you; the stack does not care which proxy you
-  use.
+- A domain name pointing at it, and a certificate. Caddy or Traefik will obtain one for you; the
+  stack does not care which proxy you use. One name is enough: the app, the API and Keycloak all
+  live on it.
 - For GPU transcription: NVIDIA drivers and the NVIDIA container toolkit. Without them Whisper
   runs on the CPU, which is slower but works.
 
-## 1. Download the deployment bundle
-
-Every release carries a `quorum-deploy-<version>.tar.gz` asset: the compose file, the preflight
-scripts, the production realm, the edge proxy and monitoring configuration, the runbooks and a
-copy of this guide. It is a few tens of kilobytes and it is everything a deployment needs — the
-application itself, the browser app included, comes from the published images.
+## 1. Get the two files
 
 ```bash
-VERSION=1.0.0
-curl -fsSLO https://github.com/joCur/quorum/releases/download/v${VERSION}/quorum-deploy-${VERSION}.tar.gz
-tar -xzf quorum-deploy-${VERSION}.tar.gz
-cd quorum-deploy-${VERSION}
+curl -fsSLO https://raw.githubusercontent.com/joCur/quorum/main/docker-compose.release.yml
+curl -fsSL  https://raw.githubusercontent.com/joCur/quorum/main/.env.example -o .env
 ```
 
-**There is no source code here, and no git checkout on the deploy host.** The application comes
-from the published images and is never built on this machine.
+For a GPU machine, take `docker-compose.release-gpu.yml` instead. The two files are complete
+alternatives — pick one, never both, and never chain them with `-f`. Both are also attached to
+every GitHub release if you would rather take them from a specific version.
 
-The bundle's `.env.example` already pins `QUORUM_VERSION` to the version you downloaded, so the
-configuration files and the images they run cannot drift apart. That is the reason the artifact is
-one archive rather than a handful of files fetched individually: the pieces are only correct
-together.
+That is everything you download. There is no repository to clone and nothing to unpack: every
+script, every configuration file and the production realm are baked into the images.
 
-## 2. Write the .env file
+## 2. Fill in the .env
 
-```bash
-cp .env.example .env
-```
-
-The release section at the bottom of `.env.example` lists every variable the release stack reads.
-These are **mandatory** — the `preflight` service refuses to start the stack while any of them is
-missing or still holds a placeholder:
+Open `.env` and set the values under "Release deployment". They are **mandatory** — the stack
+refuses to start while any of them is missing or still holds a placeholder, and tells you which:
 
 | Variable                  | What it is                                                          |
 | ------------------------- | ------------------------------------------------------------------- |
-| `QUORUM_VERSION`          | Already set by the bundle to the version you downloaded. Leave it.   |
-| `QUORUM_PUBLIC_URL`       | The app origin browsers use. Must be `https://`, not loopback.       |
-| `KEYCLOAK_PUBLIC_URL`     | Same origin as `QUORUM_PUBLIC_URL` — Keycloak is served under `/realms` on the app's host. |
+| `QUORUM_PUBLIC_URL`       | The origin browsers use. Must be `https://`, not loopback.           |
+| `KEYCLOAK_PUBLIC_URL`     | The same origin — Keycloak is served under `/realms` on that host.   |
 | `POSTGRES_USER` / `_DB`   | Database role and database name.                                     |
 | `POSTGRES_PASSWORD`       | See the warning below about URL-safe characters.                     |
 | `KEYCLOAK_DB_PASSWORD`    | Keycloak's own database role on the same Postgres instance.          |
-| `KEYCLOAK_ADMIN_PASSWORD` | The bootstrap admin. Used once, in step 5.                           |
+| `KEYCLOAK_ADMIN_PASSWORD` | The admin account. Used on every deploy, not just the first.         |
 | `MINIO_ROOT_USER` / `_PASSWORD` | Object storage credentials, also used as the S3 access key.    |
-| `MINIO_KMS_SECRET_KEY`    | Storage encryption master key. **Back this up — see step 7.**        |
+| `MINIO_KMS_SECRET_KEY`    | Storage encryption master key. **Back this up — see step 6.**        |
 | `S3_BUCKET`               | Bucket for recordings, e.g. `recordings`.                            |
 | `SUMMARY_BASE_URL` / `_API_KEY` / `_MODEL` | The OpenAI-compatible summary backend (ADR-005).    |
 
@@ -85,8 +71,8 @@ openssl rand -hex 24
 > **Use hex, not base64, at least for `POSTGRES_PASSWORD`.** It is embedded in the `DATABASE_URL`
 > the compose file assembles, and a `/` or `@` — which `openssl rand -base64` produces about half
 > the time — silently truncates that URL. The API and the worker then crash-loop with
-> `ENOTFOUND` naming something that looks nothing like a password. The preflight rejects such a
-> value rather than letting you find out the hard way.
+> `ENOTFOUND` naming something that looks nothing like a password. The stack rejects such a value
+> rather than letting you find out the hard way.
 
 The storage encryption key has its own format:
 
@@ -100,27 +86,25 @@ Then lock the file down — it holds every credential in the deployment:
 chmod 600 .env
 ```
 
-## 3. Start the stack
+### Which version you get
+
+Images default to `latest`, so the stack runs the current release and `docker compose pull` moves
+it forward. Set `QUORUM_VERSION` in `.env` to pin one instead — the honest trade-off is that
+`latest` makes updating a single command while pinning makes the deployment reproducible.
+
+## 3. Start it
 
 ```bash
-docker compose -f docker-compose.release.yml up -d --wait
+docker compose -f docker-compose.release.yml up -d
 ```
 
-With a GPU for transcription:
+The stack validates your configuration first and stops with a readable list if anything is
+missing, then creates Keycloak's database, the recordings bucket and the production realm, and
+brings everything up. All of that is idempotent and happens on every start.
 
-```bash
-docker compose -f docker-compose.release.yml -f docker-compose.gpu.yml up -d --wait
-```
-
-The preflights run first. If anything is missing or still a placeholder, the stack stops with a
-list of exactly which values and why, and nothing else starts. Once Keycloak is healthy, the
-`keycloak-config` service applies the production realm (step 5) and the API waits for it.
-
-When it comes up, **one port is published**: the edge proxy on `127.0.0.1:8080`. The app, the API
-and Keycloak are all reachable through it, and nothing else — the API, Keycloak, Postgres, the
-MinIO S3 API and the MinIO console have no host port at all, and the only way to them is the
-Compose network. Change `BIND_ADDRESS` only if your proxy runs on another machine, and understand
-that it publishes plain HTTP when you do.
+**One port is published**: `127.0.0.1:8080`. The app, the API and Keycloak are all reachable
+through it — nothing else has a host port at all. Change `BIND_ADDRESS` only if your reverse proxy
+runs on another machine, and understand that it publishes plain HTTP when you do.
 
 ## 4. Put your reverse proxy in front
 
@@ -223,19 +207,17 @@ This is the part worth internalising:
 So do not make realm changes in the admin console expecting them to last. Accounts, group
 memberships and role assignments are fine; realm and client configuration is not.
 
-### The one thing you still do by hand
+### Creating the first user
 
-In the admin console at `KEYCLOAK_PUBLIC_URL` (sign in with `KEYCLOAK_ADMIN` and
-`KEYCLOAK_ADMIN_PASSWORD`), **create your first user** in the `quorum` realm. Give them the
-`quorum-user` role, plus `quorum-admin` for a tenant administrator, and set the `tenant_id`
-attribute — every data object in Quorum is tenant-scoped (ADR-001), and a user without that
-attribute gets tokens the API rejects.
+Self-registration through the app is the intended path and is not built yet. Until it ships:
+open the admin console at `QUORUM_PUBLIC_URL/admin`, sign in with `KEYCLOAK_ADMIN` and
+`KEYCLOAK_ADMIN_PASSWORD`, and add a user to the `quorum` realm with the `quorum-user` role and a
+`tenant_id` attribute (add `quorum-admin` for a tenant administrator). Every data object in Quorum
+is tenant-scoped (ADR-001), so a user without that attribute gets tokens the API rejects.
 
-Keep the `KEYCLOAK_ADMIN_PASSWORD` in `.env` working: it is not only a bootstrap credential any
-more, it is what `keycloak-config` authenticates with on every deploy. Treat it as a deployment
-credential. If you would rather deploys did not use the top-level admin, create a dedicated
-service account with realm-management rights and point `KEYCLOAK_ADMIN`/`KEYCLOAK_ADMIN_PASSWORD`
-at it.
+`KEYCLOAK_ADMIN_PASSWORD` stays in use after the first start — it is what the bootstrap
+authenticates with on every deploy, so treat it as a deployment credential rather than a one-time
+one.
 
 ## 6. Check it works
 
@@ -243,8 +225,8 @@ at it.
 docker compose -f docker-compose.release.yml ps
 ```
 
-Every long-running service should read `healthy`; `preflight`, `kms-preflight`, `minio-init` and
-`keycloak-config` should have exited 0. A quick end-to-end check through the front door:
+Every long-running service should read `healthy`, and the three `init-*` one-shots should have
+exited 0. A quick check through the front door:
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/            # the app
@@ -252,16 +234,17 @@ curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/healthz     # th
 curl -sS http://127.0.0.1:8080/realms/quorum/.well-known/openid-configuration | head -c 80
 ```
 
-All three go through the edge, which is how the browser will reach them. If `keycloak-config` exited non-zero, its log names the
-realm setting it could not apply, and the API will not have started. Then sign in through the PWA and record a short meeting: that exercises the
-whole critical path — chunk streaming, persistence, transcription and summary — and is the only
-check that covers all of it at once.
+All three go through the edge, which is how the browser reaches them. If an `init-*` container
+exited non-zero, its log says what it could not do, and the API will not have started.
+
+Then sign in and record a short meeting. That exercises the whole critical path — chunk streaming,
+persistence, transcription and summary — and is the only check that covers all of it at once.
 
 ## 7. Before you call it done
 
 - **Back up the `MINIO_KMS_SECRET_KEY`**, somewhere other than this host. Without it the stored
-  audio is permanently unreadable — no support path, no recovery. The procedure is in
-  `docs/runbooks/backup-restore.md`.
+  audio is permanently unreadable — no support path, no recovery. The procedure is in the
+  [backup and restore runbook](https://github.com/joCur/quorum/blob/main/docs/runbooks/backup-restore.md).
 - **Set up backups** for Postgres and the MinIO bucket, per the same runbook.
 - **Turn on monitoring** if you want alerts, which needs a Grafana admin password:
 
@@ -269,42 +252,26 @@ check that covers all of it at once.
   docker compose -f docker-compose.release.yml --profile monitoring up -d
   ```
 
-  See `docs/observability.md` and `docs/runbooks/pipeline.md`.
+  See the [observability notes](https://github.com/joCur/quorum/blob/main/docs/observability.md)
+  and the [pipeline runbook](https://github.com/joCur/quorum/blob/main/docs/runbooks/pipeline.md).
 
-## Upgrading
-
-Download the next bundle and carry your `.env` across. Do not raise `QUORUM_VERSION` in an old
-bundle: the compose file, the preflight scripts and the realm are versioned with the images, and
-the whole point of the bundle is that they move together.
-
-```bash
-VERSION=1.1.0
-curl -fsSLO https://github.com/joCur/quorum/releases/download/v${VERSION}/quorum-deploy-${VERSION}.tar.gz
-tar -xzf quorum-deploy-${VERSION}.tar.gz
-cp .env ../quorum-deploy-${VERSION}/.env          # from the directory you are running today
-cd ../quorum-deploy-${VERSION}
-```
-
-Then compare your `.env` against the new `.env.example` for variables that were added or renamed,
-set `QUORUM_VERSION` to the new version, and bring it up:
+## Updating
 
 ```bash
 docker compose -f docker-compose.release.yml pull
-docker compose -f docker-compose.release.yml up -d --wait
+docker compose -f docker-compose.release.yml up -d
 ```
 
-The volumes are named after the Compose project, not the directory, so the database and the
-recordings follow the upgrade rather than being left behind.
+That is the whole update. New images, and the bootstrap re-runs — so a realm change or a new
+database migration in the release is applied on the way up, without you doing anything.
 
-Take a database backup first. Read the release notes for the versions you are skipping — a
-release that changes the database schema says so there. Any realm change in the new version is
-applied automatically, because `keycloak-config` runs on every `up`.
+If you pinned `QUORUM_VERSION`, raise it first. Take a database backup before an update, and read
+the release notes for the versions you are skipping: a release that changes the database schema
+says so there.
 
-> **Keycloak and keycloak-config-cli are upgraded as a pair.** The `keycloak-config` image tag is
-> `<config-cli version>-<keycloak version>`, e.g. `6.5.1-26.5.5`, because each config-cli build
-> targets one Keycloak admin API. Raising `KEYCLOAK_VERSION` without raising
-> `KEYCLOAK_CONFIG_CLI_VERSION` to a build made for it pairs the tool with an API it was not built
-> against, and the realm apply is where you find out. Bump both tags in the same change.
+Occasionally an update adds a service or changes the compose file itself. Re-download it the same
+way you did the first time, next to your existing `.env`; your data lives in named volumes and is
+not affected.
 
 ## Configuring the client image
 

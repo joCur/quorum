@@ -53,6 +53,16 @@ jobs:
             dockerfile: worker/Dockerfile
           - image: client
             dockerfile: client/Dockerfile
+          - image: init
+            dockerfile: infra/init/Dockerfile
+          - image: edge
+            dockerfile: infra/edge/Dockerfile
+          - image: prometheus
+            dockerfile: infra/monitoring/prometheus.Dockerfile
+          - image: alertmanager
+            dockerfile: infra/monitoring/alertmanager.Dockerfile
+          - image: grafana
+            dockerfile: infra/monitoring/grafana.Dockerfile
           # Keycloak's own optimized build. It is published alongside the application images
           # because `start --optimized` refuses to run against the stock upstream image, and
           # the production compose file needs a pinned tag rather than a build context.
@@ -98,29 +108,27 @@ jobs:
           provenance: true
           sbom: true
 
-  # The deployment artifact. A production host needs about a dozen files, not the source tree, so
-  # the release carries them as one archive: no git on the deploy host, and the bundle's version
-  # pins the image tags it was released with, so artifact and images cannot drift apart.
-  deploy-bundle:
-    name: Attach the deployment bundle
+  # Deployment artifacts. Not an archive: a deployment is one compose file plus a .env, so the
+  # release carries exactly those, individually downloadable. Everything else a deployment used to
+  # need — scripts, realm, edge and monitoring configuration — is baked into the images above.
+  release-assets:
+    name: Attach the compose files
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
-      # Reading the tagged tree, and uploading the archive as a release asset.
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.release-please.outputs.tag_name }}
 
-      - name: Build the bundle
-        run: ./scripts/build-deploy-bundle.sh "${{ needs.release-please.outputs.version }}" dist
-
-      - name: Attach it to the release
+      - name: Attach them to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ needs.release-please.outputs.tag_name }}" \
-            "dist/quorum-deploy-${{ needs.release-please.outputs.version }}.tar.gz" \
+            docker-compose.release.yml \
+            docker-compose.release-gpu.yml \
+            .env.example \
             --clobber

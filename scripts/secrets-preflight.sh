@@ -59,11 +59,11 @@ require_secret() {
     return
   fi
   if is_placeholder "$value"; then
-    fail "$name still holds a placeholder value. Generate one: openssl rand -base64 24"
+    fail "$name still holds a placeholder value. Generate one: openssl rand -hex 24"
     return
   fi
   if [ "${#value}" -lt 16 ]; then
-    fail "$name is only ${#value} characters; at least 16 are required. Generate one: openssl rand -base64 24"
+    fail "$name is only ${#value} characters; at least 16 are required. Generate one: openssl rand -hex 24"
     return
   fi
   pass "$name"
@@ -160,12 +160,6 @@ fi
 echo "Release configuration preflight"
 echo
 
-echo "Image version:"
-# Without this the compose file would fall back to a floating tag, and "which version is running"
-# would have no answer after the next `docker compose pull`.
-require_value QUORUM_VERSION
-
-echo
 echo "Credentials:"
 require_url_safe_secret POSTGRES_PASSWORD
 require_secret KEYCLOAK_DB_PASSWORD
