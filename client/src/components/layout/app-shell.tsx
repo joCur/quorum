@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { NavLink, Outlet, useMatch, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { RecordingBar } from "@/components/recording/recording-bar";
 
 interface Destination {
   to: string;
@@ -113,6 +114,9 @@ export function AppShell() {
         id="main"
         className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 pb-28 pt-6 md:px-6 md:pb-10"
       >
+        {/* A live recording is announced on every screen the shell renders, the meeting detail
+            included — it is the one condition that must not depend on where the user went. */}
+        <RecordingBar />
         <Outlet />
       </main>
 

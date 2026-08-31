@@ -18,9 +18,10 @@ const badgeVariants = cva(
         warning: "bg-warning-subtle text-warning",
         destructive: "bg-destructive/10 text-destructive",
         recording: "bg-recording-subtle text-recording",
-        // Expressive, not status: plum is the identity color of summaries and
-        // templates (DESIGN-SYSTEM.md), which is exactly what "your summaries
-        // come out of this one" is saying.
+        // Expressive, not status. v2 has no plum — honey is the single
+        // expressive accent — so this variant resolves to honey through the
+        // Tailwind color mapping. The name survives only until the templates
+        // and meeting-detail area tickets rename it.
         plum: "bg-plum-subtle text-plum",
       },
     },

@@ -36,6 +36,9 @@
       "recording": "REC",
       "paused": "PAUSED"
     },
+    "bar": {
+      "return": "Return to recording"
+    },
     "titleField": {
       "label": "Meeting title",
       "placeholder": "Optional — you can add it later"
@@ -44,6 +47,12 @@
     "templateField": {
       "label": "Summary template"
     },
+    "inputField": {
+      "label": "Microphone",
+      "systemDefault": "System default",
+      "forgotten": "The microphone you used last is not connected. This recording uses the system default."
+    },
+    "inputFallback": "Your microphone was disconnected — recording continues on the system default.",
     "confirmStop": {
       "question": "Stop recording?",
       "confirm": "Stop"
@@ -62,6 +71,7 @@
       "unsupported": "This browser cannot record audio. Try a current version of Chrome, Firefox or Safari.",
       "storage": "The recording was stopped because audio could not be stored on this device.",
       "connection": "The connection failed. Your audio is safe on this device.",
+      "input-lost": "The recording stopped because no microphone is available any more. Everything captured so far is safe on this device.",
       "unknown": "Recording could not be started."
     },
     "limit": {

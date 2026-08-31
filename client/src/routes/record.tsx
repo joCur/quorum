@@ -13,7 +13,9 @@ import { RecordButton } from "@/components/recording/record-button";
 import { RecordingIndicator } from "@/components/recording/recording-indicator";
 import { SyncStatus } from "@/components/recording/sync-status";
 import { isRecordingFinalizedDespite, limitMessageKey } from "@/features/limits/messages";
-import { useRecording } from "@/features/recording/use-recording";
+import { useAudioInputs } from "@/features/recording/use-audio-inputs";
+import { useRequiredRecordingSession } from "@/features/recording/recording-context";
+import type { RecordingState } from "@/features/recording/use-recording";
 import { useTemplates } from "@/features/templates/use-templates";
 import { formatDuration } from "@/lib/duration";
 import type { LimitErrorCode } from "@quorum/shared";
@@ -32,11 +34,12 @@ const FINALIZE_SETTLE_MS = 600;
 export function RecordRoute() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { state, start, pause, resume, stop } = useRecording();
+  const { state, start, pause, resume, stop, reset } = useRequiredRecordingSession();
   const [consentOpen, setConsentOpen] = React.useState(false);
   const [confirmStop, setConfirmStop] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const templates = useTemplates();
+  const inputs = useAudioInputs();
   // `null` means "not touched yet", which is what keeps the field following the user's default
   // while it is still loading — an explicit choice replaces it and is never overwritten again.
   const [chosenTemplate, setChosenTemplate] = React.useState<string | null>(null);
@@ -46,9 +49,19 @@ export function RecordRoute() {
   // One template is no choice. Showing a select with a single option would be a control that
   // cannot do anything — the resting state stays silent until the user has templates of their own.
   const offerTemplates = templates.status === "ready" && templates.templates.length > 1;
+  // One microphone is no choice, and an unnamed list is no choice either (see `useAudioInputs`).
+  // Both cases leave the capture screen as bare as it was.
+  const offerInputs = inputs.inputs.length > 1;
 
   const active = state.phase === "recording";
   const live = active || state.phase === "paused";
+
+  // The session outlives this screen now, so what is left of the last one — a finished recording,
+  // a failed start, a limit — would still be here on the next visit. Opening the screen clears
+  // it. A live recording is untouched by this: arriving on it re-attaches to what is running.
+  React.useEffect(() => {
+    reset();
+  }, [reset]);
 
   React.useEffect(() => {
     if (state.phase !== "finalized" || state.limit !== null) return;
@@ -61,14 +74,6 @@ export function RecordRoute() {
     );
     return () => window.clearTimeout(handle);
   }, [state.phase, state.limit, navigate]);
-
-  // Closing the tab mid-recording is survivable, but it should not be silent.
-  React.useEffect(() => {
-    if (!live) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [live]);
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-background">
@@ -83,6 +88,7 @@ export function RecordRoute() {
           void start(
             title.trim() === "" ? null : title.trim(),
             templateId === "" ? null : templateId,
+            inputs.deviceId,
           );
         }}
       />
@@ -99,7 +105,6 @@ export function RecordRoute() {
           variant="ghost"
           size="icon"
           aria-label={t("common.close")}
-          disabled={live}
           onClick={() => void navigate("/meetings")}
         >
           <X aria-hidden="true" />
@@ -122,6 +127,15 @@ export function RecordRoute() {
           <p className="flex items-center gap-2 text-sm text-warning">
             <MicOff className="size-4" aria-hidden="true" />
             {t("recording.noAudio")}
+          </p>
+        ) : null}
+
+        {/* A recording that changed microphone under the user's feet is a condition they can act
+            on — it stands next to the sync line for as long as it holds true. */}
+        {state.inputFallback && live ? (
+          <p role="status" className="flex items-center gap-2 text-sm text-warning">
+            <MicOff className="size-4" aria-hidden="true" />
+            {t("recording.inputFallback")}
           </p>
         ) : null}
 
@@ -159,6 +173,29 @@ export function RecordRoute() {
                     </option>
                   ))}
                 </Select>
+              </>
+            ) : null}
+
+            {offerInputs ? (
+              <>
+                <Label htmlFor="input-device">{t("recording.inputField.label")}</Label>
+                <Select
+                  id="input-device"
+                  value={inputs.deviceId ?? ""}
+                  onChange={(event) =>
+                    inputs.choose(event.target.value === "" ? null : event.target.value)
+                  }
+                >
+                  <option value="">{t("recording.inputField.systemDefault")}</option>
+                  {inputs.inputs.map((input) => (
+                    <option key={input.deviceId} value={input.deviceId}>
+                      {input.label}
+                    </option>
+                  ))}
+                </Select>
+                {inputs.forgotten ? (
+                  <p className="text-sm text-warning">{t("recording.inputField.forgotten")}</p>
+                ) : null}
               </>
             ) : null}
           </div>
@@ -217,7 +254,7 @@ function ErrorPanel({
   error,
   onRetry,
 }: {
-  error: NonNullable<ReturnType<typeof useRecording>["state"]["error"]>;
+  error: NonNullable<RecordingState["error"]>;
   onRetry: () => void;
 }) {
   const { t } = useTranslation();

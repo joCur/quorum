@@ -46,8 +46,18 @@ export type RecordingPhase =
 
 export interface RecordingError {
   /** Distinguishes the cases the UI must explain differently. */
-  kind: "permission-denied" | "unsupported" | "storage" | "connection" | "unknown";
+  kind: "permission-denied" | "unsupported" | "storage" | "connection" | "input-lost" | "unknown";
   detail?: string | undefined;
+}
+
+/** Audio constraints every capture asks for, whichever input it uses. */
+function audioConstraints(deviceId: string | null): MediaTrackConstraints {
+  return {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+    ...(deviceId === null ? {} : { deviceId: { exact: deviceId } }),
+  };
 }
 
 export interface RecordingState {
@@ -62,6 +72,14 @@ export interface RecordingState {
   wakeLockSupported: boolean;
   wakeLockActive: boolean;
   storageLow: boolean;
+  /**
+   * True while the recording runs on a different input than the one that was chosen.
+   *
+   * Set when the chosen microphone is refused at the start, or unplugged mid-recording. It is not
+   * an error — capture continues — but it is a condition the user can act on, so it is said out
+   * loud rather than swallowed (STATES.md §9).
+   */
+  inputFallback: boolean;
   meetingId: string | null;
   recoverable: BufferedSession | null;
   /**
@@ -84,6 +102,7 @@ const INITIAL_STATE: RecordingState = {
   wakeLockSupported: isWakeLockSupported(),
   wakeLockActive: false,
   storageLow: false,
+  inputFallback: false,
   meetingId: null,
   recoverable: null,
   limit: null,
@@ -97,6 +116,8 @@ const INITIAL_STATE: RecordingState = {
 export function useRecording() {
   const { accessToken } = useAuth();
   const [state, setState] = React.useState<RecordingState>(INITIAL_STATE);
+  // Bumped whenever capture is (re)built, so the device watcher re-binds to the live tracks.
+  const [captureGeneration, setCaptureGeneration] = React.useState(0);
 
   const bufferRef = React.useRef<ChunkBuffer | null>(null);
   const clientRef = React.useRef<RecordingClient | null>(null);
@@ -108,6 +129,11 @@ export function useRecording() {
   const audioSecondsRef = React.useRef(0);
   const silentSinceRef = React.useRef<number | null>(null);
   const frameRef = React.useRef<number | null>(null);
+  const formatRef = React.useRef<ReturnType<typeof selectRecordingFormat>>(null);
+  // Set while a swap to another input is in flight, so the recorder we are deliberately stopping
+  // is not mistaken for a second device loss.
+  const swappingRef = React.useRef(false);
+  const phaseRef = React.useRef<RecordingPhase>("idle");
 
   const patch = React.useCallback((changes: Partial<RecordingState>) => {
     setState((current) => ({ ...current, ...changes }));
@@ -120,23 +146,33 @@ export function useRecording() {
     return bufferRef.current;
   }, []);
 
+  // The phase, readable from callbacks that must not close over a stale render.
+  React.useEffect(() => {
+    phaseRef.current = state.phase;
+  }, [state.phase]);
+
+  /**
+   * Looks for audio of a session that was never finalized.
+   *
+   * The session currently being recorded is unfinished too, by definition, and is excluded: the
+   * recovery offer is about audio nothing is taking care of any more. Rescanning after each
+   * recovery is what makes a second orphaned session reachable at all — the offer used to be
+   * made once, for one session, and never again.
+   */
+  const refreshRecoverable = React.useCallback(async () => {
+    const buffer = await openBuffer();
+    const liveSessionId = clientRef.current?.status.sessionId ?? null;
+    const sessions = await buffer.listUnfinishedSessions();
+    patch({ recoverable: sessions.find((each) => each.sessionId !== liveSessionId) ?? null });
+  }, [openBuffer, patch]);
+
   // An unfinished session in the buffer means a previous recording was cut
   // short — its audio is still here and can be delivered.
   React.useEffect(() => {
-    let active = true;
-    void openBuffer()
-      .then((buffer) => buffer.listUnfinishedSessions())
-      .then((sessions) => {
-        const first = sessions.at(0);
-        if (active && first) patch({ recoverable: first });
-      })
-      .catch(() => {
-        // A buffer we cannot open is reported when a recording is attempted.
-      });
-    return () => {
-      active = false;
-    };
-  }, [openBuffer, patch]);
+    void refreshRecoverable().catch(() => {
+      // A buffer we cannot open is reported when a recording is attempted.
+    });
+  }, [refreshRecoverable]);
 
   const releaseWakeLock = React.useCallback(() => {
     const handle = wakeLockRef.current;
@@ -215,15 +251,104 @@ export function useRecording() {
     frameRef.current = requestAnimationFrame(tick);
   }, []);
 
+  /**
+   * Wires a fresh stream up to the level meter and the recorder.
+   *
+   * Everything that carries the session — the protocol client, the offset counter, the buffer —
+   * lives outside this function on purpose: capture can be rebuilt on another microphone without
+   * the session noticing, which is what keeps a chunk sequence gap-free across a device swap.
+   */
+  const attachCapture = React.useCallback((stream: MediaStream, client: RecordingClient) => {
+    const format = formatRef.current;
+    if (!format) return;
+    streamRef.current = stream;
+
+    const context = new AudioContext();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    context.createMediaStreamSource(stream).connect(analyser);
+    audioContextRef.current = context;
+    analyserRef.current = analyser;
+
+    const recorder = new MediaRecorder(stream, { mimeType: format.mimeType });
+    recorder.ondataavailable = (event: BlobEvent) => {
+      if (event.data.size === 0) return;
+      const offset = audioSecondsRef.current;
+      audioSecondsRef.current += CHUNK_INTERVAL_MS / 1000;
+      void event.data
+        .arrayBuffer()
+        .then((payload) =>
+          client.pushChunk(new Uint8Array(payload), offset, CHUNK_INTERVAL_MS / 1000),
+        )
+        .catch(() => undefined);
+    };
+    recorderRef.current = recorder;
+    recorder.start(CHUNK_INTERVAL_MS);
+    setCaptureGeneration((generation) => generation + 1);
+  }, []);
+
+  /**
+   * Continues the recording on the system default input after the current one disappeared.
+   *
+   * A meeting does not end because a headset was unplugged. The old recorder is stopped first and
+   * its final chunk is awaited before the new one starts, so the chunks reach the server in the
+   * order their offsets claim.
+   */
+  const continueOnDefaultInput = React.useCallback(async () => {
+    const client = clientRef.current;
+    const previous = recorderRef.current;
+    if (!client || swappingRef.current) return;
+    swappingRef.current = true;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(null) });
+
+      if (previous && previous.state !== "inactive") {
+        await new Promise<void>((resolve) => {
+          previous.onstop = () => resolve();
+          previous.stop();
+        });
+      }
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      void audioContextRef.current?.close().catch(() => undefined);
+      audioContextRef.current = null;
+      analyserRef.current = null;
+
+      attachCapture(stream, client);
+      patch({ inputFallback: true });
+      monitorLevel();
+    } catch (cause) {
+      // No input left at all — that is a stop, and it is said plainly rather than left to a
+      // timer that quietly stops counting.
+      recorderRef.current?.stop();
+      teardownCapture();
+      patch({
+        phase: "error",
+        error: { kind: "input-lost", detail: cause instanceof Error ? cause.message : undefined },
+      });
+    } finally {
+      swappingRef.current = false;
+    }
+  }, [attachCapture, monitorLevel, patch, teardownCapture]);
+
   const start = React.useCallback(
-    async (meetingTitle: string | null, summaryTemplateId: string | null = null) => {
-      patch({ phase: "requesting", error: null, limit: null });
+    async (
+      meetingTitle: string | null,
+      summaryTemplateId: string | null = null,
+      inputDeviceId: string | null = null,
+    ) => {
+      patch({ phase: "requesting", error: null, limit: null, inputFallback: false });
 
       const format = selectRecordingFormat();
       if (!format) {
         patch({ phase: "error", error: { kind: "unsupported" } });
         return;
       }
+      formatRef.current = format;
 
       let buffer: ChunkBuffer;
       try {
@@ -237,19 +362,32 @@ export function useRecording() {
       }
 
       let stream: MediaStream;
+      let usedFallbackInput = false;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          audio: audioConstraints(inputDeviceId),
         });
       } catch (cause) {
-        patch({
-          phase: "error",
-          error: {
-            kind: "permission-denied",
-            detail: cause instanceof Error ? cause.message : undefined,
-          },
-        });
-        return;
+        // A chosen input that the browser will not hand over is not a reason to refuse the
+        // recording — the default one is tried, and the substitution is said out loud.
+        let fallback: MediaStream | null = null;
+        if (inputDeviceId !== null) {
+          fallback = await navigator.mediaDevices
+            .getUserMedia({ audio: audioConstraints(null) })
+            .catch(() => null);
+        }
+        if (!fallback) {
+          patch({
+            phase: "error",
+            error: {
+              kind: "permission-denied",
+              detail: cause instanceof Error ? cause.message : undefined,
+            },
+          });
+          return;
+        }
+        stream = fallback;
+        usedFallbackInput = true;
       }
 
       const track = stream.getAudioTracks().at(0);
@@ -298,35 +436,15 @@ export function useRecording() {
       const audioFormat = describeAudioFormat(format, track);
       await client.start({ meetingTitle, summaryTemplateId }, audioFormat);
 
-      const context = new AudioContext();
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 1024;
-      context.createMediaStreamSource(stream).connect(analyser);
-      audioContextRef.current = context;
-      analyserRef.current = analyser;
-
-      const recorder = new MediaRecorder(stream, { mimeType: format.mimeType });
-      recorder.ondataavailable = (event: BlobEvent) => {
-        if (event.data.size === 0) return;
-        const offset = audioSecondsRef.current;
-        audioSecondsRef.current += CHUNK_INTERVAL_MS / 1000;
-        void event.data
-          .arrayBuffer()
-          .then((payload) =>
-            client.pushChunk(new Uint8Array(payload), offset, CHUNK_INTERVAL_MS / 1000),
-          )
-          .catch(() => undefined);
-      };
-      recorderRef.current = recorder;
-      recorder.start(CHUNK_INTERVAL_MS);
-
       audioSecondsRef.current = 0;
       silentSinceRef.current = null;
-      patch({ phase: "recording", elapsedSeconds: 0 });
+      attachCapture(stream, client);
+
+      patch({ phase: "recording", elapsedSeconds: 0, inputFallback: usedFallbackInput });
       await acquireWakeLock();
       monitorLevel();
     },
-    [accessToken, acquireWakeLock, monitorLevel, openBuffer, patch, teardownCapture],
+    [accessToken, acquireWakeLock, attachCapture, monitorLevel, openBuffer, patch, teardownCapture],
   );
 
   const pause = React.useCallback(() => {
@@ -360,6 +478,9 @@ export function useRecording() {
   /** Delivers the buffered audio of a session that was cut short. */
   const recover = React.useCallback(
     async (session: BufferedSession) => {
+      // Recovering replaces the protocol client, so it must never run while one is carrying a
+      // live recording — that would cut the running session loose to finalize an older one.
+      if (phaseRef.current === "recording" || phaseRef.current === "paused") return;
       const buffer = await openBuffer();
       const client = new RecordingClient({
         url: webSocketUrl(RECORDING_PATH),
@@ -368,7 +489,11 @@ export function useRecording() {
         createSocket: (url, protocols) => new WebSocket(url, protocols) as never,
         clientInfo: describeClient(),
         onStatusChange: (status) => patch({ status }),
-        onFinalized: ({ meetingId }) => patch({ phase: "finalized", meetingId, recoverable: null }),
+        onFinalized: ({ meetingId }) => {
+          patch({ phase: "finalized", meetingId });
+          // A device can hold more than one orphaned session; the next one is offered right away.
+          void refreshRecoverable().catch(() => undefined);
+        },
         onError: (error: RecordingClientError) => {
           if (error.code === "limit" && error.limit) {
             patch(
@@ -384,17 +509,46 @@ export function useRecording() {
       await client.resume(session);
       client.end();
     },
-    [accessToken, openBuffer, patch],
+    [accessToken, openBuffer, patch, refreshRecoverable],
   );
 
   const discardRecoverable = React.useCallback(
     async (session: BufferedSession) => {
       const buffer = await openBuffer();
       await buffer.deleteSession(session.sessionId);
-      patch({ recoverable: null });
+      await refreshRecoverable();
     },
-    [openBuffer, patch],
+    [openBuffer, refreshRecoverable],
   );
+
+  /**
+   * Returns the session state to rest after a finished or failed one.
+   *
+   * The state now outlives the recording screen, so the outcome of the last recording would
+   * otherwise still be on screen the next time it is opened. A live recording is never reset —
+   * reopening the screen re-attaches to it, which is the whole point.
+   */
+  const reset = React.useCallback(() => {
+    if (phaseRef.current === "recording" || phaseRef.current === "paused") return;
+    if (phaseRef.current === "finalizing") return;
+    // A failed session can leave a client still trying to reconnect; dropping the reference
+    // without disposing it would leave that running with nothing left to report to.
+    clientRef.current?.dispose();
+    clientRef.current = null;
+    patch({
+      phase: "idle",
+      elapsedSeconds: 0,
+      level: 0,
+      silent: false,
+      status: null,
+      error: null,
+      wakeLockActive: false,
+      storageLow: false,
+      inputFallback: false,
+      meetingId: null,
+      limit: null,
+    });
+  }, [patch]);
 
   // Elapsed time is audio time: it advances only while chunks are being captured.
   React.useEffect(() => {
@@ -404,6 +558,32 @@ export function useRecording() {
     }, 250);
     return () => window.clearInterval(handle);
   }, [state.phase, patch]);
+
+  /**
+   * Watches the input the recording is running on.
+   *
+   * A track that ends is the browser telling us the microphone is gone — unplugged, switched off,
+   * taken by something else. `devicechange` is watched as well because some browsers report the
+   * disappearance only through the device list; both lead to the same place, which is a recording
+   * that carries on somewhere else.
+   */
+  React.useEffect(() => {
+    if (state.phase !== "recording" && state.phase !== "paused") return;
+    const track = streamRef.current?.getAudioTracks().at(0);
+    if (!track) return;
+
+    const onEnded = () => void continueOnDefaultInput();
+    const onDeviceChange = () => {
+      if (track.readyState === "ended") void continueOnDefaultInput();
+    };
+
+    track.addEventListener("ended", onEnded);
+    navigator.mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
+    return () => {
+      track.removeEventListener("ended", onEnded);
+      navigator.mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
+    };
+  }, [state.phase, captureGeneration, continueOnDefaultInput]);
 
   // Wake locks are dropped when a tab is hidden and must be taken again.
   React.useEffect(() => {
@@ -437,5 +617,8 @@ export function useRecording() {
     [teardownCapture],
   );
 
-  return { state, start, pause, resume, stop, recover, discardRecoverable };
+  return { state, start, pause, resume, stop, reset, recover, discardRecoverable };
 }
+
+/** Everything the app can know and do about the one recording session it owns. */
+export type RecordingSession = ReturnType<typeof useRecording>;

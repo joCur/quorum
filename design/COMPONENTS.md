@@ -6,7 +6,17 @@ All components build on shadcn/ui primitives (Radix under the hood) themed via `
 
 Install baseline shadcn primitives: `button, card, dialog, alert-dialog, sheet, input, textarea, label, select, badge, skeleton, separator, dropdown-menu, progress, slider, sonner (toast), form, switch, tabs, tooltip, scroll-area`.
 
+> **Superseded section by section by the v2 redesign.** This file still describes the v1 visual
+> language. Every section below carries a `v2:` marker naming the area that owns its rewrite. When
+> that area's redesign lands, its PR rewrites those sections in place and drops their marker — so a
+> section still carrying a marker is guidance that has not yet been re-decided, and a section
+> without one is current. Nothing here is deleted ahead of the PR that replaces it: stale styling
+> guidance is easier to spot than missing guidance. The behavioral rules in `STATES.md` are not
+> superseded and apply to both versions.
+
 ## 1. Buttons — `Button` (shadcn `button`, as-is)
+
+> v2: superseded — rewritten by the **shared controls** redesign.
 
 Variants (shadcn defaults, no changes needed): `default` (primary teal), `secondary`, `outline`, `ghost`, `destructive`, `link`. Sizes `sm | default | lg | icon`.
 
@@ -18,6 +28,8 @@ Rules:
 
 ## 2. RecordButton (custom, styled `button` element)
 
+> v2: superseded — rewritten by the **recording** redesign.
+
 The single most important control — and the app's most characterful one. A circular button, 72px (mobile) / 64px (desktop).
 
 - **Idle:** `bg-recording` circle with white `Mic` icon; label "Record" below. On hover/focus it lifts slightly (`shadow-md`) — it wants to be pressed.
@@ -27,6 +39,8 @@ The single most important control — and the app's most characterful one. A cir
 - Not a shadcn variant — bespoke, but uses `Button` a11y patterns (focus ring, `aria-pressed`, `aria-label` describing next action).
 
 ## 3. RecordingIndicator (custom, distinctive)
+
+> v2: superseded — rewritten by the **recording** redesign.
 
 Quorum's signature element — the honest "you are on the record" signal, with personality: **the breathing dot**. The app visibly listens.
 
@@ -40,9 +54,13 @@ Quorum's signature element — the honest "you are on the record" signal, with p
 
 ## 4. Cards — `Card` (shadcn `card`, as-is)
 
+> v2: superseded — rewritten by the **shared controls** redesign.
+
 `Card / CardHeader / CardTitle / CardDescription / CardContent / CardFooter`. Soft radius (`--radius`), `shadow-sm` at rest; link-target cards lift to `shadow-md` and translate up 1px on hover. Used for: meeting list items (mobile), summary sections, settings groups, template sections.
 
 ## 5. Lists — `MeetingList` / `MeetingListItem` (composition: `Card` + `Badge` + `DropdownMenu`)
+
+> v2: superseded — rewritten by the **meetings list** redesign.
 
 - **Row anatomy:** title (or "Untitled meeting" fallback), date + duration in `text-sm text-muted-foreground font-mono` (duration), `StatusBadge`, overflow menu (`DropdownMenu`: Open, Rename, Delete).
 - **Motion:** rows enter with `animate-rise-in` staggered 30ms (cap 10); a row whose status changes gets the badge flip (pop-out/pop-in); confirmed-deleted rows collapse their height smoothly.
@@ -53,6 +71,8 @@ Quorum's signature element — the honest "you are on the record" signal, with p
 - Virtualize when list > ~50 entries (later; not a V1 blocker).
 
 ## 6. StatusBadge (shadcn `badge`, extended variants)
+
+> v2: superseded — rewritten by the **meetings list** redesign.
 
 Maps meeting/job state → visual. Always icon + label, never color or motion alone. `bg-{status}-subtle text-{status}` pattern, `text-xs`, pill radius. State changes animate with the badge flip (`animate-pop-in` on the incoming badge).
 
@@ -72,11 +92,15 @@ Derivation from data: meeting status = live session state, else latest `Job` per
 
 ## 7. Dialogs
 
+> v2: superseded — rewritten by the **shared controls** redesign.
+
 - **`Dialog`** (shadcn `dialog`): forms and detail overlays on desktop. On mobile (< md), prefer **`Sheet`** (bottom sheet) for the same content. Sheets slide with `--ease-enter` over 320ms.
 - **`ConfirmDialog`** (shadcn `alert-dialog`): all destructive confirmations. Title states the consequence ("Delete this meeting?"), body lists exactly what is destroyed (audio, transcripts, summaries — cascade per ADR-001), destructive action button right-aligned, `Cancel` is the initially-focused default. No playfulness here — serious moments are rendered straight.
 - **`ConsentNotice`**: specialized `AlertDialog` before recording starts — see STATES.md §1. Not dismissible by outside-click or Escape; explicit choice required.
 
 ## 8. Forms (shadcn `form` + `input`, `textarea`, `label`, `select`, `switch`)
+
+> v2: superseded — rewritten by the **shared controls** redesign.
 
 Used in: meeting rename, template editor, settings.
 
@@ -88,6 +112,8 @@ Used in: meeting rename, template editor, settings.
 
 ## 9. AudioPlayer (custom; composed from shadcn `slider` + `Button` + `DropdownMenu`)
 
+> v2: superseded — rewritten by the **meeting detail** redesign.
+
 Playback of finished recordings, synced with the transcript. Round, friendly controls — pill-shaped bar, circular buttons.
 
 - **Anatomy:** play/pause (circular icon button, 44px, springs on press), seek slider (shadcn `slider` restyled: 4px track, `primary` fill, thumb grows on touch), current time / total duration in `font-mono text-sm tabular-nums`, playback-rate menu (0.75× 1× 1.25× 1.5× 2×), skip ±15s buttons (desktop and ≥ sm).
@@ -98,6 +124,8 @@ Playback of finished recordings, synced with the transcript. Round, friendly con
 
 ## 10. TranscriptView (custom)
 
+> v2: superseded — rewritten by the **meeting detail** redesign.
+
 - Segment blocks: speaker label (when present) `text-sm font-semibold`, text `text-base leading-relaxed max-w-[65ch]`, timestamp `font-mono text-xs text-muted-foreground` in the gutter (tap segment to reveal on mobile).
 - Active segment during playback: `bg-accent` block highlight (the highlight glides between segments, 220ms); active word: underline/darker weight — never color alone.
 - **Arrival moment:** when the transcript first flips to Ready in view, the first ~8 segments rise in staggered (`animate-rise-in`), then everything is static. One warm beat, then business. Strictly visual — celebrations never play sound (PO decision; also: the user may still be in a meeting).
@@ -106,6 +134,8 @@ Playback of finished recordings, synced with the transcript. Round, friendly con
 - Transcript content itself is sacred data: no decorative color, no playful styling inside the text.
 
 ## 11. SummaryView (custom, `Card` per section)
+
+> v2: superseded — rewritten by the **meeting detail** redesign.
 
 The summary is the "thinking" side of the product — it carries the plum identity: section title row gets a small plum marker, the tab's ready-dot pops in plum/honey.
 
@@ -116,6 +146,8 @@ The summary is the "thinking" side of the product — it carries the plum identi
 
 ## 12. EmptyState (custom) — where playfulness lives
 
+> v2: superseded — rewritten by the **shared controls** redesign.
+
 Anatomy: icon tile (per DESIGN-SYSTEM.md §6: one large Lucide icon, 48px, stroke 1.75, inside a `--radius-lg` container filled with `honey-subtle`; the tile and the text below it rise in staggered on mount), `text-3xl`-capable headline, one warm sentence, optional primary action. Never a bare "No data" — and never illustrations, blobs, or characters (mascot was evaluated and rejected).
 
 - **Meetings list (first run):** `Mic` icon tile in honey; "Your first meeting awaits" / "Record it here — transcript and summary follow on their own." / [Start recording]. This doubles as onboarding: a secondary ghost link "How Quorum works" opens a 3-step explainer sheet (record → transcribe on your infrastructure → summarize your way), each step with its own small icon tile (`Mic`, `FileText`, `ScrollText`).
@@ -124,6 +156,8 @@ Anatomy: icon tile (per DESIGN-SYSTEM.md §6: one large Lucide icon, 48px, strok
 - **Deleted meeting URL:** calm, not playful — "This meeting was deleted." with a link back.
 
 ## 13. Feedback primitives
+
+> v2: superseded — rewritten by the **shared controls** redesign.
 
 - **Toast** (`sonner`): transient confirmations ("Meeting deleted", "Template saved") and non-blocking errors with a Retry action. Toasts slide-and-spring in. Never used for recording-critical state — that lives in persistent UI.
 - **`Progress`** (shadcn): determinate job progress when `job.progress != null` (fills with `--ease-enter`); otherwise indeterminate badge/spinner or stage shimmer.

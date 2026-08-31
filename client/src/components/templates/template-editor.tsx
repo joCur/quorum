@@ -215,6 +215,9 @@ function TemplatePreview({
         <CardContent className="flex flex-col gap-3 pt-6">
           {sections.map((section) => (
             <div key={section.id} className="flex items-baseline gap-2">
+              {/* Transitional: `plum` no longer exists in v2 and resolves to honey through the
+                  Tailwind color mapping. This marker becomes a honey underline when the
+                  templates area ticket restyles this screen. */}
               <span aria-hidden="true" className="h-4 w-1 shrink-0 rounded-full bg-plum" />
               <span className="text-base font-semibold">
                 {section.title.trim() || t("templates.editor.untitledSection")}
@@ -239,7 +242,7 @@ function TemplatePreview({
   );
 }
 
-/** One section, as a card with the plum marker that marks the summary side of the product. */
+/** One section, as a card with the accent marker that marks the summary side of the product. */
 function SectionCard({
   section,
   index,

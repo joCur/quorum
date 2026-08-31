@@ -1,63 +1,94 @@
 /**
- * Quorum design tokens — CSS custom properties. (v2 — "a friendly studio")
+ * Quorum design tokens — CSS custom properties. (v2 — "Paper / Espresso / Honey")
  * Source of truth for all colors, radii, shadows, motion, and fonts.
  * Consumed by Tailwind config (see tailwind-tokens.md) and shadcn/ui theme.
  *
  * Convention: color tokens are raw HSL channel triplets (shadcn style),
  * consumed as hsl(var(--token) / <alpha>).
+ *
+ * The v2 palette is warm paper with an espresso action color in light mode and
+ * a honey action color in dark mode. Honey is the single expressive accent and
+ * also carries selection; there is no second expressive accent. Red belongs to
+ * live capture alone.
  */
 
 :root {
-  /* ---- Core surfaces & text (warm cream / warm ink) ---- */
-  --background: 40 45% 97%;
-  --foreground: 25 30% 14%;
-  --card: 0 0% 100%;
-  --card-foreground: 25 30% 14%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 25 30% 14%;
+  /* ---- Core surfaces & text (paper / espresso ink) ---- */
+  --background: 38 50% 96%;
+  --foreground: 26 30% 12%;
+  --card: 40 40% 99%;
+  --card-foreground: 26 30% 12%;
+  --popover: 40 40% 99%;
+  --popover-foreground: 26 30% 12%;
 
-  /* ---- Brand & interaction ---- */
-  --primary: 172 58% 28%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 40 30% 92%;
-  --secondary-foreground: 25 30% 18%;
-  --muted: 40 30% 93%;
-  --muted-foreground: 25 12% 42%;
-  --accent: 172 45% 91%;
-  --accent-foreground: 172 60% 18%;
-  --destructive: 9 72% 44%;
+  /* ---- Brand & interaction ----
+     Light mode acts in espresso; dark mode acts in honey (see .dark). */
+  --primary: 26 30% 16%;
+  --primary-foreground: 40 50% 96%;
+  /* Secondary surfaces are the panel color with a hairline border — derived,
+     since the reference has no dedicated secondary fill. */
+  --secondary: 40 40% 99%;
+  --secondary-foreground: 26 30% 12%;
+  /* Muted surfaces are the paper color used inside a panel (track fills,
+     neutral chips); muted text is the reference's secondary ink. */
+  --muted: 38 50% 96%;
+  --muted-foreground: 28 12% 42%;
+  /* Selection and highlight are honey, not a tint of the action color. */
+  --accent: 44 95% 90%;
+  --accent-foreground: 36 85% 36%;
+  --destructive: 5 70% 44%;
   --destructive-foreground: 0 0% 100%;
-  --border: 35 25% 87%;
-  --input: 35 25% 82%;
-  --ring: 172 58% 34%;
+  --border: 34 25% 86%;
+  --input: 34 25% 86%;
+  --ring: 36 85% 36%;
 
-  /* ---- Expressive accents (personality — never status) ---- */
-  --honey: 42 92% 40%;
-  --honey-subtle: 45 90% 92%;
-  --plum: 285 40% 42%;
-  --plum-subtle: 288 45% 94%;
+  /* ---- Honey — the one expressive accent (personality and selection) ----
+     `honey` is the brand/selection fill, `honey-strong` the readable-on-paper
+     variant used for text, icons and focus rings, `honey-subtle` the tint. */
+  --honey: 42 92% 50%;
+  --honey-strong: 36 85% 36%;
+  --honey-subtle: 44 95% 90%;
+
+  /* Brand mark dot: honey on the espresso mark (inverts in dark mode). */
+  --brand-dot: 42 92% 55%;
+
+  /* ---- On-air room ----
+     The recording screen is a fixed dark room in both themes, so these two do
+     not vary with the theme and are intentionally repeated in .dark. */
+  --on-air: 26 25% 10%;
+  --on-air-foreground: 40 45% 94%;
 
   /* ---- Product status colors (state — and only state) ---- */
-  --recording: 0 78% 45%;
+  --recording: 4 78% 46%;
   --recording-foreground: 0 0% 100%;
-  --recording-subtle: 0 78% 96%;
-  --success: 152 48% 30%;
+  /* Subtle status tints are derived (the reference states them as alpha of the
+     base color); they keep the base hue. */
+  --recording-subtle: 4 78% 96%;
+  --success: 152 46% 30%;
   --success-foreground: 0 0% 100%;
-  --success-subtle: 152 45% 94%;
-  --warning: 28 88% 38%;
+  --success-subtle: 152 45% 92%;
+  --warning: 29 86% 38%;
   --warning-foreground: 0 0% 100%;
-  --warning-subtle: 30 90% 94%;
-  --info: 215 62% 42%;
+  --warning-subtle: 31 90% 92%;
+  --info: 213 60% 42%;
   --info-foreground: 0 0% 100%;
-  --info-subtle: 215 60% 95%;
+  --info-subtle: 214 60% 94%;
 
-  /* ---- Radius (soft & round) ---- */
-  --radius: 0.875rem; /* 14px — shadcn base; sm = radius - 4px, lg = radius + 6px */
+  /* ---- Radius ----
+     Controls are pills; cards sit between 16 and 22px; fields are gently
+     rounded. `--radius` remains the shadcn base and equals the card radius. */
+  --radius-pill: 999px;
+  --radius-card-sm: 16px;
+  --radius-card: 18px;
+  --radius-card-lg: 22px;
+  --radius-field: 12px;
+  --radius-field-sm: 10px;
+  --radius: 18px; /* shadcn base; lg = card-lg, md = radius, sm = field-sm */
 
   /* ---- Elevation (warm, diffuse) ---- */
-  --shadow-sm: 0 1px 3px hsl(25 30% 14% / 0.07), 0 1px 2px hsl(25 30% 14% / 0.05);
-  --shadow-md: 0 6px 16px hsl(25 30% 14% / 0.1);
-  --shadow-lg: 0 16px 40px hsl(25 30% 14% / 0.16);
+  --shadow-sm: 0 1px 3px hsl(26 30% 12% / 0.07), 0 1px 2px hsl(26 30% 12% / 0.05);
+  --shadow-md: 0 6px 16px hsl(26 30% 12% / 0.1);
+  --shadow-lg: 0 16px 40px hsl(26 30% 12% / 0.16);
 
   /* ---- Motion ---- */
   --duration-micro: 140ms;
@@ -67,51 +98,63 @@
   --ease-enter: cubic-bezier(0.2, 0, 0, 1);
   --ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Hold-to-stop is interaction motion, not ambient: the ring tracks the
+     finger and completes in this time. */
+  --duration-hold-to-stop: 1200ms;
 
   /* ---- Typography (self-hosted; no CDN at runtime) ---- */
-  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display:
+    "Schibsted Grotesk", "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Figtree", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 .dark {
-  /* Warm charcoal — not blue-black */
-  --background: 25 14% 10%;
-  --foreground: 35 20% 92%;
-  --card: 25 12% 14%;
-  --card-foreground: 35 20% 92%;
-  --popover: 25 12% 16%;
-  --popover-foreground: 35 20% 92%;
+  /* Warm near-black — not blue-black */
+  --background: 26 18% 9%;
+  --foreground: 38 25% 92%;
+  --card: 26 15% 13%;
+  --card-foreground: 38 25% 92%;
+  --popover: 26 15% 13%;
+  --popover-foreground: 38 25% 92%;
 
-  --primary: 170 50% 55%;
-  --primary-foreground: 25 25% 10%;
-  --secondary: 25 10% 20%;
-  --secondary-foreground: 35 18% 88%;
-  --muted: 25 10% 18%;
-  --muted-foreground: 30 10% 64%;
-  --accent: 172 35% 20%;
-  --accent-foreground: 170 45% 80%;
-  --destructive: 9 70% 60%;
-  --destructive-foreground: 25 25% 10%;
-  --border: 25 10% 24%;
-  --input: 25 10% 28%;
-  --ring: 170 50% 55%;
+  /* Dark mode acts in honey: the action color and the brand mark swap. */
+  --primary: 42 92% 55%;
+  --primary-foreground: 26 30% 10%;
+  --secondary: 26 15% 13%;
+  --secondary-foreground: 38 25% 92%;
+  --muted: 26 18% 9%;
+  --muted-foreground: 32 10% 62%;
+  --accent: 40 40% 17%;
+  --accent-foreground: 44 85% 66%;
+  --destructive: 5 70% 62%;
+  --destructive-foreground: 26 30% 10%;
+  --border: 26 12% 22%;
+  --input: 26 12% 22%;
+  --ring: 44 85% 66%;
 
-  --honey: 44 90% 62%;
-  --honey-subtle: 42 45% 16%;
-  --plum: 285 45% 70%;
-  --plum-subtle: 285 30% 18%;
+  --honey: 44 90% 58%;
+  --honey-strong: 44 85% 66%;
+  --honey-subtle: 40 40% 17%;
 
-  --recording: 0 75% 62%;
-  --recording-foreground: 25 25% 10%;
-  --recording-subtle: 0 50% 16%;
+  /* Inverted mark: honey field, espresso dot. */
+  --brand-dot: 26 30% 10%;
+
+  /* Unchanged by theme — the on-air room is dark in both. */
+  --on-air: 26 25% 10%;
+  --on-air-foreground: 40 45% 94%;
+
+  --recording: 4 75% 58%;
+  --recording-foreground: 26 25% 8%;
+  --recording-subtle: 4 50% 16%;
   --success: 152 42% 54%;
-  --success-foreground: 25 25% 10%;
+  --success-foreground: 26 30% 10%;
   --success-subtle: 152 40% 14%;
   --warning: 30 85% 60%;
-  --warning-foreground: 25 25% 10%;
+  --warning-foreground: 26 30% 10%;
   --warning-subtle: 30 60% 14%;
   --info: 213 65% 68%;
-  --info-foreground: 25 25% 10%;
+  --info-foreground: 26 30% 10%;
   --info-subtle: 215 45% 16%;
 
   --shadow-sm: 0 1px 2px hsl(0 0% 0% / 0.3);
@@ -134,13 +177,34 @@
     transform: scale(1);
   }
   50% {
-    opacity: 0.55;
-    transform: scale(0.9);
+    opacity: 0.5;
+    transform: scale(0.85);
   }
 }
 
 .animate-recording-pulse {
   animation: quorum-recording-pulse 1.6s var(--ease-enter) infinite;
+}
+
+/* Record button shape morph: circle ↔ rounded square, the "it's real now" moment.
+   The radius deliberately does NOT ride the spring. `--ease-spring` overshoots past its target
+   (control point y = 1.56) — which is what gives a press its life — but a border-radius driven
+   past its target is clamped at 0 by the browser, so the morph flashes SHARP corners on the way
+   into the square. Transform and shadow keep the spring; the shape itself glides on `--ease-enter`
+   and is therefore monotonic. One element owns the radius, so nothing competes for it. */
+.record-button-morph {
+  transition:
+    border-radius var(--duration-large) var(--ease-enter),
+    opacity var(--duration-large) var(--ease-enter),
+    transform var(--duration-large) var(--ease-spring),
+    box-shadow var(--duration-large) var(--ease-spring);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No morph: the shape swaps directly, which the state label carries anyway. */
+  .record-button-morph {
+    transition: none;
+  }
 }
 
 /* Press feedback for buttons (apply via active: variant or utility) */

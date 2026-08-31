@@ -93,5 +93,7 @@ color scheme set it themselves rather than inheriting a convenient default.
 
 ## Runtime assets
 
-Fonts ship as WOFF2 from `@fontsource` and icons come from `lucide-react`, all bundled. The app
-makes no CDN requests at runtime, which a self-hosted deployment depends on.
+Fonts ship as WOFF2 from `@fontsource` and icons come from `lucide-react`, all bundled. The three
+families are Schibsted Grotesk (display), Figtree (text) and JetBrains Mono (times); only the
+weights the design system uses are imported, as static weight files rather than variable builds. The
+app makes no CDN requests at runtime, which a self-hosted deployment depends on.

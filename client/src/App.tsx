@@ -1,6 +1,7 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/layout/app-shell";
 import { RequireAuth } from "@/features/auth/require-auth";
+import { RecordingProvider } from "@/features/recording/recording-provider";
 import { AuthCallbackRoute } from "@/routes/auth-callback";
 import { LoginRoute } from "@/routes/login";
 import { MeetingDetailRoute } from "@/routes/meeting-detail";
@@ -21,31 +22,31 @@ export function App() {
       <Route path="/login" element={<LoginRoute />} />
       <Route path={AUTH_CALLBACK_PATH} element={<AuthCallbackRoute />} />
 
-      {/* The recording screen sits outside the shell: it is full-screen and
-          distraction-free on every size, with no navigation competing with the
-          record control. */}
-      <Route
-        path="/record"
-        element={
-          <RequireAuth>
-            <RecordRoute />
-          </RequireAuth>
-        }
-      />
-
+      {/* One provider above every signed-in screen, the recording screen included: the running
+          recording belongs to the app, not to the route that happened to start it, so navigating
+          between these screens neither stops it nor loses sight of it. */}
       <Route
         element={
           <RequireAuth>
-            <AppShell />
+            <RecordingProvider>
+              <Outlet />
+            </RecordingProvider>
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="/meetings" replace />} />
-        <Route path="/meetings" element={<MeetingsRoute />} />
-        <Route path="/meetings/:meetingId" element={<MeetingDetailRoute />} />
-        <Route path="/templates" element={<TemplatesRoute />} />
-        <Route path="/settings" element={<SettingsRoute />} />
-        <Route path="*" element={<NotFoundRoute />} />
+        {/* The recording screen sits outside the shell: it is full-screen and
+            distraction-free on every size, with no navigation competing with the
+            record control. */}
+        <Route path="/record" element={<RecordRoute />} />
+
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to="/meetings" replace />} />
+          <Route path="/meetings" element={<MeetingsRoute />} />
+          <Route path="/meetings/:meetingId" element={<MeetingDetailRoute />} />
+          <Route path="/templates" element={<TemplatesRoute />} />
+          <Route path="/settings" element={<SettingsRoute />} />
+          <Route path="*" element={<NotFoundRoute />} />
+        </Route>
       </Route>
     </Routes>
   );

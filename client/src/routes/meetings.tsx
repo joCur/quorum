@@ -77,6 +77,9 @@ function HowItWorksSheet() {
             <li key={step.key} className="flex items-start gap-4">
               <IconTile
                 icon={step.icon}
+                // Transitional: `plum` no longer exists in v2 and resolves to honey through the
+                // Tailwind color mapping. The section marker becomes a honey underline when the
+                // meetings-list area ticket restyles this screen.
                 accent={step.key === "summarize" ? "plum" : "honey"}
                 size="sm"
               />

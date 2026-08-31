@@ -108,6 +108,54 @@ belongs in `realm-production.json` too — they are deliberately not generated f
 that a development-only convenience cannot leak into production by construction, but that also
 means nothing warns you when you update only one.
 
+## Keeping the two realm files in step
+
+Once a production realm file (`realm-production.json`) exists next to the development one, the two
+are derived from each other by hand, and hand-derived files rot. A stale post-logout redirect list
+survived in the production realm until someone happened to read both files side by side; nothing
+would have caught it before sign-out broke on the first deployment that used that file. A protocol
+mapper added to one file and forgotten in the other is the same bug wearing a different hat, and it
+only shows up as a broken login in the environment nobody happens to be testing.
+
+`pnpm run check:realm-drift` compares them, and CI runs it in the fast checks job. It normalizes
+both files — dropping generated identifiers, keying clients, users, roles and protocol mappers by
+name so ordering and position stop mattering, sorting the rest — and then requires every remaining
+difference to be claimed by a rule in `realm-diff-allowlist.json`. Anything unclaimed fails with a
+diff of the two normalized realms with the claimed differences left out, so the failure output shows
+the drift and nothing else.
+
+The check is inert while only one realm file exists: it prints a skip notice and exits successfully,
+and arms itself the moment the second file appears. It is a separate root script rather than part of
+`pnpm run lint`, because linting is about how source is written and this is a semantic invariant
+between two configuration files — a distinct failure that deserves its own line in the CI log.
+
+### The allow-list
+
+Each entry in `realm-diff-allowlist.json` needs a `reason`; the guard only cares about `kind` and
+`path`, but the reason is why the next reader can tell an intended difference from an old one.
+Paths are `/`-separated and address the *normalized* realm, so a client is `clients/quorum-pwa`
+rather than an array index.
+
+| `kind`            | Allows                                                                       |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `devOnly`         | The subtree at `path` exists only in the development realm.                    |
+| `productionOnly`  | The mirror image — the subtree exists only in production.                      |
+| `fixedValues`     | One leaf that differs, pinned to the exact `dev` and `production` values.       |
+| `envSubstitution` | Every string under `path` is a literal in development and an import-time `$(env:…)` substitution in production. The guard checks that shape on both sides, so a hard-coded production origin fails even though the path is allowed. |
+
+`volatileFields` lists the keys dropped before comparing — the generated identifiers and timestamps
+Keycloak writes back on export, which carry no intent and would otherwise make every re-export look
+like drift.
+
+Two properties are worth knowing about. A rule may only excuse the difference it was written for: a
+`devOnly` rule does not cover a value that differs on both sides, and a `fixedValues` rule stops
+matching the moment either side changes. And a rule that no longer matches anything is itself a
+failure — a stale allow-list entry is how a guard quietly stops guarding, so the check asks for it to
+be deleted.
+
+When a realm change is genuinely meant to land in only one environment, add the rule together with
+the change and say why here. When it is not, the fix is to make the same edit in both files.
+
 ## Changing the realm
 
 The audience and tenant mappers are attached to each client rather than to a shared client scope on

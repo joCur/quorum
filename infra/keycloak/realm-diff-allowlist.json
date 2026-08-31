@@ -1,0 +1,37 @@
+{
+  "volatileFields": ["id", "containerId", "_id", "createdTimestamp", "notBefore"],
+  "rules": [
+    {
+      "kind": "devOnly",
+      "path": "users",
+      "reason": "The dev.* fixture users with their committed passwords exist only in the development realm. Production users come from real sign-ups, never from the realm file."
+    },
+    {
+      "kind": "devOnly",
+      "path": "clients/quorum-dev-cli",
+      "reason": "The password-grant CLI client is a development convenience for fetching a token with one curl call. It must never exist in production."
+    },
+    {
+      "kind": "fixedValues",
+      "path": "sslRequired",
+      "dev": "none",
+      "production": "external",
+      "reason": "Development reaches Keycloak over plain HTTP through Docker's port proxy, which Keycloak classifies as external. Production runs behind TLS and must enforce it."
+    },
+    {
+      "kind": "envSubstitution",
+      "path": "clients/quorum-pwa/redirectUris",
+      "reason": "Development lists the local Vite, preview and compose origins. Production derives the single public origin from QUORUM_PUBLIC_URL at import time."
+    },
+    {
+      "kind": "envSubstitution",
+      "path": "clients/quorum-pwa/webOrigins",
+      "reason": "Same origins as redirectUris, as the CORS allow-list. Literal localhost in development, substituted in production."
+    },
+    {
+      "kind": "envSubstitution",
+      "path": "clients/quorum-pwa/attributes/post.logout.redirect.uris",
+      "reason": "The ## separated post-logout allow-list follows the same origins. Keycloak refuses a post-logout redirect the client has not declared, so this list drifting out of sync breaks sign-out."
+    }
+  ]
+}

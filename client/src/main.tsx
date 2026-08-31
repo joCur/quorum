@@ -1,4 +1,14 @@
-import "@fontsource-variable/plus-jakarta-sans";
+// Self-hosted faces, bundled by Vite — no font CDN at runtime.
+// Figtree carries text, Schibsted Grotesk the display sizes, JetBrains Mono
+// the timers and timestamps. Only the weights the design system uses ship.
+import "@fontsource/figtree/400.css";
+import "@fontsource/figtree/500.css";
+import "@fontsource/figtree/600.css";
+import "@fontsource/figtree/700.css";
+import "@fontsource/schibsted-grotesk/500.css";
+import "@fontsource/schibsted-grotesk/700.css";
+import "@fontsource/schibsted-grotesk/800.css";
+import "@fontsource/schibsted-grotesk/900.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@/styles/index.css";
