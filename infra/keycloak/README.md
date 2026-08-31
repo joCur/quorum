@@ -224,6 +224,23 @@ signs in through. A restyle that starts overriding `login.ftl` takes on both of 
 Fonts are shipped with the theme, subset to Latin, because these pages are served by Keycloak and
 cannot reach the app bundle — and the design system rules out font CDNs at runtime.
 
+The browser tab carries the Quorum icon, so the tab does not change hands between the landing page,
+the sign-in and the app. This needs no template of ours: the parent theme's `template.ftl` already
+emits `<link rel="icon" href="${url.resourcesPath}/img/favicon.ico">`, and `resourcesPath` points at
+whichever theme is active — so a file at `login/resources/img/favicon.ico` here simply wins over the
+one the parent would otherwise resolve to. It is generated from the app's master vector
+(`client/public/favicon.svg`, see `design/APP-ICON.md`) at 16, 32 and 48 px, in the light colorway
+the app's own PNG exports use:
+
+```bash
+for s in 16 32 48; do rsvg-convert -w $s -h $s client/public/favicon.svg -o /tmp/quorum-$s.png; done
+magick /tmp/quorum-16.png /tmp/quorum-32.png /tmp/quorum-48.png \
+  infra/keycloak/themes/quorum/login/resources/img/favicon.ico
+```
+
+An `.ico` is what that link tag asks for; serving the SVG instead would mean overriding the
+template, which this theme does not do.
+
 Development mounts the theme into the stock upstream image (see `docker-compose.yml`), so editing
 the stylesheet and reloading the page is enough; the release image bakes the same directory in.
 Keycloak caches theme resources, so if an edit does not show up, restart the container:
