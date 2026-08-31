@@ -4,7 +4,7 @@
   "enabled": true,
   "sslRequired": "external",
   "registrationAllowed": false,
-  "resetPasswordAllowed": true,
+  "resetPasswordAllowed": "$(env:QUORUM_SMTP_ENABLED)",
   "rememberMe": true,
   "verifyEmail": false,
   "loginWithEmailAllowed": true,
@@ -27,6 +27,19 @@
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
   "defaultSignatureAlgorithm": "RS256",
+  "smtpServer": {
+    "host": "$(env:SMTP_HOST)",
+    "port": "$(env:SMTP_PORT)",
+    "from": "$(env:SMTP_FROM)",
+    "fromDisplayName": "$(env:SMTP_FROM_DISPLAY_NAME)",
+    "replyTo": "$(env:SMTP_REPLY_TO)",
+    "envelopeFrom": "$(env:SMTP_ENVELOPE_FROM)",
+    "ssl": "$(env:SMTP_SSL)",
+    "starttls": "$(env:SMTP_STARTTLS)",
+    "auth": "$(env:SMTP_AUTH)",
+    "user": "$(env:SMTP_USER)",
+    "password": "$(env:SMTP_PASSWORD)"
+  },
   "attributes": {
     "frontendUrl": ""
   },

@@ -27,6 +27,19 @@
   "revokeRefreshToken": true,
   "refreshTokenMaxReuse": 0,
   "defaultSignatureAlgorithm": "RS256",
+  "smtpServer": {
+    "host": "mailpit",
+    "port": "1025",
+    "from": "quorum@localhost",
+    "fromDisplayName": "Quorum (development)",
+    "replyTo": "",
+    "envelopeFrom": "",
+    "ssl": "false",
+    "starttls": "false",
+    "auth": "false",
+    "user": "",
+    "password": ""
+  },
   "attributes": {
     "frontendUrl": ""
   },

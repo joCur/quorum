@@ -86,6 +86,37 @@ Then lock the file down — it holds every credential in the deployment:
 chmod 600 .env
 ```
 
+### Mail — optional, and off by default
+
+The stack has no mail container and never sends anything until you point it at a relay of your own.
+Off is a complete configuration: users sign in with the password they were given, and nothing in
+the interface offers a mail that cannot arrive.
+
+Turn it on with one switch and the settings it makes mandatory:
+
+| Variable                  | What it is                                                             |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `QUORUM_SMTP_ENABLED`     | `true` or `false`, exactly. The switch for the whole feature.           |
+| `SMTP_HOST` / `SMTP_PORT` | Your relay. `587` with STARTTLS is the usual pair; `465` is implicit TLS. |
+| `SMTP_FROM`               | Sender address. Your relay and your SPF record both have to allow it.    |
+| `SMTP_FROM_DISPLAY_NAME`  | The name in the From line. Defaults to `Quorum`.                         |
+| `SMTP_SSL` / `SMTP_STARTTLS` | Transport. Both `false` sends mail in the clear, and the preflight says so. |
+| `SMTP_AUTH`               | Whether the relay wants credentials. When `true`, the two below are required. |
+| `SMTP_USER` / `SMTP_PASSWORD` | The relay credentials.                                              |
+
+`QUORUM_SMTP_ENABLED` does two things at once, and that is deliberate. It makes the `SMTP_*` values
+mandatory in the preflight — a missing or placeholder relay password stops the deploy with one
+readable line instead of producing reset mail that silently vanishes. And the realm substitutes the
+same value into `resetPasswordAllowed`, so while mail is off the sign-in page shows no "Forgot
+password?" link at all. A door that opens onto a mail nobody can send is worse than no door: the
+user waits, retries, and concludes the account is broken.
+
+Switching it on is a change to `.env` and a redeploy. So is changing relay later, or rotating the
+relay password: the realm is reconciled on **every** deploy, not only the first, so each `SMTP_*`
+value — the password included — is re-read from `.env` and written to the realm every time. A
+setting changed by hand in the admin console is reverted by that same run, like any other piece of
+realm configuration.
+
 ### Which version you get
 
 Images default to `latest`, so the stack runs the current release and `docker compose pull` moves

@@ -20,6 +20,16 @@
     },
     {
       "kind": "envSubstitution",
+      "path": "smtpServer",
+      "reason": "Development delivers every mail to the mailpit container on a fixed internal address with no credentials. A deployment uses whatever relay the operator has, so host, port, TLS flags, sender addresses and the relay credentials all come from the environment at import time."
+    },
+    {
+      "kind": "envSubstitution",
+      "path": "resetPasswordAllowed",
+      "reason": "Password reset is only usable once mail can be delivered. Development always has mailpit, so it is on unconditionally. A deployment follows QUORUM_SMTP_ENABLED, so a stack without a relay never shows a 'Forgot password?' link that leads nowhere."
+    },
+    {
+      "kind": "envSubstitution",
       "path": "clients/quorum-pwa/redirectUris",
       "reason": "Development lists the local Vite, preview and compose origins. Production derives the single public origin from QUORUM_PUBLIC_URL at import time."
     },

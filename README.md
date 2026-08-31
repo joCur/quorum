@@ -90,6 +90,10 @@ Infrastructure configuration:
   clicking. Dev-only test users are documented in `infra/keycloak/README.md`.
 - `infra/postgres/init/` — provisions Keycloak's own logical database on the shared Postgres
   instance (no second database container).
+- The development stack runs a `mailpit` container and the development realm sends account mail to
+  it, so password reset is walkable end to end without a relay and without anything leaving the
+  machine. The inbox is at <http://localhost:8025>. A deployment has no mail container — it points
+  at the operator's own relay, or sends nothing at all (`docs/deployment.md`).
 
 ### Running the stack with Docker Compose
 

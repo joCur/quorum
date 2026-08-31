@@ -75,6 +75,22 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL}
       QUORUM_PUBLIC_URL: ${QUORUM_PUBLIC_URL}
+      # Mail relay for verification and password-reset messages. QUORUM_SMTP_ENABLED is the one
+      # switch: the preflight makes the SMTP_* values mandatory when it is on, and the realm
+      # substitutes the same value into `resetPasswordAllowed`, so a deployment cannot offer a
+      # password-reset link it has no way to deliver.
+      QUORUM_SMTP_ENABLED: ${QUORUM_SMTP_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM_DISPLAY_NAME: ${SMTP_FROM_DISPLAY_NAME:-Quorum}
+      SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+      SMTP_ENVELOPE_FROM: ${SMTP_ENVELOPE_FROM:-}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MINIO_KMS_SECRET_KEY: ${MINIO_KMS_SECRET_KEY}
@@ -112,6 +128,22 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL}
       QUORUM_PUBLIC_URL: ${QUORUM_PUBLIC_URL}
+      # Mail relay for verification and password-reset messages. QUORUM_SMTP_ENABLED is the one
+      # switch: the preflight makes the SMTP_* values mandatory when it is on, and the realm
+      # substitutes the same value into `resetPasswordAllowed`, so a deployment cannot offer a
+      # password-reset link it has no way to deliver.
+      QUORUM_SMTP_ENABLED: ${QUORUM_SMTP_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM_DISPLAY_NAME: ${SMTP_FROM_DISPLAY_NAME:-Quorum}
+      SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+      SMTP_ENVELOPE_FROM: ${SMTP_ENVELOPE_FROM:-}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MINIO_KMS_SECRET_KEY: ${MINIO_KMS_SECRET_KEY}
@@ -148,6 +180,22 @@ services:
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL}
       QUORUM_PUBLIC_URL: ${QUORUM_PUBLIC_URL}
+      # Mail relay for verification and password-reset messages. QUORUM_SMTP_ENABLED is the one
+      # switch: the preflight makes the SMTP_* values mandatory when it is on, and the realm
+      # substitutes the same value into `resetPasswordAllowed`, so a deployment cannot offer a
+      # password-reset link it has no way to deliver.
+      QUORUM_SMTP_ENABLED: ${QUORUM_SMTP_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_FROM_DISPLAY_NAME: ${SMTP_FROM_DISPLAY_NAME:-Quorum}
+      SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+      SMTP_ENVELOPE_FROM: ${SMTP_ENVELOPE_FROM:-}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       MINIO_KMS_SECRET_KEY: ${MINIO_KMS_SECRET_KEY}
