@@ -17,7 +17,8 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "e2e": "node e2e/scripts/run.mjs",
-    "check:realm-drift": "node scripts/realm-drift/check.mjs"
+    "check:realm-drift": "node scripts/realm-drift/check.mjs",
+    "check:sw-denylist": "node scripts/sw-denylist/check.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

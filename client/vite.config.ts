@@ -62,9 +62,21 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
-        // The recording WebSocket and the API are never served from the cache:
-        // stale audio or job state would be worse than an honest network error.
-        navigateFallbackDenylist: [/^\/api/, /^\/ws/],
+        // Paths the navigation fallback must never answer with the app shell.
+        //
+        // A deployment puts the app, the API and the identity provider behind one edge on a
+        // single origin, so a navigation to the sign-in page is same-origin and the service
+        // worker sees it. Without `/realms` here the worker answers that navigation from the
+        // precache, the browser never reaches the login form, and signing in is impossible —
+        // while every environment that keeps the identity provider on its own origin looks fine.
+        //
+        // The API and the recording WebSocket are on the list for their own reason too: stale
+        // audio or job state would be worse than an honest network error. `/healthz` is a
+        // readiness probe, never an app route.
+        //
+        // Anything listed here must be a path prefix the app itself never routes to. The guard
+        // in `scripts/sw-denylist` checks the generated worker against this list.
+        navigateFallbackDenylist: [/^\/realms/, /^\/api/, /^\/ws/, /^\/healthz/],
       },
       devOptions: { enabled: false },
     }),
