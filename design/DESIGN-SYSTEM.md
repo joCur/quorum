@@ -64,8 +64,9 @@ The palette is defined in HSL (shadcn convention) as semantic tokens. Raw values
   state and only state. Honey is never `warning`, even though both are warm.
 - **Dark mode is first-class**: warm near-black (not blue-black), surfaces lighten as they elevate,
   all hues re-tuned for contrast.
-- All text/background pairs meet WCAG 2.1 AA (≥ 4.5:1 body, ≥ 3:1 large text and UI glyphs). Note
-  that `honey` itself does **not** pass as body text on paper — that is what `honey-strong` is for.
+- Text/background pairs are measured, not assumed — see §7 for the two light-mode tint pairings that
+  currently fall short of AA for small text. Note that `honey` itself does **not** pass as body text
+  on paper at all (1.8:1) — that is what `honey-strong` is for.
 
 ### Semantic palette (light / dark)
 
@@ -292,8 +293,17 @@ standard for empty-state visuals.
 
 ## 7. Accessibility baseline
 
-- WCAG 2.1 AA contrast; verified for all token pairs above. `honey` is a fill color and must never
-  be used as text on paper — use `honey-strong`.
+- **Measured contrast.** Core pairs pass WCAG 2.1 AA comfortably: foreground on background 15.3:1
+  (light) / 15.2:1 (dark), muted-foreground on background 4.8:1 / 6.8:1, primary-foreground on
+  primary 13.4:1 / 9.7:1. Every dark-mode pair passes AA for body text.
+- **Two light-mode tint pairings currently fall short of AA for small text** and are carried from
+  the reference as-is rather than silently altered:
+  `honey-strong` on `honey-subtle` is **3.86:1** and `warning` on `warning-subtle` is **3.97:1**.
+  Both clear the 3:1 bar for large text and UI glyphs, but badges render at `text-xs`, which is not
+  large text. Until this is resolved, do not rely on those two pairings alone to carry meaning —
+  the badge icon and label must do it (which the state rules already require). Resolving it needs a
+  PO call: darken the text step or lighten the tint.
+- `honey` is a fill color and must never be used as text on paper — use `honey-strong`.
 - Every state (recording, offline, processing, failed) is conveyed by icon + text + color — never
   color or motion alone.
 - Focus visible everywhere (`ring` token, 2px offset).
