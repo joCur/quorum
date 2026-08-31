@@ -8,11 +8,11 @@
 
 ## Git & PR process
 
-- **NEVER push to main directly, no exceptions.** Every change lands as a pull request.
-- A ruleset on main requires both CI checks — `Typecheck · Tests · Build · Lint` and `E2E (critical paths)` — to pass before a merge. Lead verification and PO approval are process rules on top of that, not enforced by GitHub.
+- **NEVER push to main directly, no exceptions.** Every change lands as a pull request. A ruleset enforces this: main accepts only approved, squash-merged pull requests whose required checks are green, and it refuses deletions and non-fast-forward pushes.
+- The ruleset also dismisses stale approvals when a branch is pushed, requires the last push to be approved, and requires review threads to be resolved. So a review is not banked: pushing after approval means asking for it again.
 - Every ticket runs in its own worktree on a feature branch: `<issue-number>-<slug>` (e.g. `4-websocket-recording-endpoint`).
 - Merge ONLY when: **CI green** **+ lead verification** (a click path for UI changes) **+ explicit PO approval on the PR**.
-- Merges are squash-only, and the branch is deleted automatically. For stacked PRs that means retargeting the dependent PR onto main **before** its base branch disappears — GitHub closes a PR whose base branch is deleted, and a closed PR cannot be reopened.
+- The branch is deleted automatically on merge. For stacked PRs that means retargeting the dependent PR onto main **before** its base branch disappears — GitHub closes a PR whose base branch is deleted, and a closed PR cannot be reopened.
 - Worktrees: symlink every `.env*` file from the repository root into the worktree (they are gitignored, and their absence causes failures that are hard to diagnose).
 
 ## Team & roles
