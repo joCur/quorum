@@ -34,34 +34,43 @@ export const test = base.extend<Fixtures>({
 export { expect } from "@playwright/test";
 
 /**
- * The record control, which is also the stop control: it carries `aria-pressed` while a recording
- * is running, which is the one attribute that tells the two states apart without guessing.
+ * The button that starts a recording. It is the consent acknowledgement as well as the start
+ * control — the two are one action now, and its name says so.
  */
 export function recordButton(page: Page) {
-  return page.getByRole("button", { name: "Record", exact: true });
+  return page.getByRole("button", {
+    name: "I have informed the participants — start recording",
+  });
 }
 
+/** The hold-to-stop control, which only exists while a recording is running. */
 export function stopButton(page: Page) {
-  return page.locator('button[aria-pressed="true"]');
+  return page.getByTestId("hold-to-stop");
 }
 
-/** Consent, then the microphone, then capture — the order the product insists on. */
+/**
+ * Consent, then the microphone, then capture — the order the product insists on.
+ *
+ * The consent notice is no longer a dialog, so there is nothing to dismiss: it is a card on the
+ * start stage, and pressing the button below it is the acknowledgement. The assertion that it was
+ * on screen first is the part that matters and is kept.
+ */
 export async function startRecording(page: Page): Promise<void> {
-  await recordButton(page).click();
+  await expect(page.getByTestId("consent-card")).toBeVisible();
   await expect(page.getByText("Before you record")).toBeVisible();
-  await page.getByRole("button", { name: "I have informed the participants" }).click();
+  await recordButton(page).click();
   await expect(stopButton(page)).toBeVisible();
 }
 
 /**
  * Pauses a running recording and waits until the screen says so.
  *
- * The indicator label is the assertion on purpose: "PAUSED" is the state the user is promised,
+ * The pill label is the assertion on purpose: "PAUSE" is the state the user is promised,
  * and it is what tells them the red is no longer live.
  */
 export async function pauseRecording(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Pause", exact: true }).click();
-  await expect(page.getByText("PAUSED", { exact: true })).toBeVisible();
+  await expect(page.getByText("PAUSE", { exact: true })).toBeVisible();
 }
 
 export async function resumeRecording(page: Page): Promise<void> {
@@ -82,14 +91,27 @@ export function recordingBar(page: Page) {
   return page.getByTestId("recording-bar");
 }
 
-/** Stopping is a two-step confirmation; the second "Stop" lives in the confirmation panel. */
+/**
+ * Stopping is a press-and-hold: the confirmation dialog is gone and the gesture carries the
+ * protection it used to.
+ *
+ * The mouse is driven down, held past the 1.2s the ring takes to fill, and released — a real
+ * press, because that is the only thing the button responds to. The hold is given a margin over
+ * the nominal duration so a slow CI machine cannot release a tick early.
+ */
 export async function stopRecording(page: Page): Promise<void> {
-  await stopButton(page).click();
-  const panel = page
-    .locator("div")
-    .filter({ has: page.getByText("Stop recording?") })
-    .last();
-  await panel.getByRole("button", { name: "Stop", exact: true }).click();
+  const button = stopButton(page);
+  await button.hover();
+  await page.mouse.down();
+  try {
+    // The hint changing is the screen confirming the hold was registered at all, so a failure
+    // here says "the press never started" rather than "the recording never stopped".
+    await expect(page.getByTestId("hold-to-stop-hint")).toHaveText("Keep holding…");
+    await page.waitForTimeout(1600);
+  } finally {
+    await page.mouse.up();
+  }
+  await expect(button).toBeHidden();
 }
 
 /** The named audio inputs the browser is made to report for the device-picker test. */

@@ -1,5 +1,14 @@
 import * as React from "react";
-import { CircleCheck, MicOff, Pause, TriangleAlert, X } from "lucide-react";
+import {
+  CircleCheck,
+  LoaderCircle,
+  Mic,
+  MicOff,
+  Pause,
+  Play,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -7,9 +16,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { ConnectionBanner } from "@/components/recording/connection-banner";
-import { ConsentNotice } from "@/components/recording/consent-notice";
+import { ConsentCard } from "@/components/recording/consent-card";
+import { HoldToStopButton } from "@/components/recording/hold-to-stop-button";
 import { LevelMeter } from "@/components/recording/level-meter";
-import { RecordButton } from "@/components/recording/record-button";
 import { RecordingIndicator } from "@/components/recording/recording-indicator";
 import { SyncStatus } from "@/components/recording/sync-status";
 import { isRecordingFinalizedDespite, limitMessageKey } from "@/features/limits/messages";
@@ -27,16 +36,20 @@ const FINALIZE_SETTLE_MS = 600;
 /**
  * Recording screen — full-screen and distraction-free on every size.
  *
- * The order of events is fixed: consent notice, then the microphone permission,
- * then capture. Nothing here waits on the network; the sync line and the banner
+ * It follows the app theme like every other screen: a light-theme user gets a light recording
+ * screen, and nothing here forces its own darkness. What marks capture as a different place is the
+ * furniture — a stage with nothing else on it, the REC pill, the level bars and the hold-to-stop
+ * ring — not the ground it stands on.
+ *
+ * The order of events is fixed: the consent notice, then the microphone permission, then capture.
+ * The notice is no longer a dialog; it is the card above the start button, and the button states
+ * what pressing it confirms. Nothing here waits on the network; the sync line and the banner
  * report what the server has actually confirmed.
  */
 export function RecordRoute() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { state, start, pause, resume, stop, reset } = useRequiredRecordingSession();
-  const [consentOpen, setConsentOpen] = React.useState(false);
-  const [confirmStop, setConfirmStop] = React.useState(false);
   const [title, setTitle] = React.useState("");
   const templates = useTemplates();
   const inputs = useAudioInputs();
@@ -55,6 +68,17 @@ export function RecordRoute() {
 
   const active = state.phase === "recording";
   const live = active || state.phase === "paused";
+  const busy = state.phase === "requesting" || state.phase === "finalizing";
+  const onStartStage = !live && state.phase !== "finalizing";
+
+  // The template travels as an explicit id rather than as "send nothing", the prefilled default
+  // included: what the screen showed when the recording started is what the summary is made with.
+  const beginRecording = () =>
+    void start(
+      title.trim() === "" ? null : title.trim(),
+      templateId === "" ? null : templateId,
+      inputs.deviceId,
+    );
 
   // The session outlives this screen now, so what is left of the last one — a finished recording,
   // a failed start, a limit — would still be here on the next visit. Opening the screen clears
@@ -76,30 +100,14 @@ export function RecordRoute() {
   }, [state.phase, state.limit, navigate]);
 
   return (
-    <div className="fixed inset-0 z-30 flex flex-col bg-background">
-      <ConsentNotice
-        open={consentOpen}
-        onCancel={() => setConsentOpen(false)}
-        onConfirm={() => {
-          setConsentOpen(false);
-          // The template travels as an explicit id rather than as "send nothing", the prefilled
-          // default included: what the screen showed when the recording started is what the
-          // summary is made with.
-          void start(
-            title.trim() === "" ? null : title.trim(),
-            templateId === "" ? null : templateId,
-            inputs.deviceId,
-          );
-        }}
-      />
-
+    <div className="fixed inset-0 z-30 flex flex-col bg-background text-foreground">
       <ConnectionBanner status={state.status} storageLow={state.storageLow} />
 
-      <header className="flex items-center justify-between px-4 py-3">
+      <header className="flex items-center justify-between px-5 py-4">
         {live ? (
           <RecordingIndicator active={active} level={state.level} />
         ) : (
-          <span className="text-sm font-medium">{t("recording.title")}</span>
+          <span className="text-sm font-bold text-muted-foreground">{t("recording.title")}</span>
         )}
         <Button
           variant="ghost"
@@ -111,56 +119,25 @@ export function RecordRoute() {
         </Button>
       </header>
 
-      <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6">
-        {/* Recorded time, not wall clock: it stands still while the recording is paused. */}
-        <p
-          data-testid="recording-timer"
-          className="font-mono text-timer tabular-figures"
-          aria-live="off"
-        >
-          {formatDuration(state.elapsedSeconds)}
-        </p>
+      <main className="flex flex-1 flex-col items-center justify-center gap-7 overflow-y-auto px-6">
+        {onStartStage ? (
+          <div className="flex w-full max-w-[420px] flex-col gap-4">
+            <h1 className="font-display text-3xl font-extrabold tracking-tight">
+              {t("recording.title")}
+            </h1>
 
-        <LevelMeter level={state.level} active={active} />
-
-        {state.silent ? (
-          <p className="flex items-center gap-2 text-sm text-warning">
-            <MicOff className="size-4" aria-hidden="true" />
-            {t("recording.noAudio")}
-          </p>
-        ) : null}
-
-        {/* A recording that changed microphone under the user's feet is a condition they can act
-            on — it stands next to the sync line for as long as it holds true. */}
-        {state.inputFallback && live ? (
-          <p role="status" className="flex items-center gap-2 text-sm text-warning">
-            <MicOff className="size-4" aria-hidden="true" />
-            {t("recording.inputFallback")}
-          </p>
-        ) : null}
-
-        <SyncStatus status={state.status} />
-
-        {state.limit ? (
-          <LimitPanel limit={state.limit} onLeave={() => void navigate("/meetings")} />
-        ) : null}
-
-        {state.error && !state.limit ? (
-          <ErrorPanel error={state.error} onRetry={() => setConsentOpen(true)} />
-        ) : null}
-
-        {!live && state.phase !== "finalizing" ? (
-          <div className="flex w-full max-w-sm flex-col gap-2">
-            <Label htmlFor="meeting-title">{t("recording.titleField.label")}</Label>
-            <Input
-              id="meeting-title"
-              value={title}
-              placeholder={t("recording.titleField.placeholder")}
-              onChange={(event) => setTitle(event.target.value)}
-            />
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="meeting-title">{t("recording.titleField.label")}</Label>
+              <Input
+                id="meeting-title"
+                value={title}
+                placeholder={t("recording.titleField.placeholder")}
+                onChange={(event) => setTitle(event.target.value)}
+              />
+            </div>
 
             {offerTemplates ? (
-              <>
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="summary-template">{t("recording.templateField.label")}</Label>
                 <Select
                   id="summary-template"
@@ -173,11 +150,11 @@ export function RecordRoute() {
                     </option>
                   ))}
                 </Select>
-              </>
+              </div>
             ) : null}
 
             {offerInputs ? (
-              <>
+              <div className="flex flex-col gap-1.5">
                 <Label htmlFor="input-device">{t("recording.inputField.label")}</Label>
                 <Select
                   id="input-device"
@@ -196,9 +173,73 @@ export function RecordRoute() {
                 {inputs.forgotten ? (
                   <p className="text-sm text-warning">{t("recording.inputField.forgotten")}</p>
                 ) : null}
-              </>
+              </div>
             ) : null}
+
+            {/* The notice precedes the button in reading order as well as on screen: the
+                obligation is read before the control that acts on it. */}
+            <ConsentCard />
+
+            {/* The label is a full sentence and must never be clipped: the button grows to hold
+                it rather than the words being cut to fit the control. */}
+            <Button
+              variant="honey"
+              size="lg"
+              disabled={busy}
+              onClick={beginRecording}
+              className="h-auto min-h-[52px] whitespace-normal py-3.5 text-center text-[15px] font-extrabold leading-snug"
+            >
+              {busy ? (
+                <LoaderCircle className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Mic aria-hidden="true" />
+              )}
+              {busy ? t("recording.starting") : t("consent.confirm")}
+            </Button>
           </div>
+        ) : (
+          <>
+            {/* Recorded time, not wall clock: it stands still while the recording is paused. */}
+            <p
+              data-testid="recording-timer"
+              className="font-mono text-timer tabular-figures"
+              aria-live="off"
+            >
+              {formatDuration(state.elapsedSeconds)}
+            </p>
+
+            <LevelMeter level={state.level} active={active} />
+
+            {state.silent ? (
+              <p className="flex items-center gap-2 text-sm text-warning">
+                <MicOff className="size-4" aria-hidden="true" />
+                {t("recording.noAudio")}
+              </p>
+            ) : null}
+
+            {/* A recording that changed microphone under the user's feet is a condition they can
+                act on — it stands next to the sync line for as long as it holds true. */}
+            {state.inputFallback && live ? (
+              <p role="status" className="flex items-center gap-2 text-sm text-warning">
+                <MicOff className="size-4" aria-hidden="true" />
+                {t("recording.inputFallback")}
+              </p>
+            ) : null}
+
+            <SyncStatus status={state.status} />
+
+            {state.phase === "finalizing" ? (
+              <p className="text-sm text-muted-foreground">{t("recording.finishing")}</p>
+            ) : null}
+          </>
+        )}
+
+        {state.limit ? (
+          <LimitPanel limit={state.limit} onLeave={() => void navigate("/meetings")} />
+        ) : null}
+
+        {state.error && !state.limit ? (
+          <ErrorPanel error={state.error} onRetry={beginRecording} />
         ) : null}
 
         {state.wakeLockSupported ? null : (
@@ -209,41 +250,23 @@ export function RecordRoute() {
       </main>
 
       <footer className="flex flex-col items-center gap-4 px-6 pb-10">
-        {confirmStop ? (
-          <div className="flex flex-col items-center gap-2 rounded-md border border-border bg-card p-4 shadow-md">
-            <p className="text-sm font-medium">{t("recording.confirmStop.question")}</p>
-            <div className="flex gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setConfirmStop(false)}>
-                {t("common.cancel")}
+        {live ? (
+          <div className="flex items-center gap-8">
+            {active ? (
+              <Button variant="secondary" size="lg" onClick={pause}>
+                <Pause aria-hidden="true" />
+                {t("recording.pause")}
               </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setConfirmStop(false);
-                  stop();
-                }}
-              >
-                {t("recording.confirmStop.confirm")}
+            ) : (
+              <Button size="lg" onClick={resume}>
+                <Play aria-hidden="true" />
+                {t("recording.resume")}
               </Button>
-            </div>
+            )}
+
+            <HoldToStopButton active={active} onStop={stop} />
           </div>
         ) : null}
-
-        <div className="flex items-center gap-8">
-          {active ? (
-            <Button variant="secondary" size="lg" onClick={pause}>
-              <Pause aria-hidden="true" />
-              {t("recording.pause")}
-            </Button>
-          ) : null}
-
-          <RecordButton
-            phase={state.phase}
-            onStart={() => setConsentOpen(true)}
-            onStop={() => setConfirmStop(true)}
-            onResume={resume}
-          />
-        </div>
       </footer>
     </div>
   );

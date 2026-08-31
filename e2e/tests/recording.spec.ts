@@ -102,6 +102,53 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
 });
 
 /**
+ * Critical path: the two gestures that guard capture — consent before it, and the hold that ends
+ * it — now live on the stage instead of in dialogs. Both are asserted in a real browser, because
+ * both are things no unit test can hold: the notice being on screen before the microphone is ever
+ * asked for, and a real mouse press that is too short to stop the recording.
+ */
+test("takes consent on the stage and refuses to stop on a short press", async ({
+  page,
+  signIn,
+}) => {
+  const protocol = watchRecordingProtocol(page);
+
+  await signIn(devUsers.alice);
+  await page.goto("/record");
+
+  // The notice is on the stage, not in front of it: nothing is modal, and the field beside it is
+  // usable without answering anything first.
+  await expect(page.getByTestId("consent-card")).toBeVisible();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await page.getByLabel("Meeting title").fill("Consent on the stage");
+
+  // Nothing has been captured yet — the button below the notice is what asks for the microphone.
+  expect(protocol.persistedSeq).toBe(-1);
+  await startRecording(page);
+  const sessionId = await protocol.waitForSessionId();
+  await protocol.waitForAck(2);
+
+  // A short press is the pocket-stop the hold exists to prevent. The ring starts filling and then
+  // empties, and the recording is still running afterwards.
+  const stop = stopButton(page);
+  await stop.hover();
+  await page.mouse.down();
+  await expect(page.getByTestId("hold-to-stop-hint")).toHaveText("Keep holding…");
+  await page.mouse.up();
+  await expect(page.getByTestId("hold-to-stop-hint")).toHaveText("Hold to stop");
+
+  const seqsAfterShortPress = protocol.persistedSeq;
+  await protocol.waitForAck(seqsAfterShortPress + 2);
+  await expect(stop).toBeVisible();
+
+  // The full hold does end it, and the session finalizes like any other.
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+  await expect(page).toHaveURL(/\/meetings$/);
+  expect(sessionId).not.toBe("");
+});
+
+/**
  * Critical path: a break in the middle of a meeting must not split it in two.
  *
  * Pausing is the one control that touches capture without ending the session, so the assertions

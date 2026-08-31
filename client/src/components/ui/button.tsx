@@ -14,6 +14,9 @@ const buttonVariants = cva(
       variant: {
         default: "bg-primary text-primary-foreground shadow-sm hover:shadow-md",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        // The one warm, deliberate action on a stage — the recording start button. Honey is a
+        // fill, never text, so this variant exists rather than leaving callers to pair it by hand.
+        honey: "bg-honey text-honey-foreground shadow-md hover:opacity-90",
         destructive: "bg-destructive text-destructive-foreground shadow-sm hover:opacity-90",
         outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
         ghost: "hover:bg-accent hover:text-accent-foreground",

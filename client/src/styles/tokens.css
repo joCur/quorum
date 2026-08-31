@@ -10,6 +10,11 @@
  * a honey action color in dark mode. Honey is the single expressive accent and
  * also carries selection; there is no second expressive accent. Red belongs to
  * live capture alone.
+ *
+ * Every screen follows the theme, the recording screen included: there is no
+ * surface that forces its own darkness on a light-theme user. What marks the
+ * recording screen as a different place is its layout, the REC pill, the level
+ * bars and the hold-to-stop ring — not the ground it stands on.
  */
 
 :root {
@@ -48,15 +53,12 @@
   --honey: 42 92% 50%;
   --honey-strong: 36 85% 36%;
   --honey-subtle: 44 95% 90%;
+  /* Text on a honey fill. Honey is a light warm yellow in both themes, so the
+     readable ink on it is espresso in both — this one does not vary. */
+  --honey-foreground: 26 30% 10%;
 
   /* Brand mark dot: honey on the espresso mark (inverts in dark mode). */
   --brand-dot: 42 92% 55%;
-
-  /* ---- On-air room ----
-     The recording screen is a fixed dark room in both themes, so these two do
-     not vary with the theme and are intentionally repeated in .dark. */
-  --on-air: 26 25% 10%;
-  --on-air-foreground: 40 45% 94%;
 
   /* ---- Product status colors (state — and only state) ---- */
   --recording: 4 78% 46%;
@@ -139,10 +141,6 @@
 
   /* Inverted mark: honey field, espresso dot. */
   --brand-dot: 26 30% 10%;
-
-  /* Unchanged by theme — the on-air room is dark in both. */
-  --on-air: 26 25% 10%;
-  --on-air-foreground: 40 45% 94%;
 
   --recording: 4 75% 58%;
   --recording-foreground: 26 25% 8%;
