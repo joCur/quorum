@@ -5,6 +5,9 @@ import "@fontsource/figtree/400.css";
 import "@fontsource/figtree/500.css";
 import "@fontsource/figtree/600.css";
 import "@fontsource/figtree/700.css";
+// 800 is the weight of the small uppercase section labels; without the face the browser
+// synthesizes it, which at 12px with letter-spacing turns into a smear.
+import "@fontsource/figtree/800.css";
 import "@fontsource/schibsted-grotesk/500.css";
 import "@fontsource/schibsted-grotesk/700.css";
 import "@fontsource/schibsted-grotesk/800.css";

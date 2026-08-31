@@ -112,6 +112,11 @@
       "howItWorks": "How Quorum works"
     },
     "untitled": "Untitled meeting",
+    "groups": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "thisWeek": "This week"
+    },
     "loadError": "Your meetings could not be loaded.",
     "deleted": "“{{meeting}}” was deleted.",
     "deleteFailed": "“{{meeting}}” could not be deleted.",
@@ -127,6 +132,7 @@
       "transcribing": "Transcribing",
       "summarizing": "Summarizing",
       "ready": "Ready",
+      "done": "Done",
       "failed": "Failed"
     },
     "delete": {

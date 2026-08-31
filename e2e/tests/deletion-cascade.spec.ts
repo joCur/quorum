@@ -68,6 +68,14 @@ test("deletes a meeting and everything derived from it", async ({ page, signIn }
   await expect(page).toHaveURL(/\/meetings$/);
   const deleteButton = page.getByRole("button", { name: `Delete ${title}` });
   await expect(deleteButton).toBeVisible({ timeout: 30_000 });
+
+  // A meeting recorded a moment ago is filed under today, and the row it is deleted from is the
+  // one inside that day's panel — the grouping is not decoration around the delete flow, it is
+  // where the row now lives.
+  const today = page.getByRole("region", { name: "Today" });
+  await expect(today.getByText(title)).toBeVisible();
+  await expect(today.getByRole("button", { name: `Delete ${title}` })).toBeVisible();
+
   await deleteButton.click();
 
   await expect(page.getByText("Delete this meeting?")).toBeVisible();

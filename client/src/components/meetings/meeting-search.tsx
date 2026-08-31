@@ -19,7 +19,7 @@ export function MeetingSearch({
   const { t } = useTranslation();
 
   return (
-    <div className="relative">
+    <div className="relative w-[min(320px,100%)]">
       <Search
         aria-hidden="true"
         className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"

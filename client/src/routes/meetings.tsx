@@ -32,7 +32,10 @@ export function MeetingsRoute() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4">
+      {/* The search sits beside the heading rather than in a band under it: a full-width field
+          reads as the screen's subject, and the meetings are. It wraps below the heading when
+          the two no longer fit side by side. */}
+      <div className="flex flex-wrap items-baseline justify-between gap-3.5">
         <h1 className="text-xl font-bold md:text-2xl">{t("meetings.title")}</h1>
         {showSearch ? <MeetingSearch value={search} onChange={setSearch} /> : null}
       </div>
