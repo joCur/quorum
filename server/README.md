@@ -155,7 +155,7 @@ A meeting outside the caller's scope answers `404` and nothing is touched — no
 objects.
 
 **Backups.** ADR-001 requires removal from backups after a defined period. No backup path exists
-yet: it is an open question owned by the infra ticket (`OPEN-QUESTIONS.md`, ADR-006), together with
+yet: it is an open question owned by the infra ticket (`docs/OPEN-QUESTIONS.md`, ADR-006), together with
 the retention window itself. Until that lands, the guarantee this endpoint gives is the live one —
 after the call, no residue exists in PostgreSQL or in object storage, and the tests verify both.
 
@@ -210,7 +210,7 @@ with a plain `401`.
 ### Abuse and cost limits
 
 The GPU worker is the expensive part of this system: every recorded hour eventually buys GPU time
-and model tokens (`COST-MODEL.md`, roughly 0.10 € marginal cost per meeting hour). The recording
+and model tokens (`docs/COST-MODEL.md`, roughly 0.10 € marginal cost per meeting hour). The recording
 endpoint therefore bounds what one connection and one user can push into the pipeline, in
 `src/recording/limits.ts`.
 

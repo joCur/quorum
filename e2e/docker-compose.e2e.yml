@@ -5,8 +5,10 @@
 # 1. Postgres, the MinIO S3 API and Whisper are published on the host, because the test process,
 #    the storage assertions and the transcription worker all run on the host.
 # 2. Whisper is pinned to the CPU image, so the suite runs on any machine and in CI.
-# 3. Every published port has its own default (see e2e/e2e.env), so an e2e run can happen next to
-#    a development stack without fighting it for ports.
+# 3. Every published port comes from the environment, which `e2e/scripts/run.mjs` fills with free
+#    ports it takes at startup — so a run never fights a development or demo stack, and two runs
+#    never fight each other. The literals below are only there to keep a hand-run `docker compose`
+#    with this override working; a run through the orchestrator always overrides them.
 # 4. The general API rate limit is raised, because the whole suite drives one user through a
 #    complete meeting lifecycle — recording, polling, listing, deleting — in a couple of minutes,
 #    far faster than a person ever would. That production default is sized for a human, so the
