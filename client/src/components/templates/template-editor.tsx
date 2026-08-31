@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
   SectionFormat,
@@ -8,7 +8,6 @@ import type {
   TemplateSection,
 } from "@quorum/shared";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -26,6 +25,9 @@ const LENGTHS: readonly SummaryOptions["length"][] = ["brief", "standard", "deta
  * held in a language nobody thought to configure for.
  */
 const LANGUAGES = ["auto", "en", "de"] as const;
+
+/** The uppercase micro-label that names a group of fields, as on the settings panel. */
+const GROUP_LABEL = "text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground";
 
 export interface TemplateEditorProps {
   /** Name of the template being edited, empty for a new one. */
@@ -47,6 +49,10 @@ export interface TemplateEditorProps {
  * The user edits a flat, ordered list of sections. What gets stored is the set of overrides that
  * produces that list from the base template — `features/templates/draft.ts` does the conversion,
  * so this component never has to think about inheritance.
+ *
+ * A section is one heading plus what belongs under it, so it is laid out as one: position,
+ * heading and format on a single row, the instruction underneath. Guidance that used to repeat
+ * under every section is said once, above the list.
  */
 export function TemplateEditor({
   initialName,
@@ -81,19 +87,20 @@ export function TemplateEditor({
   };
 
   return (
-    <form className="flex flex-col gap-6" onSubmit={submit} noValidate>
-      <div className="flex flex-col gap-2">
+    <form className="flex max-w-2xl flex-col gap-6" onSubmit={submit} noValidate>
+      <div className="flex flex-col gap-1.5">
         <Label htmlFor="template-name">{t("templates.editor.name")}</Label>
         <Input
           id="template-name"
           value={name}
           onChange={(event) => setName(event.target.value)}
           onBlur={() => setTouched(true)}
+          placeholder={t("templates.editor.namePlaceholder")}
           aria-invalid={touched && nameError !== null}
           aria-describedby="template-name-help"
-          className={cn(touched && nameError && "border-destructive")}
+          className={cn("rounded-field", touched && nameError && "border-destructive")}
         />
-        <p id="template-name-help" className="text-sm text-muted-foreground">
+        <p id="template-name-help" className="text-xs text-muted-foreground">
           {touched && nameError ? (
             <span className="text-destructive">{nameError}</span>
           ) : (
@@ -102,9 +109,9 @@ export function TemplateEditor({
         </p>
       </div>
 
-      <fieldset className="flex flex-col gap-4">
-        <legend className="text-sm font-medium">{t("templates.editor.style")}</legend>
-        <div className="grid gap-4 sm:grid-cols-3">
+      <fieldset className="flex flex-col gap-3">
+        <legend className={cn(GROUP_LABEL, "mb-3")}>{t("templates.editor.style")}</legend>
+        <div className="flex flex-wrap gap-3">
           <OptionSelect
             id="template-tone"
             label={t("templates.editor.tone")}
@@ -130,60 +137,65 @@ export function TemplateEditor({
             onChange={(outputLanguage) => setOptions((current) => ({ ...current, outputLanguage }))}
           />
         </div>
-        <p className="text-sm text-muted-foreground">{t("templates.editor.languageHelp")}</p>
+        <p className="text-xs text-muted-foreground">{t("templates.editor.languageHelp")}</p>
       </fieldset>
 
       <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm font-medium">{t("templates.editor.sections")}</h2>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setSections((current) => [
-                ...current,
-                {
-                  id: newSectionId(),
-                  title: t("templates.editor.newSectionTitle"),
-                  instruction: "",
-                  format: "bullets",
-                },
-              ])
-            }
-          >
-            <Plus aria-hidden="true" className="size-4" />
-            {t("templates.editor.addSection")}
-          </Button>
+        <div className="flex flex-col gap-1">
+          <h2 className={GROUP_LABEL}>{t("templates.editor.sections")}</h2>
+          {/* Said once, above the list, instead of under every section: the same sentence
+              repeated four times is noise rather than guidance. */}
+          <p className="text-xs text-muted-foreground">{t("templates.editor.sectionsHelp")}</p>
         </div>
 
-        {sectionsError ? (
-          <p className="text-sm text-destructive">{sectionsError}</p>
-        ) : (
-          sections.map((section, index) => (
-            <SectionCard
-              key={section.id}
-              section={section}
-              index={index}
-              total={sections.length}
-              onChange={(changes) => patch(index, changes)}
-              onMove={(direction) =>
-                setSections((current) => moveSection(current, index, direction))
-              }
-              onRemove={() => setSections((current) => current.filter((_, at) => at !== index))}
-            />
-          ))
-        )}
+        {sections.map((section, index) => (
+          <SectionCard
+            key={section.id}
+            section={section}
+            index={index}
+            total={sections.length}
+            onChange={(changes) => patch(index, changes)}
+            onMove={(direction) => setSections((current) => moveSection(current, index, direction))}
+            onRemove={() => setSections((current) => current.filter((_, at) => at !== index))}
+          />
+        ))}
+
+        <Button
+          type="button"
+          variant="ghost"
+          className="w-fit rounded-pill border border-dashed border-input text-muted-foreground"
+          onClick={() =>
+            setSections((current) => [
+              ...current,
+              {
+                id: newSectionId(),
+                title: t("templates.editor.newSectionTitle"),
+                instruction: "",
+                format: "bullets",
+              },
+            ])
+          }
+        >
+          <Plus aria-hidden="true" className="size-4" />
+          {t("templates.editor.addSection")}
+        </Button>
+
+        {sectionsError ? <p className="text-sm text-destructive">{sectionsError}</p> : null}
       </div>
 
       <TemplatePreview sections={sections} options={options} />
 
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onClick={onCancel}>
-          {t("common.cancel")}
-        </Button>
-        <Button type="submit" disabled={saving}>
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" className="rounded-pill px-6" disabled={saving}>
           {saving ? t("templates.editor.saving") : t("templates.editor.save")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-pill px-5 text-muted-foreground"
+          onClick={onCancel}
+        >
+          {t("common.cancel")}
         </Button>
       </div>
     </form>
@@ -207,42 +219,38 @@ function TemplatePreview({
   if (sections.length === 0) return null;
 
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="template-preview-heading">
-      <h2 id="template-preview-heading" className="text-sm font-medium">
+    <section className="flex flex-col gap-2" aria-labelledby="template-preview-heading">
+      <h2 id="template-preview-heading" className={GROUP_LABEL}>
         {t("templates.editor.preview")}
       </h2>
-      <Card>
-        <CardContent className="flex flex-col gap-3 pt-6">
-          {sections.map((section) => (
-            <div key={section.id} className="flex items-baseline gap-2">
-              {/* Transitional: `plum` no longer exists in v2 and resolves to honey through the
-                  Tailwind color mapping. This marker becomes a honey underline when the
-                  templates area ticket restyles this screen. */}
-              <span aria-hidden="true" className="h-4 w-1 shrink-0 rounded-full bg-plum" />
-              <span className="text-base font-semibold">
-                {section.title.trim() || t("templates.editor.untitledSection")}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {t(`templates.format.${section.format}`)}
-              </span>
-            </div>
-          ))}
-          <p className="text-xs text-muted-foreground">
-            {t("templates.editor.previewMeta", {
-              tone: t(`templates.tone.${options.tone}`),
-              length: t(`templates.length.${options.length}`),
-              language: t(`templates.language.${options.outputLanguage}`, {
-                defaultValue: options.outputLanguage,
-              }),
-            })}
-          </p>
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-3 rounded-card border border-border bg-card p-4 md:p-5">
+        {sections.map((section) => (
+          <div key={section.id} className="flex flex-wrap items-baseline gap-2">
+            {/* A honey underline rather than a bar beside the title — the mark the summary
+                itself gives a section heading. */}
+            <span className="font-display text-base font-bold shadow-[inset_0_-0.32em_0_hsl(var(--honey-subtle))]">
+              {section.title.trim() || t("templates.editor.untitledSection")}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {t(`templates.format.${section.format}`)}
+            </span>
+          </div>
+        ))}
+        <p className="text-xs text-muted-foreground">
+          {t("templates.editor.previewMeta", {
+            tone: t(`templates.tone.${options.tone}`),
+            length: t(`templates.length.${options.length}`),
+            language: t(`templates.language.${options.outputLanguage}`, {
+              defaultValue: options.outputLanguage,
+            }),
+          })}
+        </p>
+      </div>
     </section>
   );
 }
 
-/** One section, as a card with the accent marker that marks the summary side of the product. */
+/** One section: position, heading and format on one row, what belongs in it below. */
 function SectionCard({
   section,
   index,
@@ -259,87 +267,97 @@ function SectionCard({
   onRemove: () => void;
 }) {
   const { t } = useTranslation();
-  const titleId = `section-${section.id}-title`;
-  const instructionId = `section-${section.id}-instruction`;
-  const formatId = `section-${section.id}-format`;
 
   return (
-    <Card className="animate-pop-in overflow-hidden">
-      <div className="flex">
-        <span aria-hidden="true" className="w-1 shrink-0 bg-plum-subtle" />
-        <CardContent className="flex flex-1 flex-col gap-4 pt-6">
-          <div className="flex items-end gap-2">
-            <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor={titleId}>{t("templates.editor.sectionTitle")}</Label>
-              <Input
-                id={titleId}
-                value={section.title}
-                onChange={(event) => onChange({ title: event.target.value })}
-              />
-            </div>
-            <div className="flex gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={index === 0}
-                onClick={() => onMove(-1)}
-                aria-label={t("templates.editor.moveUp", { section: section.title })}
-              >
-                <ArrowUp aria-hidden="true" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                disabled={index === total - 1}
-                onClick={() => onMove(1)}
-                aria-label={t("templates.editor.moveDown", { section: section.title })}
-              >
-                <ArrowDown aria-hidden="true" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={onRemove}
-                aria-label={t("templates.editor.removeSection", { section: section.title })}
-              >
-                <Trash2 aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={instructionId}>{t("templates.editor.instruction")}</Label>
-            <Textarea
-              id={instructionId}
-              value={section.instruction}
-              onChange={(event) => onChange({ instruction: event.target.value })}
-              aria-describedby={`${instructionId}-help`}
-            />
-            <p id={`${instructionId}-help`} className="text-sm text-muted-foreground">
-              {t("templates.editor.instructionHelp")}
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-2 sm:max-w-xs">
-            <Label htmlFor={formatId}>{t("templates.editor.format")}</Label>
-            <Select
-              id={formatId}
-              value={section.format}
-              onChange={(event) => onChange({ format: event.target.value as SectionFormat })}
-            >
-              {FORMATS.map((format) => (
-                <option key={format} value={format}>
-                  {t(`templates.format.${format}`)}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </CardContent>
+    <div className="flex animate-pop-in flex-col gap-2.5 rounded-card-sm border border-border bg-card p-3 md:p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Where this section sits in the summary, in the mono figures the app uses for every
+            other number. Decorative — the heading beside it names the section. */}
+        <span
+          aria-hidden="true"
+          data-testid="section-number"
+          className="w-5 shrink-0 font-mono text-xs tabular-figures text-honey-strong"
+        >
+          {String(index + 1).padStart(2, "0")}
+        </span>
+        <Input
+          value={section.title}
+          onChange={(event) => onChange({ title: event.target.value })}
+          aria-label={t("templates.editor.sectionTitle")}
+          className="h-10 min-w-40 flex-1 text-sm font-semibold"
+        />
+        <Select
+          value={section.format}
+          onChange={(event) => onChange({ format: event.target.value as SectionFormat })}
+          aria-label={t("templates.editor.format")}
+          className="h-10 w-auto text-sm"
+        >
+          {FORMATS.map((format) => (
+            <option key={format} value={format}>
+              {t(`templates.format.${format}`)}
+            </option>
+          ))}
+        </Select>
+        <div className="flex items-center">
+          <SectionAction
+            icon={ArrowUp}
+            disabled={index === 0}
+            label={t("templates.editor.moveUp", { section: section.title })}
+            onClick={() => onMove(-1)}
+          />
+          <SectionAction
+            icon={ArrowDown}
+            disabled={index === total - 1}
+            label={t("templates.editor.moveDown", { section: section.title })}
+            onClick={() => onMove(1)}
+          />
+          <SectionAction
+            icon={X}
+            label={t("templates.editor.removeSection", { section: section.title })}
+            className="hover:text-destructive"
+            onClick={onRemove}
+          />
+        </div>
       </div>
-    </Card>
+
+      <Textarea
+        rows={2}
+        value={section.instruction}
+        onChange={(event) => onChange({ instruction: event.target.value })}
+        aria-label={t("templates.editor.instruction")}
+        placeholder={t("templates.editor.instructionPlaceholder")}
+        className="min-h-0 text-sm"
+      />
+    </div>
+  );
+}
+
+/** One of the three controls that reorder or drop a section. */
+function SectionAction({
+  icon: Icon,
+  label,
+  disabled,
+  className,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  label: string;
+  disabled?: boolean;
+  className?: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      disabled={disabled ?? false}
+      onClick={onClick}
+      aria-label={label}
+      className={cn("size-10 rounded-pill text-muted-foreground", className)}
+    >
+      <Icon aria-hidden={true} className="size-4" />
+    </Button>
   );
 }
 
@@ -359,9 +377,14 @@ function OptionSelect<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-40 flex-1 flex-col gap-1.5">
       <Label htmlFor={id}>{label}</Label>
-      <Select id={id} value={value} onChange={(event) => onChange(event.target.value as T)}>
+      <Select
+        id={id}
+        value={value}
+        className="rounded-field"
+        onChange={(event) => onChange(event.target.value as T)}
+      >
         {values.map((option) => (
           <option key={option} value={option}>
             {render(option)}
