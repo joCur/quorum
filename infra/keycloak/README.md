@@ -232,6 +232,26 @@ Keycloak caches theme resources, so if an edit does not show up, restart the con
 docker compose restart keycloak
 ```
 
+### The pages are bilingual, and that is a realm setting
+
+The theme ships German and English message bundles, but a bundle is only ever consulted if the
+realm has `internationalizationEnabled` with `supportedLocales`. Both realm files set it, with the
+same two locales, so this is not drift either.
+
+Without those settings Keycloak serves English to every browser and shows no language picker,
+whatever the theme contains — measured, not assumed: a control realm with the flags stripped
+answers a `de-DE` browser in English, while the committed realm answers the same browser in German.
+
+The catch is `--import-realm`: **it only imports a realm that does not exist yet.** A stack whose
+realm was created before these settings landed keeps the old, English-only realm until it is
+re-imported (see "Changing the realm" below). That is the first thing to check when a running
+instance stays English.
+
+Account mails follow the same negotiation. A password reset requested from a German browser
+arrives as "Passwort zurücksetzen" and from an English one as "Reset password" — both verified
+against real mail in mailpit. The German wording is Keycloak's own and addresses the user formally;
+bringing the mails into the product's "du" would mean an **email** theme, which this one is not.
+
 ## Changing the realm
 
 The audience and tenant mappers are attached to each client rather than to a shared client scope on
