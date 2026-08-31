@@ -38,6 +38,7 @@ function setAuth(overrides: Partial<AuthContextValue> = {}): void {
     signIn: signInSpy,
     signOut: vi.fn(),
     completeSignIn: vi.fn(),
+    renewSession: vi.fn(),
     ...overrides,
   };
 }

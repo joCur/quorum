@@ -35,6 +35,7 @@ function setAuth(overrides: Partial<AuthContextValue> = {}): void {
     signIn: signInSpy,
     signOut: vi.fn(),
     completeSignIn: vi.fn(),
+    renewSession: vi.fn(),
     ...overrides,
   };
 }
@@ -142,12 +143,15 @@ describe("the signed-out gate", () => {
   });
 
   it("keeps the landing whole when the sign-in has something to say", () => {
-    setAuth({ error: "invalid_grant", sessionExpired: true });
+    setAuth({ error: "sign_in_incomplete", sessionExpired: true });
     renderSignedOut();
 
     // The message belongs in the hero, between the promise and the button: a visitor sent back by
-    // a failed callback should still see the page they were on, not a bare error screen.
-    expect(screen.getByRole("alert")).toHaveTextContent("Sign-in did not complete. invalid_grant");
+    // a failed callback should still see the page they were on, not a bare error screen. What it
+    // says is ours and translatable — never the OIDC library's own words.
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Sign-in did not complete. Please try again.",
+    );
     expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
     // One message at a time — the failed callback is what just happened.
     expect(screen.queryByText(/Your session ended/)).toBeNull();

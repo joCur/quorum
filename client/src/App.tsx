@@ -1,6 +1,7 @@
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { AppShell } from "@/components/layout/app-shell";
 import { RequireAuth } from "@/features/auth/require-auth";
+import { RequireTenant } from "@/features/auth/require-tenant";
 import { RecordingProvider } from "@/features/recording/recording-provider";
 import { AuthCallbackRoute } from "@/routes/auth-callback";
 import { LegalPlaceholderRoute, LEGAL_PATHS } from "@/routes/legal";
@@ -33,9 +34,13 @@ export function App() {
       <Route
         element={
           <RequireAuth>
-            <RecordingProvider>
-              <Outlet />
-            </RecordingProvider>
+            {/* Signed in is not the same as ready: a self-registered account gets its workspace
+                here, once, on its first sign-in. */}
+            <RequireTenant>
+              <RecordingProvider>
+                <Outlet />
+              </RecordingProvider>
+            </RequireTenant>
           </RequireAuth>
         }
       >

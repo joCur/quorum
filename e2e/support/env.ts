@@ -38,6 +38,8 @@ export const stackEnv = {
   clientUrl: read("E2E_CLIENT_URL", "http://localhost:4173"),
   apiUrl: read("E2E_API_URL", "http://localhost:8090"),
   keycloakUrl: read("E2E_KEYCLOAK_URL", "http://localhost:8091"),
+  /** The development mail relay's HTTP API — where account mail can be read back. */
+  mailpitUrl: read("E2E_MAILPIT_URL", "http://localhost:8125"),
   realm: read("E2E_KEYCLOAK_REALM", "quorum"),
   /** Public browser client — Authorization Code + PKCE, used by the app itself. */
   pwaClientId: read("E2E_OIDC_CLIENT_ID", "quorum-pwa"),

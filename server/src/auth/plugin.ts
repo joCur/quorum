@@ -4,18 +4,25 @@ import type { RequestContext } from "./context.js";
 import { AuthError } from "./errors.js";
 import { extractSubprotocolToken, offersBearerSubprotocol } from "./subprotocol.js";
 import { extractBearerToken } from "./token-verifier.js";
-import type { TokenVerifier } from "./token-verifier.js";
+import type { IdentityVerifier, TokenIdentity, TokenVerifier } from "./token-verifier.js";
 
 declare module "fastify" {
   interface FastifyRequest {
     /** Context of the acting user, or `undefined` on a route declared public. */
     auth: RequestContext | undefined;
     /**
+     * Who the caller is, when that is known but their tenant is not. Set only on a route that
+     * declared `tenantOptional`, and only for a token that passed every check but the tenant.
+     */
+    identity: TokenIdentity | undefined;
+    /**
      * Returns the request context, throwing if the route is public and therefore has none.
      * Handlers that touch data always go through this — it makes "unscoped query" a type error
      * rather than an oversight (ADR-001).
      */
     requireContext(this: FastifyRequest): RequestContext;
+    /** Returns the caller's identity, throwing when the request carries no verified token. */
+    requireIdentity(this: FastifyRequest): TokenIdentity;
   }
 
   interface FastifyContextConfig {
@@ -24,12 +31,29 @@ declare module "fastify" {
      * route requires a valid access token.
      */
     public?: boolean;
+    /**
+     * Let a route run for a caller whose token is entirely valid but carries no tenant.
+     *
+     * This is not an opt-out of authentication, and it is not an opt-out of scoping. The token is
+     * verified exactly as it is everywhere else; what changes is that `request.auth` stays
+     * `undefined` and only `request.identity` is set. Every handler that reads or writes data
+     * goes through `requireContext()`, which throws on an undefined context — so a route flagged
+     * here cannot reach tenant data even by mistake, because there is no tenant to reach it under.
+     *
+     * Exactly one route uses it: the one that gives a freshly registered account its tenant.
+     */
+    tenantOptional?: boolean;
   }
 }
 
 export interface AuthPluginOptions {
-  /** Verifier built by `createTokenVerifier`. Injected so tests can use a local key pair. */
+  /** Verifier built by `createTokenVerifiers`. Injected so tests can use a local key pair. */
   readonly verifyAccessToken: TokenVerifier;
+  /**
+   * The tenant-less verifier from the same factory. Without it a `tenantOptional` route behaves
+   * like every other route: a token carrying no tenant is refused with 403.
+   */
+  readonly verifyIdentity?: IdentityVerifier;
 }
 
 /**
@@ -80,6 +104,7 @@ function unauthorized(
 
 const authPluginImpl: FastifyPluginAsync<AuthPluginOptions> = async (app, options) => {
   app.decorateRequest("auth", undefined);
+  app.decorateRequest("identity", undefined);
   app.decorateRequest("requireContext", function (this: FastifyRequest): RequestContext {
     if (this.auth === undefined) {
       throw new AuthError(
@@ -89,14 +114,48 @@ const authPluginImpl: FastifyPluginAsync<AuthPluginOptions> = async (app, option
     }
     return this.auth;
   });
+  app.decorateRequest("requireIdentity", function (this: FastifyRequest): TokenIdentity {
+    if (this.identity === undefined) {
+      throw new AuthError("missing_token", "This handler requires a verified access token.");
+    }
+    return this.identity;
+  });
 
   // Default-deny: authentication runs for every route unless it opts out via `config.public`.
   app.addHook("onRequest", async (request, reply) => {
     if (request.routeOptions.config.public === true) return;
 
+    // Kept outside the try so the tenant-less branch below can reuse the token it verified. It
+    // stays `undefined` when reading the token itself failed, which is a different rejection.
+    let token: string | undefined;
+
     try {
-      request.auth = await options.verifyAccessToken(readAccessToken(request));
+      token = readAccessToken(request);
+      request.auth = await options.verifyAccessToken(token);
+      request.identity = {
+        userId: request.auth.userId,
+        roles: request.auth.roles,
+        username: request.auth.username,
+        email: request.auth.email,
+        // Not carried by RequestContext, and no handler that has a tenant needs it.
+        emailVerified: true,
+      };
     } catch (error) {
+      // A token that is valid in every other respect but carries no tenant is what a freshly
+      // registered account holds. On the one route that exists to fix that, the caller is let
+      // through as an identity with no context; everywhere else this stays a 403.
+      if (
+        error instanceof AuthError &&
+        error.code === "missing_tenant" &&
+        request.routeOptions.config.tenantOptional === true &&
+        options.verifyIdentity !== undefined &&
+        token !== undefined
+      ) {
+        request.identity = await options.verifyIdentity(token);
+        request.log = request.log.child({ userId: request.identity.userId });
+        return;
+      }
+
       const authError =
         error instanceof AuthError
           ? error
