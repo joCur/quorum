@@ -40,7 +40,7 @@ function NavPill({ to, label }: { to: string; label: string }) {
       to={to}
       className={({ isActive }) =>
         cn(
-          "rounded-pill px-3 py-2 text-[13.5px] font-bold shell:px-[18px] transition-colors duration-micro ease-enter",
+          "truncate rounded-pill px-3 py-2 text-[13.5px] font-bold shell:px-[18px] transition-colors duration-micro ease-enter",
           isActive
             ? "bg-primary text-primary-foreground"
             : "text-muted-foreground hover:text-foreground",
@@ -147,7 +147,9 @@ export function TopBar() {
 
         <nav
           aria-label={t("nav.label")}
-          className="flex items-center gap-0.5 rounded-pill border border-border bg-card p-[3px]"
+          // The pill is the one part of the row allowed to give way: on a screen too narrow for
+          // everything, a shortened destination still beats a bar that scrolls off the viewport.
+          className="flex min-w-0 items-center gap-0.5 rounded-pill border border-border bg-card p-[3px]"
         >
           <NavPill to="/meetings" label={t("nav.meetings")} />
           <NavPill to="/templates" label={t("nav.templates")} />
