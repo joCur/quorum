@@ -69,7 +69,30 @@ export function RecordRoute() {
   const active = state.phase === "recording";
   const live = active || state.phase === "paused";
   const busy = state.phase === "requesting" || state.phase === "finalizing";
-  const onStartStage = !live && state.phase !== "finalizing";
+
+  // Whether a recording has been on screen during *this* visit.
+  //
+  // The session outlives the screen, so "the phase is terminal" answers two different questions
+  // with the same value: a recording that just ended here, and a finished one left over from an
+  // earlier visit. They need opposite views. The flag is set from the live phases, which are
+  // rendered before any terminal phase can follow them, so by the time `finalized` arrives it is
+  // already true — while a screen opened on a stale finished session never sets it and shows the
+  // start stage, which is what `reset()` is about to make true anyway.
+  // Adjusted during render rather than in an effect: the very next render must already see it, and
+  // an effect would let one frame of the wrong view through — which is the whole bug.
+  const [recordedHere, setRecordedHere] = React.useState(false);
+  if (!recordedHere && (live || state.phase === "finalizing")) setRecordedHere(true);
+
+  /**
+   * The closing view: the recording is over and the screen is on its way out.
+   *
+   * `finalized` is a terminal phase, not a resting one. Falling back to the start stage between
+   * the server's confirmation and the navigation that follows it flashed the consent card and the
+   * empty title field for the length of the settle delay — a finished recording appearing to
+   * offer a new one. The closing view holds the final time until the navigation completes.
+   */
+  const closing = recordedHere && (state.phase === "finalizing" || state.phase === "finalized");
+  const onStartStage = !live && !closing;
 
   // The template travels as an explicit id rather than as "send nothing", the prefilled default
   // included: what the screen showed when the recording started is what the summary is made with.
@@ -228,7 +251,9 @@ export function RecordRoute() {
 
             <SyncStatus status={state.status} />
 
-            {state.phase === "finalizing" ? (
+            {/* A limit parks the user here with an explanation instead of navigating on, and
+                "Finishing…" under a panel that is going nowhere would be a lie. */}
+            {closing && state.limit === null ? (
               <p className="text-sm text-muted-foreground">{t("recording.finishing")}</p>
             ) : null}
           </>
