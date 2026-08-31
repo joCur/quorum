@@ -40,9 +40,10 @@ export function LoginRoute() {
           className="flex max-w-sm items-start gap-2 rounded-md bg-destructive/10 p-3 text-left text-sm text-destructive"
         >
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <span>
-            {t("auth.error")} <span className="font-mono text-xs">{error}</span>
-          </span>
+          {/* Never the OIDC library's own message: those are written for whoever is debugging
+              the library, and one of them ("No matching state found in storage") reached real
+              users. The reason is a code, and the sentence comes from i18n like every other. */}
+          <span>{t(error === "provider_declined" ? "auth.errorDeclined" : "auth.error")}</span>
         </p>
       ) : null}
 

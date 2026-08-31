@@ -13,7 +13,8 @@
   "auth": {
     "signIn": "Anmelden",
     "completing": "Anmeldung läuft…",
-    "error": "Die Anmeldung wurde nicht abgeschlossen.",
+    "error": "Die Anmeldung wurde nicht abgeschlossen. Versuch es bitte noch einmal.",
+    "errorDeclined": "Die Anmeldung wurde beim Anmeldedienst abgebrochen. Versuch es, wenn du so weit bist.",
     "sessionExpired": "Deine Sitzung ist abgelaufen. Melde dich erneut an, um dort weiterzumachen, wo du warst.",
     "settingUp": "Dein Arbeitsbereich wird eingerichtet…",
     "setupFailed": "Dein Arbeitsbereich konnte nicht eingerichtet werden. Das legt sich meist von selbst — versuch es gleich noch einmal."

@@ -2,8 +2,23 @@ import * as React from "react";
 import type { User, UserManager } from "oidc-client-ts";
 import { createUserManager } from "@/features/auth/user-manager";
 import { onUnauthorized, safeReturnTo } from "@/features/auth/session-expiry";
+import { callbackShape, clearCallbackRetry } from "@/features/auth/callback";
 
 export type AuthStatus = "loading" | "authenticated" | "anonymous" | "error";
+
+/**
+ * Why a sign-in did not complete, as something the interface can say out loud.
+ *
+ * A code rather than the message the OIDC library threw. Those messages are written for whoever is
+ * debugging the library — "No matching state found in storage" is accurate, addressed to nobody,
+ * and was shown to real users. What a screen renders goes through i18n like every other string
+ * (CLAUDE.md), and that needs a stable key, not prose from a dependency.
+ */
+export type AuthErrorReason =
+  /** The provider answered and the app could not turn that answer into a session. */
+  | "sign_in_incomplete"
+  /** The provider itself refused — a cancelled login, a declined consent. */
+  | "provider_declined";
 
 /** Everything a screen can know and do about the current session. */
 export interface AuthContextValue {
@@ -11,7 +26,7 @@ export interface AuthContextValue {
   user: User | null;
   /** Access token for API and WebSocket calls, or null when signed out. */
   accessToken: string | null;
-  error: string | null;
+  error: AuthErrorReason | null;
   /**
    * True once a session ended while the app was open. The sign-in screen says so instead of
    * letting the user wonder why they are looking at it again.
@@ -41,7 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const [user, setUser] = React.useState<User | null>(null);
   const [status, setStatus] = React.useState<AuthStatus>("loading");
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<AuthErrorReason | null>(null);
   const [sessionExpired, setSessionExpired] = React.useState(false);
   // One renewal at a time: a screen that fires several requests answers with several 401s, and
   // each extra silent renewal would be a second round trip for an answer already on its way.
@@ -141,11 +156,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const next = await manager.signinRedirectCallback();
       adopt(next);
       setSessionExpired(false);
+      setError(null);
+      clearCallbackRetry();
       const state = next.state as { returnTo?: unknown } | undefined;
       return safeReturnTo(state?.returnTo);
     } catch (cause) {
-      setStatus("error");
-      setError(cause instanceof Error ? cause.message : String(cause));
+      // What went wrong is read off the URL rather than off the exception. The library's messages
+      // are not an API — matching on them would break on an upgrade — and the URL already says
+      // everything a user-facing answer needs: did the provider answer, refuse, or never send
+      // anyone here at all.
+      const shape = callbackShape(window.location.search);
+      if (shape === "none") {
+        // Nobody was sent here. An address opened on its own is not a failure to report; the
+        // sign-in screen is simply where that address belongs.
+        setStatus("anonymous");
+        setError(null);
+      } else {
+        setStatus("error");
+        setError(shape === "error" ? "provider_declined" : "sign_in_incomplete");
+      }
       throw cause;
     }
   }, [manager, adopt]);
