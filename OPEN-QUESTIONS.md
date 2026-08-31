@@ -1,30 +1,30 @@
-# Quorum — Offene Entscheidungen & Betriebsthemen
+# Quorum — Open Decisions & Operational Topics
 
-> Bewusst **nicht** festgelegt — Vorschläge als Diskussionsgrundlage fürs Dev-Team. Entscheidung gemeinsam in Woche 1, jeweils als ADR festhalten.
+> Deliberately **not** settled — proposals as a basis for discussion in the dev team. Decided together in week 1, each one recorded as an ADR.
 
-## Tech-Stack (offen, mit Kandidaten)
+## Tech Stack (open, with candidates)
 
-| Baustein | Kandidaten | Anmerkung |
+| Building block | Candidates | Note |
 |---|---|---|
-| Server-Sprache/Framework | TypeScript (Hono/Fastify/NestJS), alternativ .NET | TS teilt die Zod-Schemas nativ mit dem Client; .NET wäre teamnah, bräuchte aber Schema-Generierung |
-| Web-Client | React + Vite (PWA) | Schemas aus `shared/` direkt nutzbar |
-| Job-Queue | BullMQ (Redis) · pg-boss (Postgres) · RabbitMQ | Job-API (ADR-002) setzt eine Queue voraus; pg-boss spart eine Infrastruktur-Komponente |
-| Datenbank | PostgreSQL | JSONB für Transcript-/Summary-Blobs + relationale Metadaten |
-| Object Storage | MinIO (self-hosted) · S3-kompatibel | Serverseitige Verschlüsselung Pflicht (ADR-001) |
-| Auth-Provider | Zitadel · Keycloak · Ory | OIDC, Authorization Code + PKCE; self-hostbar passend zum Datenhoheits-Versprechen |
-| Whisper-Serving | faster-whisper · whisperX (mit Wort-Timestamps!) | whisperX liefert bessere Wort-Alignments — relevant wegen ADR-003 §4 |
-| Hosting | eigener Server/Hetzner + GPU-Instanz · später k8s | GPU-Sizing nach ersten Lastmessungen |
+| Server language/framework | TypeScript (Hono/Fastify/NestJS), alternatively .NET | TS shares the Zod schemas natively with the client; .NET would be close to the team's experience but would need schema generation |
+| Web client | React + Vite (PWA) | Schemas from `shared/` are usable directly |
+| Job queue | BullMQ (Redis) · pg-boss (Postgres) · RabbitMQ | The job API (ADR-002) presupposes a queue; pg-boss saves an infrastructure component |
+| Database | PostgreSQL | JSONB for transcript/summary blobs + relational metadata |
+| Object storage | MinIO (self-hosted) · S3-compatible | Server-side encryption is mandatory (ADR-001) |
+| Auth provider | Zitadel · Keycloak · Ory | OIDC, Authorization Code + PKCE; self-hostable, matching the data sovereignty promise |
+| Whisper serving | faster-whisper · whisperX (with word timestamps!) | whisperX delivers better word alignments — relevant because of ADR-003 §4 |
+| Hosting | own server/Hetzner + GPU instance · k8s later | GPU sizing after the first load measurements |
 
-## Observability & Betrieb (benannt, noch keine Entscheidung)
+## Observability & Operations (named, not yet decided)
 
-Async-Pipelines scheitern leise — ein hängender Job heißt: Nutzer wartet endlos auf sein Transkript. Vor Produktivbetrieb zu klären:
+Async pipelines fail silently — a stuck job means a user waiting forever for their transcript. To be clarified before production operation:
 
-- Strukturierte Logs (JSON) mit Korrelation Meeting↔Session↔Job
-- Job-Metriken: Queue-Länge, Durchlaufzeit, Fehlerrate, GPU-Auslastung
-- Retry-Semantik und Dead-Letter-Handling pro Job-Typ (was ist idempotent?)
-- Alerting (z. B. Job älter als X Minuten in `queued`)
-- Backup/Restore für Object Storage und DB — inkl. Löschkaskade in Backups (ADR-001: Entfernung nach definierter Frist)
-- Kandidaten: OpenTelemetry + Grafana-Stack (Loki/Tempo/Prometheus), passt zum Self-Hosting-Ansatz
+- Structured logs (JSON) correlating meeting↔session↔job
+- Job metrics: queue depth, throughput time, failure rate, GPU utilization
+- Retry semantics and dead-letter handling per job type (what is idempotent?)
+- Alerting (e.g. a job older than X minutes in `queued`)
+- Backup/restore for object storage and the database — including the deletion cascade in backups (ADR-001: removal after a defined period)
+- Candidates: OpenTelemetry + the Grafana stack (Loki/Tempo/Prometheus), which fits the self-hosting approach
 
 ## Abuse and cost protection (decided; implemented)
 
@@ -48,6 +48,6 @@ Every limit is resolved per tenant and user through one resolver, which in V1 an
 environment configuration for everybody. What is still open is the tier structure on top of it:
 which plans exist and what numbers each one gets.
 
-## Kostenmodell (To-do vor dem Pitch-Termin)
+## Cost model (to do before the pitch meeting)
 
-Grobe Rechnung pro Meeting-Stunde aufstellen: GPU-Sekunden Whisper, LLM-Tokens Summary (Routerpreise), Storage (Opus ~7–15 MB/h + Transkripte). Ergebnis: Kosten/Stunde als Grundlage für Plan-Preise und Quotas.
+Put together a rough calculation per meeting hour: GPU seconds for Whisper, LLM tokens for the summary (router prices), storage (Opus ~7–15 MB/h + transcripts). Result: cost per hour as the basis for plan prices and quotas.

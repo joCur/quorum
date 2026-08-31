@@ -1,11 +1,11 @@
-# ADR-004: Summary-Templates mit Vererbung und Snapshot
+# ADR-004: Summary Templates with Inheritance and a Snapshot
 
-**Status:** Akzeptiert · **Datum:** 2026-08-29
+**Status:** Accepted · **Date:** 2026-08-29
 
-## Entscheidung
+## Decision
 
-1. **Templates mit einer Vererbungsebene:** System-Template als allgemeiner Standard; Nutzer-Templates via `basedOn` mit Abschnitts-Overrides (hinzufügen/überschreiben/ausblenden). Scope: `system | user`, später erweiterbar um `team/org`.
-2. **Snapshot statt Referenz:** Eine erzeugte Summary speichert die aufgelöste Template-Konfiguration plus Modell- und Prompt-Version als Kopie — spätere Template-Änderungen verfälschen nicht die Historie.
-3. **1:n:** Ein Meeting kann mehrere Summaries haben (verschiedene Templates, Neugenerierung); eine aktive pro Template.
-4. **Quellenverweise:** `sourceSegmentIds` pro Summary-Abschnitt (nullable, in V1 unbefüllt) — nutzt die stabilen Segment-IDs aus ADR-003.
-5. **Strukturierter Output:** Summary als JSON (Abschnitte mit Inhalt), nicht als Markdown-Blob. Markdown-Export ist trivial abzuleiten; die Gegenrichtung nicht.
+1. **Templates with one level of inheritance:** a system template as the general default; user templates via `basedOn` with section overrides (add/override/hide). Scope: `system | user`, extensible later with `team/org`.
+2. **A snapshot instead of a reference:** a generated summary stores the resolved template configuration plus the model and prompt version as a copy — later template changes do not falsify the history.
+3. **1:n:** a meeting can have several summaries (different templates, regeneration); one active per template.
+4. **Source references:** `sourceSegmentIds` per summary section (nullable, unpopulated in V1) — uses the stable segment IDs from ADR-003.
+5. **Structured output:** a summary is JSON (sections with content), not a Markdown blob. A Markdown export is trivial to derive; the other direction is not.

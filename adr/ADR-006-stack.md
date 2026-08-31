@@ -2,8 +2,6 @@
 
 **Status:** Accepted · **Date:** 2026-08-29
 
-> This ADR is written in American English per the language policy in `CLAUDE.md`. ADR-001 to ADR-005 are still German; translating them is a separate ticket (#13) and explicitly not part of this decision.
-
 ## Context
 
 `OPEN-QUESTIONS.md` deliberately left the technology stack open, with candidates per building block. The walking skeleton (ROADMAP.md V1) cannot start until these are fixed, because every follow-up ticket — WebSocket recording endpoint, job worker, auth flows — depends on them. The lead proposed a set that the PO has accepted; this ADR records the team evaluation of each candidate group and the resulting decision.
@@ -70,7 +68,7 @@ ADR-003 §4 makes word-level timestamps a day-one requirement, and that is preci
 
 **Decided: Keycloak, running inside the compose stack, configured as code via `--import-realm`.**
 
-The decisive criterion is not the protocol — all three candidates do OIDC with Authorization Code + PKCE — but developer experience and reproducibility. Keycloak imports a **versioned realm JSON at startup** (`--import-realm`), so `git clone && docker compose up` yields a working login with our realm, clients, roles, and redirect URIs already in place: no manual clicking in an admin UI, no undocumented state, and realm changes arrive as reviewable diffs in pull requests. That is the PO's explicit DevX requirement and it directly feeds issue #3. **Zitadel** is the more modern product with a nicer admin experience and multi-tenancy built in, but its bootstrap depends on init/setup steps plus a management API, which is a scriptable but noticeably more moving-parts path to a reproducible dev environment. **Ory** (Hydra + Kratos + Keto) is the cleanest architecture and the most composable, but it is several services rather than one and expects us to build the login/consent UI ourselves — real work we do not want in the walking skeleton.
+The decisive criterion is not the protocol — all three candidates do OIDC with Authorization Code + PKCE — but developer experience and reproducibility. Keycloak imports a **versioned realm JSON at startup** (`--import-realm`), so `git clone && docker compose up` yields a working login with our realm, clients, roles, and redirect URIs already in place: no manual clicking in an admin UI, no undocumented state, and realm changes arrive as reviewable diffs in pull requests. That is the PO's explicit DevX requirement and it directly feeds the auth setup ticket. **Zitadel** is the more modern product with a nicer admin experience and multi-tenancy built in, but its bootstrap depends on init/setup steps plus a management API, which is a scriptable but noticeably more moving-parts path to a reproducible dev environment. **Ory** (Hydra + Kratos + Keto) is the cleanest architecture and the most composable, but it is several services rather than one and expects us to build the login/consent UI ourselves — real work we do not want in the walking skeleton.
 
 **Counter-argument, honestly stated:** Keycloak is heavy — a JVM service with noticeable memory use and startup time in a stack that also runs Postgres, MinIO, and a Whisper container, which is felt most on developer laptops. We accept that; it buys a mature, well-documented OIDC implementation and reproducible configuration. Keycloak gets its own logical database on the shared Postgres instance (separate database, separate user) rather than its own container — one less service, and its schema stays isolated from the domain schema.
 
@@ -83,7 +81,7 @@ The decisive criterion is not the protocol — all three candidates do OIDC with
 
 ## Consequences
 
-- Follow-up tickets can now name concrete technologies; issue #3 (auth setup) starts from Keycloak with a versioned realm export in the repo.
+- Follow-up tickets can now name concrete technologies; the auth setup starts from Keycloak with a versioned realm export in the repo.
 - One language across server, worker, and client: shared Zod schemas, one toolchain, one test runner — at the price of Node.js as the runtime for all backend work.
 - Infrastructure stays at four self-hosted services (Postgres, MinIO, Whisper, Keycloak) plus our own API and worker. No Redis, no separate broker.
 - Postgres becomes a single point of failure for domain data *and* the queue: if it is down, nothing is enqueued and nothing runs. That is an accepted, explicit trade — backups and monitoring for Postgres therefore rank highest in the operations ticket.

@@ -1,26 +1,26 @@
-# Quorum — Pitch: Warum wir das selbst bauen
+# Quorum — Pitch: Why We Are Building This Ourselves
 
 ## Problem
 
-Meetingaufzeichnung mit automatischer Transkription und Zusammenfassung existiert als Produktkategorie (Otter, Fireflies, tl;dv, …) — aber durchweg als US-Cloud-Dienste: Die Audio- und Gesprächsdaten liegen bei Dritten, die Zusammenfassungslogik ist eine Blackbox, Self-Hosting gibt es nicht.
+Meeting recording with automatic transcription and summarization exists as a product category (Otter, Fireflies, tl;dv, …) — but consistently as US cloud services: the audio and conversation data sits with third parties, the summarization logic is a black box, and self-hosting is not on offer.
 
-## Warum selbst bauen
+## Why Build It Ourselves
 
-1. **Datenhoheit als Kernversprechen.** Meetinginhalte sind hochsensibel. Audio wird ausschließlich auf eigener Infrastruktur transkribiert (self-hosted Whisper, ADR-005); Ziel ist die vollständig self-hosted Pipeline. Für datenschutzsensible Nutzer und Branchen ist das das Alleinstellungsmerkmal gegenüber den etablierten Anbietern.
-2. **Konfigurierbarkeit als Produktkern.** Zusammenfassungen sind nutzerspezifisch template-basiert (ADR-004) statt one-size-fits-all — vom System-Standard bis zum eigenen Abschnittslayout pro Nutzer.
-3. **Verständnis und Erweiterbarkeit.** Wir kontrollieren jede Pipeline-Stufe und können das System in speziellere Kontexte bringen, in denen Standard-SaaS nicht einsetzbar ist.
-4. **Erweiterbare Basis:** Sprecher-Erkennung (Diarisierung) und perspektivisch Sprecherprofile zur Wiedererkennung sind in Datenmodell und Architektur bereits vorgesehen (ADR-003), ohne V1 zu belasten.
+1. **Data sovereignty as the core promise.** Meeting content is highly sensitive. Audio is transcribed exclusively on our own infrastructure (self-hosted Whisper, ADR-005); the goal is a fully self-hosted pipeline. For privacy-sensitive users and industries, that is the differentiator against the established providers.
+2. **Configurability as the product core.** Summaries are template-based per user (ADR-004) instead of one-size-fits-all — from the system default to a user's own section layout.
+3. **Understanding and extensibility.** We control every stage of the pipeline and can take the system into more specialized contexts where off-the-shelf SaaS cannot be used.
+4. **An extensible foundation:** speaker recognition (diarization) and, further out, speaker profiles for re-identification are already accounted for in the data model and the architecture (ADR-003), without weighing V1 down.
 
-## V1-Demo-Definition
+## V1 Demo Definition
 
-Meeting im Browser aufnehmen (Desktop und Mobile, PWA) → Aufnahme wird crash-sicher gestreamt (ADR-002) → nach Meeting-Ende liegen Transkript und Summary nach eigenem Template vor → Aufnahme ist nachhörbar → Meeting ist vollständig löschbar (Kaskade, ADR-001).
+Record a meeting in the browser (desktop and mobile, PWA) → the recording is streamed crash-safely (ADR-002) → once the meeting ends, a transcript and a summary based on your own template are available → the recording can be listened back to → the meeting can be deleted completely (cascade, ADR-001).
 
-## Rechtlicher Rahmen (Haltung)
+## Legal Framing (Our Position)
 
-- Die **Einwilligung der Gesprächsteilnehmer** liegt in der Verantwortung des aufzeichnenden Nutzers — technisch können wir Teilnehmern außerhalb unserer App nichts anzeigen. Das Produkt weist den Nutzer klar auf diese Pflicht hin (Hinweis im Aufnahme-Flow und in den Nutzungsbedingungen).
-- Da es sich um sensible Daten handelt, ist **Datenschutz Umsetzungsprinzip, nicht Feature**: Verschlüsselung at rest, echtes Löschen inkl. Backups, Mandantentrennung ab Tag 1 (ADR-001).
-- Sprecherprofile zur Wiedererkennung sind biometrische Daten (Art. 9 DSGVO) — das Feature wird erst nach bewusster Compliance-Prüfung umgesetzt und ist deshalb Roadmap, nicht V1.
+- **Consent of the conversation participants** is the responsibility of the recording user — technically we cannot show anything to participants outside our app. The product points the user clearly at that obligation (a notice in the recording flow and in the terms of use).
+- Because this is sensitive data, **privacy is an implementation principle, not a feature**: encryption at rest, real deletion including backups, tenant separation from day one (ADR-001).
+- Speaker profiles for re-identification are biometric data (Art. 9 GDPR) — that feature will only be built after a deliberate compliance review and is therefore roadmap, not V1.
 
-## Architektur in einem Absatz
+## Architecture in One Paragraph
 
-Web-Client (PWA) streamt Audio-Chunks per WebSocket crash-sicher zum Server (ADR-002). Verarbeitung läuft als asynchrone Jobs über eine Pipeline mit definierten Kontrakten: Whisper-Transkription (self-hosted) → Summary via OpenAI-kompatible API (ADR-005). Alle Datenformate sind als versionierte Zod-Schemas Single Source of Truth für Client und Server; Maschinen-Output ist immutabel, Nutzerkorrekturen sind Overlays, Meeting→Transcript→Summary ist durchgängig 1:n (ADR-003/004) — Reprocessing mit besseren Modellen ist damit ein Feature, keine Migration.
+The web client (PWA) streams audio chunks to the server over WebSocket, crash-safely (ADR-002). Processing runs as asynchronous jobs through a pipeline with defined contracts: Whisper transcription (self-hosted) → summary via an OpenAI-compatible API (ADR-005). All data formats are versioned Zod schemas and the single source of truth for client and server; machine output is immutable, user corrections are overlays, and Meeting→Transcript→Summary is 1:n throughout (ADR-003/004) — which makes reprocessing with better models a feature rather than a migration.

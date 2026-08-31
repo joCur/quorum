@@ -1,31 +1,31 @@
 # Quorum — Roadmap
 
-> Wird bei Projektstart als GitHub-Issues/Milestones ausgebreitet.
+> Expanded into GitHub issues/milestones at project start.
 
-## V1 — Walking Skeleton bis Demo
+## V1 — Walking Skeleton up to the Demo
 
-1. Auth (OIDC, fertige Lösung, Authorization Code + PKCE) + Mandanten-/User-Scope in jedem Datenobjekt
-2. WebSocket-Recording-Endpoint gemäß Protokoll (ADR-002), Persistierung in Object Storage, `chunk.ack`
-3. Web-Client: Aufnahme (getUserMedia + MediaRecorder), Wake Lock, IndexedDB-Puffer, Reconnect ab `persistedSeq`
-4. Job-Worker: Whisper-Transkription → Transcript-Schema (inkl. Wort-Timestamps)
-5. Summary-Worker: System-Template → OpenAI-kompatible API → Summary mit Template-Snapshot
-6. Meeting-Verwaltung: Liste, Nachhören, Transkript-Ansicht, vollständiges Löschen (Kaskade)
-7. Nutzer-Templates (basedOn + Overrides)
-8. E2E-Tests der kritischen Pfade: Aufnahme→Transkript→Summary, Auth-Flows, Löschen
+1. Auth (OIDC, off-the-shelf solution, Authorization Code + PKCE) + tenant/user scope in every data object
+2. WebSocket recording endpoint per the protocol (ADR-002), persistence in object storage, `chunk.ack`
+3. Web client: recording (getUserMedia + MediaRecorder), wake lock, IndexedDB buffer, reconnect from `persistedSeq`
+4. Job worker: Whisper transcription → transcript schema (including word timestamps)
+5. Summary worker: system template → OpenAI-compatible API → summary with a template snapshot
+6. Meeting management: list, listen back, transcript view, complete deletion (cascade)
+7. User templates (basedOn + overrides)
+8. E2E tests of the critical paths: recording→transcript→summary, auth flows, deletion
 
-## V2 — Ausbau
+## V2 — Build-Out
 
-- Transkript-Korrekturen im UI (editedText/editedSpeakerId, Original bleibt erhalten)
-- Reprocessing-Feature (neues Modell auf altes Audio, 1:n-Transcripts)
-- Live-Transkript (`transcript.partial` aktivieren)
-- Aufbewahrungsregeln pro Nutzer (Auto-Löschung Audio)
-- Quotas/Limits pro Plan
+- Transcript corrections in the UI (editedText/editedSpeakerId, the original is retained)
+- Reprocessing feature (a new model over old audio, 1:n transcripts)
+- Live transcript (enable `transcript.partial`)
+- Retention rules per user (automatic deletion of audio)
+- Quotas/limits per plan
 
-## Später / nach Compliance-Prüfung
+## Later / After a Compliance Review
 
-- Sprecher-Diarisierung
-- Sprecherprofile zur Wiedererkennung (biometrische Daten, Art. 9 DSGVO — bewusste Compliance-Entscheidung)
-- Lokaler Verarbeitungspfad (Browser-Whisper) als dritte Nutzeroption
-- Self-hosted Summary-LLMs (Konfigwechsel dank OpenAI-kompatibler Abstraktion, ADR-005)
-- PII-Redaction als Overlay
-- Team-/Org-Scope für Templates
+- Speaker diarization
+- Speaker profiles for re-identification (biometric data, Art. 9 GDPR — a deliberate compliance decision)
+- A local processing path (in-browser Whisper) as a third user option
+- Self-hosted summary LLMs (a configuration change thanks to the OpenAI-compatible abstraction, ADR-005)
+- PII redaction as an overlay
+- Team/org scope for templates

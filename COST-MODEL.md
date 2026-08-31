@@ -1,36 +1,36 @@
-# Quorum — Kostenmodell pro Meeting-Stunde
+# Quorum — Cost Model per Meeting Hour
 
-Stand: 2026-08 · Grundlage für Pitch und spätere Plan-Preise/Quotas.
+As of 2026-08 · the basis for the pitch and for later plan prices/quotas.
 
-## Variante A: Eigener Server (Startphase, Docker Compose)
+## Option A: Our Own Server (early phase, Docker Compose)
 
-| Posten | pro Meeting-Stunde |
+| Item | per meeting hour |
 |---|---|
-| Strom Whisper-Transkription (GPU, grob 0,15–0,2 kWh) | ~0,05–0,08 € |
-| Summary via OpenRouter (12–15k Input- / 1–2k Output-Tokens) | ~0,01–0,05 € |
-| Storage (Opus ~15 MB/h, lokal) | ~0 € |
-| **Grenzkosten** | **~0,10 €** |
+| Electricity for Whisper transcription (GPU, roughly 0.15–0.2 kWh) | ~€0.05–0.08 |
+| Summary via OpenRouter (12–15k input / 1–2k output tokens) | ~€0.01–0.05 |
+| Storage (Opus ~15 MB/h, local) | ~€0 |
+| **Marginal cost** | **~€0.10** |
 
-Keine Fixkosten außer vorhandener Hardware. GTX 1050 = small-Qualität (Entwicklung);
-nach Upgrade auf 4070 Ti Super large-v3-Qualität, ~12–18x Echtzeit geschätzt,
-Bestandsmeetings per Reprocessing rückwirkend verbesserbar (ADR-003).
+No fixed costs beyond the hardware we already have. A GTX 1050 means small-model quality
+(development); after the upgrade to a 4070 Ti Super, large-v3 quality at an estimated
+~12–18x real time, with existing meetings improvable retroactively via reprocessing (ADR-003).
 
-## Variante B: Cloud (Hetzner, sobald echte Last)
+## Option B: Cloud (Hetzner, once there is real load)
 
-Referenz: GEX44 (RTX 4000 SFF Ada, 20 GB) ≈ 232 €/Monat netto bzw. ~0,37 €/GPU-Stunde;
-Object Storage ~6,50 €/Monat für 1 TB (≈ 65.000 Meeting-Stunden Audio).
+Reference: GEX44 (RTX 4000 SFF Ada, 20 GB) ≈ €232/month net, i.e. ~€0.37 per GPU hour;
+object storage ~€6.50/month for 1 TB (≈ 65,000 meeting hours of audio).
 
-| Posten | pro Meeting-Stunde |
+| Item | per meeting hour |
 |---|---|
-| Transkription (large-v3, konservativ 6x Echtzeit → 10 min GPU) | ~0,06 € |
-| Summary (OpenRouter, Standard-Modell) | ~0,01–0,05 € |
-| Storage (laufend) | ~0,0001 €/Monat |
-| **Grenzkosten** | **~0,10 €** |
+| Transcription (large-v3, a conservative 6x real time → 10 min of GPU) | ~€0.06 |
+| Summary (OpenRouter, standard model) | ~€0.01–0.05 |
+| Storage (ongoing) | ~€0.0001/month |
+| **Marginal cost** | **~€0.10** |
 
-**Fixkosten-Realität:** Die Grenzkosten gelten bei ausgelasteter GPU. Bei z. B. 200
-Meeting-Stunden/Monat liegen die effektiven Kosten bei ~1,20 €/h (GPU-Fixkosten
-verteilt). Entlastung: stundenweise Abrechnung ohne Mindestlaufzeit (GPU nur bei
-Bedarf, Queue puffert) oder CPU-Transkription in der Frühphase.
+**The fixed-cost reality:** the marginal costs hold with the GPU fully utilized. At, say, 200
+meeting hours/month the effective cost is ~€1.20/h (the GPU fixed cost spread out). Relief:
+hourly billing with no minimum term (GPU only on demand, the queue buffers) or CPU
+transcription in the early phase.
 
 ## Enforcement of the input-token assumption
 
@@ -49,13 +49,13 @@ Actual `promptTokens` / `completionTokens` are logged per summary job wherever t
 backend reports them, so these estimates can eventually be replaced by
 measurements.
 
-## Pitch-Aussage
+## The Pitch Statement
 
-Grenzkosten ~0,10 € pro Meeting-Stunde; Fixkosten 0 € (eigener Server) bis
-~230 €/Monat (dedizierte Cloud-GPU). Ab wenigen hundert Meeting-Stunden pro Monat
-ist jedes realistische Abo-Modell deutlich profitabel.
+Marginal cost ~€0.10 per meeting hour; fixed costs €0 (our own server) up to
+~€230/month (a dedicated cloud GPU). From a few hundred meeting hours per month
+onward, every realistic subscription model is clearly profitable.
 
-## To-do nach Hardware-Test
+## To Do After the Hardware Test
 
-4070 Ti Super real vermessen: whisperX inkl. Wort-Alignment (ADR-003-Anspruch) und
-VAD mitlaufen lassen, VRAM und echte Durchlaufzeit notieren → Zahlen hier ersetzen.
+Measure the 4070 Ti Super for real: run whisperX including word alignment (what ADR-003
+asks for) and VAD, note VRAM and the actual throughput time → replace the numbers here.
