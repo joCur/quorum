@@ -23,7 +23,7 @@ vi.mock("@/features/auth/auth-provider", () => ({
 }));
 
 const { RequireAuth } = await import("@/features/auth/require-auth");
-const { LoginRoute } = await import("@/routes/login");
+const { LandingRoute } = await import("@/routes/landing");
 
 function setAuth(overrides: Partial<AuthContextValue> = {}): void {
   auth.current = {
@@ -52,7 +52,7 @@ function renderSignedOut(route = "/meetings") {
           </RequireAuth>
         }
       />
-      <Route path="/login" element={<LoginRoute />} />
+      <Route path="/" element={<LandingRoute />} />
     </Routes>,
     { route },
   );
@@ -175,9 +175,9 @@ describe("the signed-out gate", () => {
     setAuth({ status: "loading" });
     renderWithProviders(
       <Routes>
-        <Route path="/login" element={<LoginRoute />} />
+        <Route path="/" element={<LandingRoute />} />
       </Routes>,
-      { route: "/login" },
+      { route: "/" },
     );
 
     for (const button of screen.getAllByRole("button", { name: "Sign in" })) {
