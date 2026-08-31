@@ -249,11 +249,15 @@ test("summarizes a recording with the template picked at the start, over the use
     await expect(page.getByTestId("template-card").filter({ hasText: name })).toBeVisible();
   }
 
-  await page
-    .getByTestId("template-card")
-    .filter({ hasText: PREFERRED_NAME })
+  const preferred = page.getByTestId("template-card").filter({ hasText: PREFERRED_NAME });
+  await preferred
     .getByRole("button", { name: `Default — use ${PREFERRED_NAME} for new recordings` })
     .click();
+  // Waiting for the badge, not just for the click: the choice is a request, and the recording
+  // screen below reads the answer to it. Navigating while it is still in flight leaves the picker
+  // on the system template — which is exactly what CI caught, on a runner slow enough to lose the
+  // race this spec was quietly running. Its sibling above already waits here.
+  await expect(preferred.getByTestId("template-default-badge")).toBeVisible();
 
   const oneOffId = await waitForValue(
     () => findUserTemplateId(ONE_OFF_NAME),
