@@ -164,9 +164,7 @@ export function RecordRoute() {
       <main className="flex flex-1 flex-col items-center justify-center gap-7 overflow-y-auto px-6">
         {onStartStage ? (
           <div className="flex w-full max-w-[420px] flex-col gap-4">
-            <h1 className="font-display text-3xl font-extrabold tracking-tight">
-              {t("recording.title")}
-            </h1>
+            <h1 className="text-display-md">{t("recording.title")}</h1>
 
             {/* The kind of meeting comes before its title: it decides what will be listened to,
                 and everything below it reads differently once it is settled. */}

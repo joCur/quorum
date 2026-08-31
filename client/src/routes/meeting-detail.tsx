@@ -98,7 +98,7 @@ function MeetingDetailScreen({
 
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="truncate text-xl font-bold md:text-2xl">{title}</h1>
+            <h1 className="truncate text-display-sm">{title}</h1>
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>{formatMeetingDate(meeting.createdAt, i18n.language)}</span>
               {duration ? (
@@ -263,7 +263,7 @@ function ColumnHeading({ id, children }: { id: string; children: React.ReactNode
   return (
     <h2
       id={id}
-      className="sr-only font-sans text-xs font-extrabold uppercase tracking-[0.08em] text-muted-foreground shell:not-sr-only"
+      className="sr-only font-sans text-section-label uppercase text-muted-foreground shell:not-sr-only"
     >
       {children}
     </h2>

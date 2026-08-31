@@ -41,7 +41,7 @@ export function SettingsRoute() {
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <h1 className="text-xl font-bold md:text-2xl">{t("settings.title")}</h1>
+      <h1 className="text-display-lg">{t("settings.title")}</h1>
 
       <Card className="divide-y divide-border overflow-hidden">
         <Row label={t("settings.appearance.title")}>
@@ -103,9 +103,7 @@ export function SettingsRoute() {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-2.5 p-4 md:px-5">
-      <h2 className="text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground">
-        {label}
-      </h2>
+      <h2 className="text-section-label uppercase text-muted-foreground">{label}</h2>
       {children}
     </section>
   );

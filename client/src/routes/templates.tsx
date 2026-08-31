@@ -69,9 +69,7 @@ export function TemplatesRoute() {
   if (templates.status === "error") {
     return (
       <div className="flex flex-col gap-6">
-        <h1 className="font-display text-2xl font-extrabold tracking-tight md:text-3xl">
-          {t("templates.title")}
-        </h1>
+        <h1 className="text-display-lg">{t("templates.title")}</h1>
         <Card>
           <CardContent className="flex flex-col items-start gap-3 pt-6">
             <p className="text-muted-foreground">{t("templates.loadError")}</p>
@@ -108,7 +106,7 @@ export function TemplatesRoute() {
           <ArrowLeft aria-hidden="true" className="size-4" />
           {t("templates.editor.back")}
         </Button>
-        <h1 className="font-display text-2xl font-extrabold tracking-tight md:text-3xl">
+        <h1 className="text-display-sm">
           {editing ? editing.template.name : t("templates.create")}
         </h1>
         {saveError ? <p className="text-sm text-destructive">{saveError}</p> : null}
@@ -135,9 +133,7 @@ export function TemplatesRoute() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-2">
-        <h1 className="font-display text-2xl font-extrabold tracking-tight md:text-3xl">
-          {t("templates.title")}
-        </h1>
+        <h1 className="text-display-lg">{t("templates.title")}</h1>
         <Button onClick={() => setMode({ kind: "create" })}>
           <Plus aria-hidden="true" className="size-4" />
           {t("templates.create")}
