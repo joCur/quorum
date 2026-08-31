@@ -27,7 +27,7 @@ vi.mock("@/features/auth/auth-provider", () => ({
 }));
 
 const { AuthCallbackRoute } = await import("@/routes/auth-callback");
-const { LoginRoute } = await import("@/routes/login");
+const { LandingRoute } = await import("@/routes/landing");
 
 /** The callback URL Keycloak actually produces on the way back from e-mail verification. */
 const VERIFICATION_RETURN =
@@ -52,7 +52,7 @@ function renderAt(route: string) {
   return renderWithProviders(
     <Routes>
       <Route path="/auth/callback" element={<AuthCallbackRoute />} />
-      <Route path="/login" element={<LoginRoute />} />
+      <Route path="/" element={<LandingRoute />} />
       <Route path="/meetings" element={<p>the meeting list</p>} />
     </Routes>,
     { route },

@@ -21,7 +21,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (status !== "authenticated") {
     // The whole location travels, query and fragment included: a session that expires while the
     // user is reading a meeting should bring them back to that meeting, not to the front door.
-    return <Navigate to="/login" replace state={{ from: locationTarget(location) }} />;
+    return <Navigate to="/" replace state={{ from: locationTarget(location) }} />;
   }
 
   return <>{children}</>;
