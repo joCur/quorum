@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import type { CaptureMode } from "@/features/recording/capture-mode";
 import { cn } from "@/lib/utils";
 
 /**
@@ -18,7 +19,13 @@ import { cn } from "@/lib/utils";
  * of AA at heading size — and a legal notice is the last place to spend a known contrast
  * shortfall. Honey carries the card through its border and its ground; the words stay readable.
  */
-export function ConsentCard({ className }: { className?: string }) {
+export function ConsentCard({
+  className,
+  mode = "in-person",
+}: {
+  className?: string;
+  mode?: CaptureMode;
+}) {
   const { t } = useTranslation();
 
   return (
@@ -34,7 +41,10 @@ export function ConsentCard({ className }: { className?: string }) {
         {t("consent.title")}
       </h2>
       <p className="text-pretty text-[13px] leading-relaxed text-muted-foreground">
-        {t("consent.body")}
+        {/* The obligation does not change with the mode, but who it is owed to does: an online
+            meeting's participants are in the call, not in the room, and telling them is not
+            something the app can do on the user's behalf either. */}
+        {mode === "online" ? t("consent.bodyOnline") : t("consent.body")}
       </p>
     </section>
   );

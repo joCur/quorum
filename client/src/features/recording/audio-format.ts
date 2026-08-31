@@ -46,13 +46,23 @@ export function selectRecordingFormat(
   return null;
 }
 
-/** Announced in `session.start`; the sample rate comes from the live track. */
-export function describeAudioFormat(format: SelectedFormat, track: MediaStreamTrack): AudioFormat {
+/**
+ * Announced in `session.start`; the sample rate comes from the live track.
+ *
+ * A track produced by a WebAudio graph — the mixed capture of an online meeting — often reports no
+ * settings of its own, because it never was a device. The graph's context is then the truthful
+ * source for the rate, and is passed in for exactly that case.
+ */
+export function describeAudioFormat(
+  format: SelectedFormat,
+  track: MediaStreamTrack,
+  context?: Pick<BaseAudioContext, "sampleRate"> | undefined,
+): AudioFormat {
   const settings = track.getSettings();
   return {
     codec: format.codec,
     container: format.container,
-    sampleRate: settings.sampleRate ?? 48_000,
+    sampleRate: settings.sampleRate ?? context?.sampleRate ?? 48_000,
     channels: settings.channelCount ?? 1,
   };
 }

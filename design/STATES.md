@@ -78,6 +78,60 @@ stage, in either theme.
   the top bar (red, pulsing dot, running timer) leads back to it. Paused, that pill is neutral.
 - Browser/tab crash: on next app open, an unfinished session with local buffer triggers a recovery card in the meeting list: "A recording was interrupted — 14 min are safe on this device." → actions: "Upload and finish" / "Discard". Reassuring, factual.
 
+## 2a. Online meetings (capturing the call as well as the room)
+
+A recording is one of two kinds, chosen on the start stage before anything is captured: **In person**
+(the microphone alone, the default) or **Online meeting** (the microphone *plus* the sound of the
+meeting app running on this computer). The choice is a pill switcher — the same pattern the meeting
+detail uses — and it is the only thing the mode adds to the stage. Everything downstream is
+unchanged: the two sources are summed in a WebAudio graph into a single track, so the recorder, the
+chunk protocol, the server and the pipeline never learn that this recording had two inputs.
+
+**The sound-only promise.** The screen-capture API has no sound-only dialog, by browser design: the
+operating system's picker must show what is being shared, so a video track always comes back.
+Quorum stops and removes that track the instant the stream arrives — before anything is recorded,
+buffered or sent. Nothing from the screen is stored or transmitted. The mode's copy states this
+outright, in those words, because for a privacy product it is the sentence the feature stands on;
+it is enforced in one place in the code and asserted in tests, not merely written on the stage.
+
+**Honest capability, never a dead button.** Whether sound is on offer is a property of the browser,
+the operating system and the picker, and no API answers it in advance:
+
+- A browser with no screen capture at all says so on the stage, before the button is pressed, and
+  names the realistic alternatives (a Chromium browser on Windows or macOS 14.2+, or playing the
+  call through the speakers and recording it with the microphone). The start button is refused in
+  the same place the reason is stated, never on its own elsewhere.
+- A share that comes back **without an audio track** — the user left "share audio" unticked, or the
+  platform has none to give — aborts the start with a factual explanation that names the checkbox
+  by the labels the browser uses, and offers the in-person route. Falling back silently to a
+  microphone-only recording under a mode the user chose for the opposite reason is forbidden.
+- A dismissed picker is a refusal, not a malfunction: nothing was shared, so nothing was recorded.
+
+**The share ending mid-recording** (the user presses the browser's own "Stop sharing", or the shared
+window closes) **pauses; it does not finalize.** Finalizing would end a meeting the user is very
+likely still in, over what is usually a misclick, and it buys nothing — paused audio is exactly as
+safe as finalized audio and stopping remains one hold away. What the product must not do is carry
+on: red leaves the screen, the timer freezes, and a standing `warning` line says the shared sound
+stopped, that everything so far is safe, and what the two ways forward are. Resume is a user
+gesture, which is what the picker requires, so resuming reopens the share dialog — and the button
+says so rather than springing it on the user. A re-share that is dismissed or silent leaves the
+recording paused with the notice standing.
+
+**Pause pauses both sources.** Not only the recorder: both tracks are disabled, so the microphone
+indicator goes out and the call is genuinely no longer being listened to. A pause that were only
+true on screen would be the same lie in a smaller font.
+
+**The meter reads the mix.** The level meter and the breathing indicator are fed from the sum, not
+from the microphone — an indicator that sat still while only the remote participants spoke would
+report the opposite of the truth.
+
+**Navigation survival is unchanged**: the display stream is owned by the same app-level session as
+the microphone, so leaving the recording screen keeps the share alive exactly as it keeps the
+microphone alive.
+
+**Consent (§1) covers the online case in its own words**: the participants to inform are in the
+call, and Quorum can no more announce itself there than it can in a room.
+
 ## 3. Offline / reconnecting (the chunk buffer)
 
 Capture never stops because the network does — this is ADR-002's promise made visible. The tone is a calm "we've got this", never alarm.

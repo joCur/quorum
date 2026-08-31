@@ -138,7 +138,7 @@ describe("record screen microphone choice", () => {
       }),
     );
 
-    expect(startSpy).toHaveBeenCalledWith(null, null, HEADSET);
+    expect(startSpy).toHaveBeenCalledWith(null, null, HEADSET, "in-person");
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe(HEADSET);
   });
 
@@ -156,6 +156,6 @@ describe("record screen microphone choice", () => {
 
     // No id travels rather than one guessed from the list: the system default is the browser's
     // to decide, and it can change between recordings.
-    expect(startSpy).toHaveBeenCalledWith(null, null, null);
+    expect(startSpy).toHaveBeenCalledWith(null, null, null, "in-person");
   });
 });

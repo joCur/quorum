@@ -4,6 +4,7 @@ import {
   LoaderCircle,
   Mic,
   MicOff,
+  MonitorOff,
   Pause,
   Play,
   TriangleAlert,
@@ -15,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { CaptureModeSwitch } from "@/components/recording/capture-mode-switch";
 import { ConnectionBanner } from "@/components/recording/connection-banner";
 import { ConsentCard } from "@/components/recording/consent-card";
 import { HoldToStopButton } from "@/components/recording/hold-to-stop-button";
@@ -22,6 +24,12 @@ import { LevelMeter } from "@/components/recording/level-meter";
 import { RecordingIndicator } from "@/components/recording/recording-indicator";
 import { SyncStatus } from "@/components/recording/sync-status";
 import { isRecordingFinalizedDespite, limitMessageKey } from "@/features/limits/messages";
+import {
+  rememberCaptureMode,
+  readRememberedCaptureMode,
+  type CaptureMode,
+} from "@/features/recording/capture-mode";
+import { displayCaptureSupport } from "@/features/recording/display-capture";
 import { useAudioInputs } from "@/features/recording/use-audio-inputs";
 import { useRequiredRecordingSession } from "@/features/recording/recording-context";
 import type { RecordingState } from "@/features/recording/use-recording";
@@ -56,6 +64,16 @@ export function RecordRoute() {
   // `null` means "not touched yet", which is what keeps the field following the user's default
   // while it is still loading — an explicit choice replaces it and is never overwritten again.
   const [chosenTemplate, setChosenTemplate] = React.useState<string | null>(null);
+  const [mode, setMode] = React.useState<CaptureMode>(() => readRememberedCaptureMode());
+  // Read once: whether this browser has screen capture at all does not change while the screen is
+  // open, and calling it per render would be a permission-adjacent probe on every keystroke.
+  const [displaySupport] = React.useState(() => displayCaptureSupport());
+  const displayUnavailable = mode === "online" && displaySupport === "unsupported";
+
+  const chooseMode = (next: CaptureMode) => {
+    setMode(next);
+    rememberCaptureMode(next);
+  };
 
   const defaultTemplate = templates.templates.find((view) => view.isDefault)?.template.id ?? null;
   const templateId = chosenTemplate ?? defaultTemplate ?? "";
@@ -101,6 +119,7 @@ export function RecordRoute() {
       title.trim() === "" ? null : title.trim(),
       templateId === "" ? null : templateId,
       inputs.deviceId,
+      mode,
     );
 
   // The session outlives this screen now, so what is left of the last one — a finished recording,
@@ -148,6 +167,10 @@ export function RecordRoute() {
             <h1 className="font-display text-3xl font-extrabold tracking-tight">
               {t("recording.title")}
             </h1>
+
+            {/* The kind of meeting comes before its title: it decides what will be listened to,
+                and everything below it reads differently once it is settled. */}
+            <CaptureModeSwitch mode={mode} support={displaySupport} onChoose={chooseMode} />
 
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="meeting-title">{t("recording.titleField.label")}</Label>
@@ -201,14 +224,18 @@ export function RecordRoute() {
 
             {/* The notice precedes the button in reading order as well as on screen: the
                 obligation is read before the control that acts on it. */}
-            <ConsentCard />
+            <ConsentCard mode={mode} />
 
             {/* The label is a full sentence and must never be clipped: the button grows to hold
-                it rather than the words being cut to fit the control. */}
+                it rather than the words being cut to fit the control.
+
+                Disabled only where the browser genuinely cannot do what the mode says — and never
+                on its own: the note directly above states the reason, so the control is dead in
+                the same place the explanation is, not somewhere the user has to guess. */}
             <Button
               variant="honey"
               size="lg"
-              disabled={busy}
+              disabled={busy || displayUnavailable}
               onClick={beginRecording}
               className="h-auto min-h-[52px] whitespace-normal py-3.5 text-center text-[15px] font-extrabold leading-snug"
             >
@@ -217,7 +244,11 @@ export function RecordRoute() {
               ) : (
                 <Mic aria-hidden="true" />
               )}
-              {busy ? t("recording.starting") : t("consent.confirm")}
+              {busy
+                ? t("recording.starting")
+                : mode === "online"
+                  ? t("consent.confirmOnline")
+                  : t("consent.confirm")}
             </Button>
           </div>
         ) : (
@@ -246,6 +277,20 @@ export function RecordRoute() {
               <p role="status" className="flex items-center gap-2 text-sm text-warning">
                 <MicOff className="size-4" aria-hidden="true" />
                 {t("recording.inputFallback")}
+              </p>
+            ) : null}
+
+            {/* The one condition that stops an online recording without ending it. It stands here
+                for as long as it holds, because the user has a decision to make: share again and
+                carry on, or stop and keep what is already safe. */}
+            {state.displayEnded && live ? (
+              <p
+                role="status"
+                data-testid="display-ended-notice"
+                className="flex max-w-sm items-center gap-2 text-center text-sm text-warning"
+              >
+                <MonitorOff className="size-4 shrink-0" aria-hidden="true" />
+                {t("recording.displayEnded")}
               </p>
             ) : null}
 
@@ -283,9 +328,11 @@ export function RecordRoute() {
                 {t("recording.pause")}
               </Button>
             ) : (
-              <Button size="lg" onClick={resume}>
+              <Button size="lg" onClick={() => void resume()}>
                 <Play aria-hidden="true" />
-                {t("recording.resume")}
+                {/* Resuming an online recording whose share ended reopens the browser's share
+                    dialog, so the button says that rather than surprising the user with it. */}
+                {state.displayEnded ? t("recording.resumeShare") : t("recording.resume")}
               </Button>
             )}
 
