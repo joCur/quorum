@@ -15,6 +15,25 @@ import { createServer } from "node:http";
 
 const port = Number.parseInt(process.env.MOCK_WHISPER_PORT ?? "8123", 10);
 
+/**
+ * Armed by a test through `POST /control/reject-transcription`, spent by the next transcription
+ * request.
+ *
+ * A failed pipeline is a state the UI has to render, and the only honest way to reach it is to let
+ * a real job fail. One shot rather than a mode, because the suite runs serially and the meeting
+ * recorded right after arming is the one meant to fail — no test has to remember to switch a mode
+ * back off.
+ */
+let rejectNextTranscription = false;
+
+/** The shape a real OpenAI-compatible backend answers with when it does not have the model. */
+function rejection() {
+  return {
+    detail:
+      "Model 'mock-tiny' is not installed locally. Install it or pick a model that is available.",
+  };
+}
+
 /** Fixed response in the `verbose_json` shape, with the word timestamps ADR-003 requires. */
 function transcription() {
   return {
@@ -81,6 +100,14 @@ function readBody(request) {
 }
 
 const server = createServer((request, response) => {
+  if (request.url === "/control/reject-transcription" && request.method === "POST") {
+    request.resume();
+    rejectNextTranscription = true;
+    response.writeHead(204);
+    response.end();
+    return;
+  }
+
   if (request.url?.endsWith("/chat/completions") && request.method === "POST") {
     void readBody(request).then((body) => {
       // The prompt is read from the parsed messages, not from the raw body: inside JSON the
@@ -115,6 +142,14 @@ const server = createServer((request, response) => {
     // decoder, and the audio itself is asserted on in object storage instead.
     request.resume();
     request.on("end", () => {
+      if (rejectNextTranscription) {
+        // 404 is the answer the worker maps to a terminal rejection, so the job fails once
+        // instead of being retried until a test runs out of patience.
+        rejectNextTranscription = false;
+        response.writeHead(404, { "content-type": "application/json" });
+        response.end(JSON.stringify(rejection()));
+        return;
+      }
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify(transcription()));
     });

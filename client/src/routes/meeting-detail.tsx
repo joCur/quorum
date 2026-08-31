@@ -15,6 +15,7 @@ import { SummaryAttribution, SummaryView } from "@/components/meetings/summary-v
 import { TranscriptView } from "@/components/meetings/transcript-view";
 import { formatMeetingDate, formatMeetingDuration, meetingLabel } from "@/features/meetings/format";
 import { asLimitCode, limitMessageKey } from "@/features/limits/messages";
+import { failedJobId, failureMessageKey } from "@/features/meetings/failure";
 import { isPipelineComplete } from "@/features/meetings/pipeline";
 import { useMeeting } from "@/features/meetings/use-meeting";
 import { useMeetingAudio } from "@/features/meetings/use-meeting-audio";
@@ -287,8 +288,8 @@ function TranscriptPanel({
       {failure?.stage === "transcribe" ? (
         <FailurePanel
           title={t("meeting.transcript.failed")}
-          message={failure.message}
           code={failure.code}
+          jobId={failedJobId(detail, "transcribe")}
         />
       ) : detail.transcript ? (
         <TranscriptView transcript={detail.transcript} currentTime={currentTime} onSeek={onSeek} />
@@ -340,8 +341,8 @@ function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: (
       {failure?.stage === "summarize" && !regeneration.pending ? (
         <FailurePanel
           title={t("meeting.summary.failed")}
-          message={failure.message}
           code={failure.code}
+          jobId={failedJobId(detail, "summarize")}
         />
       ) : summary ? (
         <div className={cn("flex flex-col gap-2", regeneration.pending && "opacity-60")}>
@@ -394,14 +395,35 @@ function WaitingPanel({ message }: { message: string }) {
 
 /**
  * A failed stage is reported in place, not as a toast — it is a standing condition. Everything
- * that succeeded stays usable: the audio player and the other tab are untouched (STATES.md §5).
+ * that succeeded stays usable: the audio player and the other half are untouched (STATES.md §5).
+ *
+ * The sentence comes from the error code, never from the pipeline's own message: that message is
+ * written for logs and may quote a backend verbatim, which is neither the user's language nor
+ * anything the product talks about (ADR-005). The code and the job reference stay reachable one
+ * click down, where support can ask for them without the screen leading with them.
  */
-function FailurePanel({ title, message, code }: { title: string; message: string; code: string }) {
+function FailurePanel({
+  title,
+  code,
+  jobId,
+}: {
+  title: string;
+  code: string;
+  jobId: string | null;
+}) {
+  const { t } = useTranslation();
+
   return (
     <Card className="flex flex-col gap-2 p-5">
       <h2 className="font-semibold text-destructive">{title}</h2>
-      <p className="text-sm text-muted-foreground">{message}</p>
-      <p className="font-mono text-xs text-muted-foreground">{code}</p>
+      <p className="text-sm text-muted-foreground">{t(failureMessageKey(code))}</p>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer select-none">{t("meeting.failure.details")}</summary>
+        <p className="mt-1 font-mono">{t("meeting.failure.detailsCode", { code })}</p>
+        {jobId ? (
+          <p className="font-mono">{t("meeting.failure.detailsReference", { id: jobId })}</p>
+        ) : null}
+      </details>
     </Card>
   );
 }

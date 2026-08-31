@@ -348,6 +348,25 @@
         "summarizing": "Summarizing"
       }
     },
+    "failure": {
+      "generic": "This meeting could not be processed. The audio is safe and can still be played back.",
+      "recordingUnfinished": "This recording was never finished, so there is nothing to transcribe.",
+      "audioUnavailable": "The audio of this recording could not be opened. It is still stored — please try again later.",
+      "audioEmpty": "This recording contains no audio.",
+      "audioUnreadable": "The audio of this recording could not be read, so there is no transcript.",
+      "transcriptionUnavailable": "Transcribing is not possible right now. The audio is safe — please try again in a few minutes.",
+      "transcriptionFailed": "This recording could not be transcribed. The audio is safe and can still be played back.",
+      "transcriptNotSaved": "The transcript could not be saved. The audio is safe — please try again later.",
+      "transcriptMissing": "The transcript this summary was to be written from no longer exists.",
+      "transcriptEmpty": "The transcript holds no text to summarize.",
+      "templateMissing": "The template for this summary is no longer available. Choose another template and try again.",
+      "summaryUnavailable": "Summarizing is not possible right now. Please try again in a few minutes.",
+      "summaryFailed": "The summary could not be written. Your transcript is unaffected — you can try again.",
+      "summaryNotSaved": "The summary could not be saved. Please try again.",
+      "details": "Technical details",
+      "detailsCode": "Error code: {{code}}",
+      "detailsReference": "Reference: {{id}}"
+    },
     "player": {
       "label": "Playback",
       "play": "Play",
