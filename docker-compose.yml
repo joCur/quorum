@@ -1,8 +1,8 @@
-# Quorum — Self-Hosting-Skeleton (Docker Compose)
-# Whisper-Modell, GPU-Nutzung und Summary-Backend sind reine Env-Konfiguration (.env):
-#   Entwicklung (GTX 1050):  WHISPER_MODEL=small, INT8
-#   Nach GPU-Upgrade:        WHISPER_MODEL=large-v3, FP16 — Rest unverändert
-#   CPU-Fallback:            Compose ohne GPU-Override starten (siehe unten)
+# Quorum — the self-hosting skeleton (Docker Compose)
+# The Whisper model, GPU use and the summary backend are pure env configuration (.env):
+#   Development (GTX 1050):  WHISPER_MODEL=small, INT8
+#   After the GPU upgrade:   WHISPER_MODEL=large-v3, FP16 — everything else unchanged
+#   CPU fallback:            start compose without the GPU override (see below)
 
 name: quorum
 
@@ -206,9 +206,9 @@ services:
       start_period: 20s
 
   whisper:
-    # speaches (ehem. faster-whisper-server): OpenAI-kompatible /v1/audio/transcriptions
-    # Image-Tag bewusst pinnen — bei Pascal-GPUs (GTX 1050, CC 6.1) auf CUDA-Kompatibilität achten,
-    # ggf. ältere Version wählen oder das *-cpu Image nutzen.
+    # speaches (formerly faster-whisper-server): an OpenAI-compatible /v1/audio/transcriptions
+    # Pin the image tag deliberately — on Pascal GPUs (GTX 1050, CC 6.1) watch out for CUDA
+    # compatibility; pick an older version if needed, or use the *-cpu image.
     image: ghcr.io/speaches-ai/speaches:${WHISPER_IMAGE_TAG:-latest-cuda}
     restart: unless-stopped
     environment:
@@ -216,9 +216,9 @@ services:
       WHISPER__COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE}   # int8 (1050) | float16 (4070 Ti S)
       WHISPER__DEVICE: ${WHISPER_DEVICE}               # cuda | cpu
     volumes:
-      - whisper-models:/home/ubuntu/.cache/huggingface  # Modell-Cache über Neustarts
-    # GPU-Zugriff: aktiv via `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up`
-    # Host-Voraussetzung: NVIDIA-Treiber + nvidia-container-toolkit
+      - whisper-models:/home/ubuntu/.cache/huggingface  # model cache across restarts
+    # GPU access: enabled via `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up`
+    # Host requirement: the NVIDIA driver + nvidia-container-toolkit
 
   postgres:
     image: postgres:17-alpine
@@ -387,10 +387,10 @@ volumes:
   alertmanager-data:
   grafana-data:
 
-# Hinweise:
-# - Queue: pg-boss in Postgres — kein separater Redis nötig (siehe docs/OPEN-QUESTIONS.md).
-# - Reverse Proxy (Caddy/Traefik) mit TLS davor schalten, sobald von außen erreichbar;
-#   für die private Phase reicht Tailscale.
-# - Backups: pg_dump + MinIO-Bucket-Sync regelmäßig auf externes Ziel (ADR-001-Pflicht).
+# Notes:
+# - Queue: pg-boss in Postgres — no separate Redis needed (see docs/OPEN-QUESTIONS.md).
+# - Put a reverse proxy (Caddy/Traefik) with TLS in front as soon as this is reachable from
+#   outside; for the private phase, Tailscale is enough.
+# - Backups: pg_dump + a MinIO bucket sync, regularly, to an external target (required by ADR-001).
 #   Schedule, retention, the deletion window and the KMS key handling are written up in
 #   docs/runbooks/backup-restore.md.

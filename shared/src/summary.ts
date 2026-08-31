@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 /**
- * Summary-Templates und Summaries (ADR-004)
- * System-Template als Standard, Nutzer-Templates mit einer Vererbungsebene,
- * Snapshot der aufgelösten Konfiguration pro erzeugter Summary.
+ * Summary templates and summaries (ADR-004)
+ * A system template as the default, user templates with one level of inheritance,
+ * and a snapshot of the resolved configuration per generated summary.
  */
 
 export const SUMMARY_SCHEMA_VERSION = 1;
@@ -12,13 +12,13 @@ export const SectionFormatSchema = z.enum(["prose", "bullets", "table"]);
 
 export const TemplateSectionSchema = z.object({
   id: z.string(),
-  title: z.string(), // z. B. "Entscheidungen", "Action Items", "Offene Fragen"
-  /** Prompt-Baustein: was gehört inhaltlich in diesen Abschnitt */
+  title: z.string(), // e.g. "Decisions", "Action Items", "Open Questions"
+  /** A prompt building block: what belongs in this section */
   instruction: z.string(),
   format: SectionFormatSchema,
 });
 
-/** Override in Nutzer-Templates: Abschnitt hinzufügen, ändern oder ausblenden */
+/** An override in user templates: add, change or hide a section */
 export const SectionOverrideSchema = z.object({
   sectionId: z.string(),
   action: z.enum(["add", "replace", "hide"]),
@@ -36,10 +36,10 @@ export const SummaryTemplateSchema = z.object({
   id: z.string().uuid(),
   schemaVersion: z.literal(SUMMARY_SCHEMA_VERSION),
   name: z.string(),
-  /** Templates sind versioniert; Änderungen erzeugen eine neue Version */
+  /** Templates are versioned; a change produces a new version */
   version: z.number().int().positive(),
-  scope: z.enum(["system", "user"]), // später erweiterbar: team/org
-  /** Nur eine Vererbungsebene: user-Template basedOn system-Template */
+  scope: z.enum(["system", "user"]), // extensible later: team/org
+  /** Only one level of inheritance: a user template basedOn a system template */
   basedOn: z.string().uuid().nullable().default(null),
   sections: z.array(TemplateSectionSchema).default([]),
   overrides: z.array(SectionOverrideSchema).default([]),
@@ -61,12 +61,12 @@ export const SummarySectionSchema = z.object({
 export const SummarySchema = z.object({
   id: z.string().uuid(),
   meetingId: z.string().uuid(),
-  /** Auf welchem Transcript (1:n!) diese Summary basiert */
+  /** Which transcript (1:n!) this summary is based on */
   transcriptId: z.string().uuid(),
   schemaVersion: z.literal(SUMMARY_SCHEMA_VERSION),
-  /** Eine aktive Summary pro Template und Meeting */
+  /** One active summary per template and meeting */
   isActive: z.boolean(),
-  /** SNAPSHOT der aufgelösten Template-Konfiguration zum Erzeugungszeitpunkt */
+  /** A SNAPSHOT of the resolved template configuration at generation time */
   templateSnapshot: z.object({
     templateId: z.string().uuid(),
     templateVersion: z.number().int().positive(),

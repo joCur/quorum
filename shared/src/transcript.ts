@@ -17,29 +17,29 @@ export const WordSchema = z.object({
 
 export const SpeakerSchema = z.object({
   id: z.string().uuid(),
-  /** Anzeigename, vom Nutzer umbenennbar ("Sprecher 1" → "Jonas") */
+  /** Display name, renameable by the user ("Speaker 1" → "Jonas") */
   label: z.string(),
-  /** Später: Referenz auf gespeichertes Sprecherprofil zur Wiedererkennung */
+  /** Later: a reference to a stored speaker profile for re-identification */
   profileId: z.string().uuid().nullable().default(null),
 });
 
 export const SegmentSchema = z.object({
-  /** Stabile ID — Ziel für Kommentare, Highlights, Summary-Quellenverweise */
+  /** A stable ID — the target for comments, highlights and summary source references */
   id: z.string().uuid(),
   start: z.number().nonnegative(),
   end: z.number().nonnegative(),
-  /** Maschinen-Output, IMMUTABLE — wird nie überschrieben */
+  /** Machine output, IMMUTABLE — never overwritten */
   text: z.string(),
-  /** Nutzerkorrektur als Overlay; null = keine Korrektur */
+  /** A user correction as an overlay; null = no correction */
   editedText: z.string().nullable().default(null),
   confidence: z.number().min(0).max(1).nullable().default(null),
-  /** null bis Diarisierung existiert; referenziert Transcript.speakers[].id */
+  /** null until diarization exists; references Transcript.speakers[].id */
   speakerId: z.string().uuid().nullable().default(null),
-  /** Nutzer-Override der Sprecherzuordnung (immutable Maschinen-Zuordnung bleibt in speakerId) */
+  /** A user override of the speaker assignment (the immutable machine assignment stays in speakerId) */
   editedSpeakerId: z.string().uuid().nullable().default(null),
-  /** Überschreibt Transcript.language für gemischtsprachige Meetings */
+  /** Overrides Transcript.language for multilingual meetings */
   language: z.string().nullable().default(null),
-  /** Wort-Level-Timestamps — ab Tag 1 mitgespeichert (ADR-003 §4) */
+  /** Word-level timestamps — stored from day one (ADR-003 §4) */
   words: z.array(WordSchema).nullable().default(null),
 });
 
@@ -47,14 +47,14 @@ export const TranscriptSchema = z.object({
   id: z.string().uuid(),
   meetingId: z.string().uuid(),
   schemaVersion: z.literal(TRANSCRIPT_SCHEMA_VERSION),
-  /** Genau ein aktives Transcript pro Meeting (1:n, ADR-003 §3) */
+  /** Exactly one active transcript per meeting (1:n, ADR-003 §3) */
   isActive: z.boolean(),
-  /** Womit transkribiert wurde — Grundlage für Reprocessing */
+  /** What it was transcribed with — the basis for reprocessing */
   model: z.string(),
   modelVersion: z.string(),
-  /** BCP-47, Default für alle Segmente */
+  /** BCP-47, the default for all segments */
   language: z.string(),
-  /** Absoluter Startzeitpunkt der Aufnahme (Realzeit-Mapping) */
+  /** The absolute start time of the recording (real-time mapping) */
   recordedAt: z.string().datetime(),
   createdAt: z.string().datetime(),
   speakers: z.array(SpeakerSchema).default([]),
