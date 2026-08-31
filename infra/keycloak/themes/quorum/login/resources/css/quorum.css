@@ -95,6 +95,16 @@ body#keycloak-bg::after {
   padding: 24px;
 }
 
+/**
+ * One centred column, at every width.
+ *
+ * PatternFly builds this container as a two-track grid — card on the left, header and footer in a
+ * sidebar on the right — and from 1200px up it also reserves the gutter that layout needs, as
+ * `padding-inline` on the container itself. The stacked column here is not that layout, so the
+ * grid tracks and the gutter both have to go: with `box-sizing: border-box` and a 380px cap, that
+ * inherited padding was eating 196px of the card and crushing it to 184px — which is what turned
+ * the heading into one word per line and pushed "forgot password?" off the edge.
+ */
 .pf-v5-c-login__container {
   display: flex;
   flex-direction: column;
@@ -103,7 +113,9 @@ body#keycloak-bg::after {
   max-width: 380px;
   width: 100%;
   margin: auto;
+  padding-inline: 0;
   grid-template-columns: none;
+  grid-template-areas: none;
 }
 
 /* ---- The mark ---------------------------------------------------------------------------- */
@@ -195,15 +207,31 @@ body#keycloak-bg::after {
   background: transparent;
 }
 
-.pf-v5-c-login__main-header {
+/**
+ * The card header: the step's title, and — when the realm speaks more than one language — the
+ * locale picker beside it.
+ *
+ * The parent theme lays this out as a grid, and from 768px up it re-cuts the tracks with
+ * `div.pf-v5-c-login__main-header { grid-template-columns: 70% 30% }` and pins the picker into the
+ * second track. That type-qualified selector outranks a plain class, so the tracks survive any
+ * class-level override and reappear the moment anything here resolves to `display: grid` again.
+ * The selector below matches its specificity and clears the grid outright, rather than relying on
+ * `display: flex` to keep the leftovers inert.
+ *
+ * The row wraps: the title asks for a readable measure first, and the picker drops onto its own
+ * line when a card this narrow cannot seat both.
+ */
+div.pf-v5-c-login__main-header {
   /* PatternFly draws a 4px accent stripe across the top of the card. Quorum's accent is the
      header above it, not a rule inside it. */
   border-top: none;
   padding-top: 28px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  grid-template-columns: none;
 }
 
 .pf-v5-c-login__main-body {
@@ -223,6 +251,16 @@ body#keycloak-bg::after {
   line-height: 1.3;
   color: var(--quorum-ink);
   margin: 0;
+  /* Enough room for a readable line before the picker gets any; below that the two stop sharing a
+     row. `flex-basis` rather than `min-width`, so a card narrower than the measure still fits. */
+  flex: 1 1 10rem;
+  min-width: 0;
+  /* PatternFly sets `word-break: break-word` on its titles. A German heading is long enough that
+     this splits words down the middle the moment the column tightens ("anmel / den"). Words stay
+     whole; only a word longer than the line itself is broken. */
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: none;
 }
 
 /* ---- Fields ------------------------------------------------------------------------------ */
@@ -344,12 +382,26 @@ body#keycloak-bg::after {
 /**
  * The language picker, which exists because the realm speaks two languages. It is a control, so
  * it is a pill, and it is quiet: choosing a language is not what anyone came here to do.
+ *
+ * It never shrinks. The parent theme places it in a grid track it no longer has (see the header
+ * above), and PatternFly's form control is itself a grid — a select spanning every track, with the
+ * caret in the last one. Left free to shrink, that select's track collapses and the pill shows a
+ * clipped letter instead of a language. `flex: 0 0 auto` sizes it to the widest language name it
+ * has to offer, and the header wraps around it when the card is too narrow for both.
  */
+.pf-v5-c-login__main-header-utilities {
+  grid-area: auto;
+  flex: 0 0 auto;
+  max-width: 100%;
+}
+
 .pf-v5-c-login__main-header-utilities .pf-v5-c-form-control {
   border-radius: 999px;
   background: var(--quorum-paper);
   font-size: 13px;
   padding: 2px 6px;
+  width: auto;
+  max-width: 100%;
 }
 
 /* The select and its options carry a fixed near-black in the parent theme, which the dark scheme
@@ -377,6 +429,18 @@ body#keycloak-bg::after {
 
 .pf-v5-c-check__input {
   accent-color: var(--quorum-action);
+}
+
+/**
+ * The row under the password field: "remember me" on one side, "forgot password?" on the other.
+ *
+ * The template builds it with PatternFly's flex utilities, which do not wrap — so on a narrow card
+ * the link simply ran past the edge and was clipped. It wraps instead, and the link keeps its own
+ * line when both no longer fit.
+ */
+.pf-v5-c-form__helper-text .pf-v5-c-helper-text {
+  flex-wrap: wrap;
+  gap: 6px 16px;
 }
 
 /* ---- The one action ---------------------------------------------------------------------- */
@@ -438,6 +502,13 @@ a {
   font-family: var(--quorum-font-sans);
   font-size: 14px;
   font-weight: 600;
+}
+
+/* PatternFly draws a button's border as a pseudo-element rather than on the box, so the border
+   above was covered by a PatternFly-blue ring the theme never asked for. */
+.pf-v5-c-button.pf-m-secondary::before,
+.pf-v5-c-button.pf-m-secondary::after {
+  border: none;
 }
 
 .pf-v5-c-button.pf-m-secondary:hover,
