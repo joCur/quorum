@@ -13,8 +13,9 @@ import { RecordingSocket, startSession } from "../support/recording-socket.js";
 test.describe("auth", () => {
   test("signs in through Keycloak and renders the protected view", async ({ page, signIn }) => {
     await page.goto("/meetings");
-    // Unauthenticated: the gate sends every protected screen to the sign-in page.
-    await expect(page).toHaveURL(/\/login$/);
+    // Unauthenticated: the gate sends every protected screen to the landing page at the root.
+    await expect(page).toHaveURL(/\/$/);
+    await expect(signInButton(page)).toBeVisible();
 
     await signIn(devUsers.alice);
 
@@ -35,6 +36,14 @@ test.describe("auth", () => {
       tenantId: devUsers.alice.tenantId,
       username: devUsers.alice.username,
     });
+  });
+
+  test("keeps the old sign-in bookmark working", async ({ page }) => {
+    // The landing used to live at /login. Anyone who bookmarked it, or types it out of habit,
+    // still has to arrive somewhere that makes sense — which is the landing, at the root.
+    await page.goto("/login");
+    await expect(page).toHaveURL(/\/$/);
+    await expect(signInButton(page)).toBeVisible();
   });
 
   test("rejects a request without a token", async ({ page }) => {
@@ -125,7 +134,7 @@ test.describe("auth", () => {
 
     // Not "your templates could not be loaded": a 401 is an authentication problem, and the app
     // says so and asks the user to sign in again.
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(/\/$/);
     await expect(page.getByText("Your session ended.", { exact: false })).toBeVisible();
     await expect(page.getByText("could not be loaded")).toHaveCount(0);
 
@@ -157,7 +166,7 @@ test.describe("auth", () => {
     await endSession;
 
     // Back at the signed-out landing view, with nothing of the session left in the browser.
-    await page.waitForURL(/\/login$/);
+    await page.waitForURL(/\/$/);
     await expect(signInButton(page)).toBeVisible();
     await expect
       .poll(async () =>
