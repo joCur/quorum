@@ -44,9 +44,11 @@ export default defineConfig({
         scope: "/",
         display: "standalone",
         orientation: "portrait",
-        // Matches the `background` token for the light color scheme.
-        background_color: "#faf6ee",
-        theme_color: "#faf6ee",
+        // The brand paper surface — the splash and app chrome the installed app
+        // opens on. The manifest has no dark counterpart; the `theme-color`
+        // metas in index.html carry the light/dark pair for the browser chrome.
+        background_color: "#f7f2e9",
+        theme_color: "#f7f2e9",
         icons: [
           { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "icons/icon-512.png", sizes: "512x512", type: "image/png" },

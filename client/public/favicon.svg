@@ -1,14 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Quorum">
-  <!-- Quorum app icon: "the quorum ring" — a circle of gathering with one
-       voice lit (the breathing-dot motif), together forming a Q.
-       Colors from the design tokens: warm teal (primary), honey accent. -->
-  <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#279181"/>
-      <stop offset="1" stop-color="#1c6f5c"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" rx="116" fill="url(#tile)"/>
-  <circle cx="256" cy="256" r="122" fill="none" stroke="#fffdf7" stroke-width="60"/>
-  <circle cx="346" cy="346" r="70" fill="#f5b214"/>
+  <!-- Quorum app icon: the letter Q set in Schibsted Grotesk 800 on an espresso
+       tile, with the honey dot as its counterweight at the bottom right.
+       The dark colorway inverts the mark: honey field, espresso Q and dot.
+       The Q outline is a converted path, so the file renders without the font.
+       Construction and regeneration steps: design/APP-ICON.md. -->
+  <style>
+    .field { fill: #35271d }
+    .glyph { fill: #faf6f0 }
+    .dot   { fill: #f6b623 }
+    @media (prefers-color-scheme: dark) {
+      .field { fill: #f6b623 }
+      .glyph { fill: #211812 }
+      .dot   { fill: #211812 }
+    }
+  </style>
+  <rect class="field" width="512" height="512" rx="119.5"/>
+  <path class="glyph" d="M271.48 379.15Q252.36 379.15 242.92 370.5Q233.48 361.85 233.48 344.8V319.21H278.1V338.26Q278.1 342.73 279.37 344.21Q280.63 345.7 284.77 345.7H306.77V379.15ZM256.03 332.08Q226.18 332.08 204.42 320.02Q182.67 307.95 170.93 285.57Q159.19 263.2 159.19 232.51Q159.19 201.69 170.93 179.39Q182.67 157.09 204.42 144.97Q226.17 132.85 256.05 132.85Q285.92 132.85 307.64 144.96Q329.36 157.08 341.08 179.37Q352.81 201.67 352.81 232.46Q352.81 263.17 341.07 285.56Q329.33 307.95 307.61 320.02Q285.88 332.08 256.03 332.08ZM255.97 291.18Q270.8 291.18 281.24 284.24Q291.68 277.3 297.14 264.15Q302.6 251.0 302.6 232.45Q302.6 213.8 297.14 200.72Q291.68 187.63 281.24 180.69Q270.8 173.75 255.97 173.75Q241.23 173.75 230.83 180.69Q220.42 187.63 214.91 200.72Q209.4 213.8 209.4 232.45Q209.4 251.0 214.91 264.15Q220.42 277.3 230.83 284.24Q241.23 291.18 255.97 291.18Z"/>
+  <circle class="dot" cx="396.8" cy="396.8" r="34.13"/>
 </svg>
