@@ -1,6 +1,6 @@
 {
   "name": "@quorum/server",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "Quorum API server — Keycloak JWT auth with tenant-scoped request context and the WebSocket recording endpoint (ADR-002).",

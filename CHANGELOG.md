@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/joCur/quorum/compare/v1.0.1...v1.0.2) (2026-08-31)
+
+
+### Bug Fixes
+
+* **client:** keep the service worker out of Keycloak navigations ([#155](https://github.com/joCur/quorum/issues/155)) ([c03ab81](https://github.com/joCur/quorum/commit/c03ab81771e8b2a26d11c26f41880d2dd02f067f)), closes [#154](https://github.com/joCur/quorum/issues/154)
+
 ## [1.0.1](https://github.com/joCur/quorum/compare/v1.0.0...v1.0.1) (2026-08-31)
 
 
