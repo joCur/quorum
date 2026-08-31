@@ -4,7 +4,7 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "component": "",
+      "package-name": "",
       "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md",
       "extra-files": [

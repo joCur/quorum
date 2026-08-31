@@ -43,10 +43,17 @@ jobs:
       # version the next release counts from; the action rewrites it as part of the release
       # commit.
       #
-      # Two settings in that config exist only to keep the release shaped the way it already is:
-      # the empty component keeps the release branch and the tag free of a package prefix, so the
-      # tag stays `vX.Y.Z` and an already-open release pull request keeps its branch instead of
-      # being abandoned in favour of a differently named one.
+      # The repository releases as a single unnamed unit, so the tag is a bare `vX.Y.Z`. Two
+      # settings in that config produce it, and one of them is a trap worth naming: it must be
+      # `package-name` that is empty, NOT `component`. release-please resolves the component as
+      # `component || <root package.json name>`, so an empty component silently falls back to the
+      # package name. Nothing shows it while the release pull request is being built — a combined
+      # release pull request is opened on a branch carrying no component either way — and it only
+      # surfaces after that pull request is merged, when the tagging phase compares the merged
+      # branch's component against the configured one, finds an empty string against the package
+      # name, declines to tag, and leaves an untagged merged release pull request that blocks
+      # every release after it. An empty `package-name` makes the fallback empty too, so the
+      # pull request phase and the tagging phase agree.
       - uses: googleapis/release-please-action@v4
         id: release
 
