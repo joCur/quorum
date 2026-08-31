@@ -1,6 +1,10 @@
 {
   "realm": "quorum",
   "displayName": "Quorum",
+  "loginTheme": "quorum",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["en", "de"],
+  "defaultLocale": "en",
   "enabled": true,
   "sslRequired": "none",
   "registrationAllowed": false,

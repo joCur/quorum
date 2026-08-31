@@ -209,6 +209,29 @@ be deleted.
 When a realm change is genuinely meant to land in only one environment, add the rule together with
 the change and say why here. When it is not, the fix is to make the same edit in both files.
 
+## The login theme
+
+`themes/quorum/` puts the sign-in page in the product's own design — paper ground, the Q mark with
+its honey dot, the panel card and the pill button. Both realms select it through `loginTheme`, with
+the identical value, so it is not drift.
+
+The theme inherits Keycloak's `keycloak.v2` login theme and adds one stylesheet plus two message
+bundles (`en`, `de`). **It contains no templates of ours**, and that is deliberate: every page of
+the authentication flow keeps working, and the standard field names and ids — `username`,
+`password`, `kc-login` — stay exactly where Keycloak puts them, which is what the end-to-end suite
+signs in through. A restyle that starts overriding `login.ftl` takes on both of those risks at once.
+
+Fonts are shipped with the theme, subset to Latin, because these pages are served by Keycloak and
+cannot reach the app bundle — and the design system rules out font CDNs at runtime.
+
+Development mounts the theme into the stock upstream image (see `docker-compose.yml`), so editing
+the stylesheet and reloading the page is enough; the release image bakes the same directory in.
+Keycloak caches theme resources, so if an edit does not show up, restart the container:
+
+```bash
+docker compose restart keycloak
+```
+
 ## Changing the realm
 
 The audience and tenant mappers are attached to each client rather than to a shared client scope on

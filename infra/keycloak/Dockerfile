@@ -20,6 +20,11 @@ RUN /opt/keycloak/bin/kc.sh build
 FROM quay.io/keycloak/keycloak:${KEYCLOAK_VERSION}
 COPY --from=builder /opt/keycloak/ /opt/keycloak/
 
+# The login theme. It is copied after the build stage on purpose: a theme is read from disk at
+# request time, so it needs no augmentation build, and keeping it out of the builder means editing
+# a stylesheet does not invalidate the expensive layer.
+COPY infra/keycloak/themes/quorum /opt/keycloak/themes/quorum
+
 # No realm import and no dev clients or users: the release stack provisions its realm explicitly,
 # because the committed development realm turns off `sslRequired` and ships known passwords.
 ENTRYPOINT ["/opt/keycloak/bin/kc.sh"]
