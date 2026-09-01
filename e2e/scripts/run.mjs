@@ -223,6 +223,12 @@ async function main() {
         // timeout, so the worker retries fast and gives up early here.
         WORKER_RETRY_LIMIT: "2",
         WORKER_RETRY_DELAY_SECONDS: "2",
+        // Same reasoning for the startup model check. The shipped budget is sized for downloading
+        // large-v3 over a slow line; here the model is either already in the volume or served by
+        // the stub, so anything that takes longer than a minute is wedged. Failing fast turns that
+        // into a dead worker the run reports, instead of specs timing out one by one against a
+        // process whose whisper.model.* lines are invisible at this log level.
+        WHISPER_MODEL_INSTALL_TIMEOUT_MS: "60000",
       },
     });
   });

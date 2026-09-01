@@ -624,10 +624,10 @@ services:
       WHISPER__COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE}
       WHISPER__DEVICE: ${WHISPER_DEVICE}
     volumes:
-      # Where downloaded models live, so they survive a restart and a recreate. Downloading one is
-      # a one-time step after the first start — see "Install the transcription model" in the
-      # deployment guide. Without this volume the model is gone with the container, and every
-      # transcribe job fails until it is downloaded again.
+      # Where downloaded models live, so they survive a restart and a recreate. The worker fills it
+      # on its first start and finds it warm afterwards — see "The transcription model" in the
+      # deployment guide. Without this volume the model is gone with the container, and the worker
+      # downloads it again on the next start before it consumes anything.
       - whisper-models:/home/ubuntu/.cache/huggingface
     # No ports: only the worker talks to it, over the compose network.
     #

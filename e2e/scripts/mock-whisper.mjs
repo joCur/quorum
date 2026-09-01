@@ -68,8 +68,7 @@ function observedFields(body) {
 /** The shape a real OpenAI-compatible backend answers with when it does not have the model. */
 function rejection() {
   return {
-    detail:
-      "Model 'mock-tiny' is not installed locally. Install it or pick a model that is available.",
+    detail: `Model '${MODEL_ID}' is not installed locally. Install it or pick a model that is available.`,
   };
 }
 
