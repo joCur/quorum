@@ -229,7 +229,11 @@ answer, and the tables above say whether it is transient or terminal.
 `whisper` container. A model still loading produces a burst of `TRANSCRIPTION_UNAVAILABLE` that
 resolves itself; a `WHISPER_MODEL` that is misnamed or was never downloaded produces
 `TRANSCRIPTION_REJECTED` that never will — verify it against `GET /v1/models` as described in
-[the transcription model](../deployment.md#6-the-transcription-model).
+[the transcription model](../deployment.md#6-the-transcription-model). On builds
+older than the one that made `WHISPER_TIMEOUT_MS` reach the HTTP transport, a slow model shows a
+distinctive signature instead: every attempt fails after exactly five minutes with
+`fetch failed: Headers Timeout Error`, whatever the configured timeout says — upgrade the worker,
+because no configuration change lifts that cap.
 
 **3. Summary codes** (`SUMMARY_UNAVAILABLE`, `SUMMARY_REJECTED`, …): check the configured
 `SUMMARY_BASE_URL`. `SUMMARY_UNAVAILABLE` in a steady stream is usually a rate limit; sustained
