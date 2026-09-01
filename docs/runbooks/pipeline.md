@@ -59,10 +59,13 @@ The retry budget exists mainly for a Whisper container that is slow to load a mo
 `TRANSCRIPTION_REJECTED` on every attempt is almost always the model, not the audio: Whisper
 serves only models it has downloaded, and answers `404 Model '…' is not installed locally` for a
 model that was never installed or for a short name where a full ID belongs
-(`Systran/faster-whisper-small`, not `small`).
-[Install the transcription model](../deployment.md#6-install-the-transcription-model) lists the
-valid IDs and the install and verify calls; the fix is to install the configured model, then
-redrive what dead-lettered.
+(`Systran/faster-whisper-small`, not `small`). The worker installs its configured model on startup
+and refuses to consume jobs without it, so reaching this code means either that provisioning was
+turned off (`WHISPER_MODEL_AUTO_INSTALL=false`) or that the model left the volume while the worker
+kept running. Read the worker's `whisper.model.*` startup lines;
+[the transcription model](../deployment.md#6-the-transcription-model) lists the valid IDs and the
+verify call. The fix is to restart the worker so it provisions again — or to install the model by
+hand where provisioning is off — and then redrive what dead-lettered.
 
 ### `summarize`
 
@@ -189,6 +192,13 @@ Look for `event: worker.started`. If the process is up but that line never appea
 before it began consuming — almost always configuration (`DATABASE_URL`, `S3_*`, `SUMMARY_*`) and
 the startup error says which.
 
+One case looks like a hang rather than an error: the worker provisions its transcription model
+before it consumes anything, so a first start on an empty model volume sits on
+`whisper.model.install-started` and repeats `whisper.model.install-progress` until the download is
+done — minutes for `large-v3`. `whisper.model.provisioning-failed` is the opposite: that one is
+terminal and names the reason, usually a `WHISPER_MODEL` that is not a real model ID. See
+[the transcription model](../deployment.md#6-the-transcription-model).
+
 If the container is restarting in a loop, the worker healthcheck is what surfaced it; the logs
 before each restart carry the reason.
 
@@ -219,7 +229,7 @@ answer, and the tables above say whether it is transient or terminal.
 `whisper` container. A model still loading produces a burst of `TRANSCRIPTION_UNAVAILABLE` that
 resolves itself; a `WHISPER_MODEL` that is misnamed or was never downloaded produces
 `TRANSCRIPTION_REJECTED` that never will — verify it against `GET /v1/models` as described in
-[install the transcription model](../deployment.md#6-install-the-transcription-model).
+[the transcription model](../deployment.md#6-the-transcription-model).
 
 **3. Summary codes** (`SUMMARY_UNAVAILABLE`, `SUMMARY_REJECTED`, …): check the configured
 `SUMMARY_BASE_URL`. `SUMMARY_UNAVAILABLE` in a steady stream is usually a rate limit; sustained

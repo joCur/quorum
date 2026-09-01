@@ -3,8 +3,8 @@
 #   Development (GTX 1050):  WHISPER_MODEL=Systran/faster-whisper-small, INT8
 #   After the GPU upgrade:   WHISPER_MODEL=Systran/faster-whisper-large-v3, FP16 — nothing else changes
 #   CPU fallback:            start compose without the GPU override (see below)
-# WHISPER_MODEL is always a full model ID, and the model has to be downloaded into the whisper
-# container once — see "Install the transcription model" in docs/deployment.md.
+# WHISPER_MODEL is always a full model ID. The worker downloads it into the whisper container on
+# its first start and waits until it is there — see "The transcription model" in docs/deployment.md.
 
 name: quorum
 
@@ -180,6 +180,12 @@ services:
       # Whisper: the internal OpenAI-compatible endpoint (speaches).
       WHISPER_BASE_URL: ${WHISPER_BASE_URL:-http://whisper:8000/v1}
       WHISPER_MODEL: ${WHISPER_MODEL}
+      # The worker downloads WHISPER_MODEL onto the transcription backend before it takes its
+      # first job, and refuses to start if it cannot: the backend loads models on demand but
+      # never fetches them, so without this a fresh install dead-letters its first recording.
+      # Turn it off only where an operator manages the model cache by hand.
+      WHISPER_MODEL_AUTO_INSTALL: ${WHISPER_MODEL_AUTO_INSTALL:-true}
+      WHISPER_MODEL_INSTALL_TIMEOUT_MS: ${WHISPER_MODEL_INSTALL_TIMEOUT_MS:-2700000}
       # Unset means "let the model detect the language", which is what mixed-language
       # meetings want.
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
@@ -228,8 +234,9 @@ services:
       WHISPER__COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE}   # int8 (1050) | float16 (4070 Ti S)
       WHISPER__DEVICE: ${WHISPER_DEVICE}               # cuda | cpu
     volumes:
-      # Where downloaded models live, so they survive a restart or a recreate. The download itself
-      # is a one-time manual step — see "Install the transcription model" in docs/deployment.md.
+      # Where downloaded models live, so they survive a restart or a recreate. The worker fills it
+      # on its first start and finds it warm afterwards — see "The transcription model" in
+      # docs/deployment.md.
       - whisper-models:/home/ubuntu/.cache/huggingface
     # GPU access: enabled via `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up`
     # Host requirement: the NVIDIA driver + nvidia-container-toolkit
