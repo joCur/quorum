@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   ClientMessageSchema,
+  TranscriptionLanguageSchema,
   resolveTranscriptionLanguage,
   type ClientMessage,
   type LimitErrorCode,
@@ -290,7 +291,7 @@ export class RecordingSessionHandler {
       userId: context.userId,
       meetingTitle: message.meetingTitle,
       summaryTemplateId: message.summaryTemplateId,
-      language: message.language,
+      language: this.transcriptionChoice(message.language),
       audioFormat: message.audioFormat,
       createdAt: this.timestamp(),
       marks: [],
@@ -903,20 +904,48 @@ export class RecordingSessionHandler {
    * incomparably more than a finalize that fails over a lookup.
    */
   private async transcriptionLanguage(record: SessionRecord): Promise<string | null> {
-    if (record.language) return record.language;
+    let userDefault: string | null = null;
     try {
       const settings = await this.deps.preferences?.findSettings({
         tenantId: record.tenantId,
         userId: record.userId,
       });
-      return resolveTranscriptionLanguage(settings?.transcriptionLanguage);
+      userDefault = settings?.transcriptionLanguage ?? null;
     } catch (error) {
       this.log?.warn(
         { event: "transcription.language_default_unreadable", err: error },
         "could not read the user's default transcription language; leaving it to the pipeline",
       );
-      return null;
     }
+    // Both links go through the chain function rather than through a truthiness check, so a value
+    // that only looks like a statement — a blank string — falls through to the next link here
+    // instead of short-circuiting the chain and then evaporating at the worker.
+    return resolveTranscriptionLanguage(record.language, userDefault);
+  }
+
+  /**
+   * The language a `session.start` claims, kept only when it is one this build offers.
+   *
+   * The protocol schema checks the shape and deliberately not the value: refusing the socket that
+   * carries the audio over a language tag would cost a recording. But an unrecognized tag must not
+   * travel either — it short-circuits the chain, is sent verbatim as the transcription request's
+   * `language`, and then either walks the job into the dead-letter queue on a backend that rejects
+   * it or becomes the transcript's language label on one that quietly ignores it. Dropping it to
+   * "no statement" costs the choice and keeps the recording, and the warning says which tag was
+   * dropped.
+   */
+  private transcriptionChoice(language: string | null): string | null {
+    const stated = language?.trim();
+    // Absent and blank are both "said nothing", and neither is worth a line in the log — only a
+    // client that named something this build cannot honor is.
+    if (!stated) return null;
+    const known = TranscriptionLanguageSchema.safeParse(stated);
+    if (known.success) return known.data;
+    this.log?.warn(
+      { event: "transcription.language_unknown", language },
+      "the recording asked for a language this build does not offer; falling back to the chain",
+    );
+    return null;
   }
 
   private ack(): void {

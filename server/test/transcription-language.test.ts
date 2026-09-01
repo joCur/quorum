@@ -124,6 +124,44 @@ describe("the language a meeting is recorded in", () => {
     expect(harness.queue.enqueued[0]?.language).toBeNull();
   });
 
+  it("drops a language this build does not offer instead of shipping it to the backend", async () => {
+    const harness = harnessWith();
+
+    await record(harness, "klingon");
+
+    // An unrecognized tag would short-circuit the chain, travel verbatim as the transcription
+    // request's `language`, and then either dead-letter the job on a backend that rejects it or
+    // become the transcript's language label on one that ignores it. Dropping it costs the
+    // choice and keeps the recording.
+    expect(harness.queue.enqueued[0]?.language).toBeNull();
+    const sessionId = harness.connection.last("session.ready")?.sessionId ?? "";
+    const stored = harness.storage.objects.get(sessionKey({ ...SCOPE, sessionId }));
+    expect(JSON.parse(new TextDecoder().decode(stored)).language).toBeNull();
+  });
+
+  it("falls through to the user's default when the meeting's language is blank", async () => {
+    const settings = new InMemoryUserSettingsStore();
+    await settings.updateSettings(SCOPE, { transcriptionLanguage: "de" });
+    const harness = harnessWith(settings);
+
+    await record(harness, "  ");
+
+    // A blank string is not a statement. Treating it as one would short-circuit the chain here
+    // and then evaporate at the worker, skipping the user's default entirely.
+    expect(harness.queue.enqueued[0]?.language).toBe("de");
+  });
+
+  it("still records when the language is one this build does not offer", async () => {
+    const harness = harnessWith();
+
+    await record(harness, "klingon");
+
+    // The socket carries the audio. Refusing it over a language tag would cost the meeting, which
+    // is why the protocol schema checks the shape and this checks the value.
+    expect(harness.connection.last("session.finalized")).toBeDefined();
+    expect(harness.connection.closed?.code).not.toBe(1008);
+  });
+
   it("states nothing when neither the meeting nor the user chose", async () => {
     const harness = harnessWith(new InMemoryUserSettingsStore());
 

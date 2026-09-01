@@ -5,7 +5,13 @@ import { createTokenVerifier } from "../src/auth/token-verifier.js";
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
 import { InMemoryMeetingStore } from "../src/meetings/memory.js";
-import { InMemoryUserSettingsStore } from "../src/settings/repository.js";
+import {
+  InMemoryUserSettingsStore,
+  PostgresUserSettingsStore,
+  UserSettingsUnavailableError,
+  type UserSettingsStore,
+} from "../src/settings/repository.js";
+import type postgres from "postgres";
 import { AUDIENCE, INTERNAL_ISSUER, ISSUER, createTestKeyPair, signAccessToken } from "./keys.js";
 import type { TestKeyPair } from "./keys.js";
 
@@ -33,7 +39,7 @@ async function call(
   });
 }
 
-function build(store?: InMemoryUserSettingsStore): Promise<FastifyInstance> {
+function build(store?: UserSettingsStore): Promise<FastifyInstance> {
   return buildServer({
     storage: new InMemoryRecordingStorage(),
     queue: new InMemoryJobQueue(),
@@ -142,5 +148,78 @@ describe("an instance built without a settings store", () => {
     } finally {
       await bare.close();
     }
+  });
+});
+
+/**
+ * The two states in which the schema cannot hold the preference, both of which happen during a
+ * normal deploy rather than only in a broken stack.
+ *
+ * `undefined_column` is the one worth the fixture: `user_settings` already exists wherever the
+ * default summary template was ever used, so between the API rolling out and the worker restarting
+ * with the new migration list, the table is there and the column is not.
+ */
+function raisingSql(code: string): postgres.Sql {
+  return (() => {
+    throw Object.assign(new Error(`simulated ${code}`), { code });
+  }) as unknown as postgres.Sql;
+}
+
+describe.each([
+  ["a table the worker has never created", "42P01"],
+  ["a table that predates the column", "42703"],
+])("reading preferences against %s", (_name, code) => {
+  it("reads as nothing chosen rather than failing", async () => {
+    const store = new PostgresUserSettingsStore(raisingSql(code));
+
+    // The settings screen and, more importantly, the recording endpoint both ask this. Neither
+    // can afford to fail over a preference that simply is not stored yet — the chain has further
+    // links, and a recording must not be lost to a mid-deploy read.
+    expect(await store.findSettings(ACME)).toEqual({ transcriptionLanguage: null });
+  });
+
+  it("refuses a write instead of reporting a success that never happened", async () => {
+    const store = new PostgresUserSettingsStore(raisingSql(code));
+
+    // A read has a truthful answer in this state; a write does not. Claiming the choice was saved
+    // would leave the screen showing a value the next reload silently drops.
+    await expect(
+      store.updateSettings(ACME, { transcriptionLanguage: "de" }),
+    ).rejects.toBeInstanceOf(UserSettingsUnavailableError);
+  });
+
+  it("answers a save with 503 and a structured body, not a bare 500", async () => {
+    const unready = await build(new PostgresUserSettingsStore(raisingSql(code)));
+    await unready.ready();
+
+    try {
+      const response = await unready.inject({
+        method: "PUT",
+        url: "/api/settings",
+        headers: {
+          authorization: `Bearer ${await signAccessToken(keys, { subject: ACME.userId, tenantId: ACME.tenantId, roles: ["quorum-user"] })}`,
+        },
+        payload: { transcriptionLanguage: "de" },
+      });
+
+      // Nothing is wrong with the request, and it will succeed once the worker has come up.
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({ error: "settings_unavailable" });
+    } finally {
+      await unready.close();
+    }
+  });
+});
+
+describe("a database error that is not a missing schema", () => {
+  it("is not swallowed by either half of the store", async () => {
+    // The grace is for two specific, expected states. A connection failure or a syntax error must
+    // still surface rather than being reported to the user as "you have chosen nothing".
+    const store = new PostgresUserSettingsStore(raisingSql("08006"));
+
+    await expect(store.findSettings(ACME)).rejects.toThrow("simulated 08006");
+    await expect(store.updateSettings(ACME, { transcriptionLanguage: "de" })).rejects.toThrow(
+      "simulated 08006",
+    );
   });
 });

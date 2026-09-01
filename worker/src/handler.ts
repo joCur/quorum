@@ -135,7 +135,7 @@ export async function runTranscribeJob(
       createdAt: now().toISOString(),
       // What the meeting ends up saying its language is has to be what the transcription was
       // actually done in. A backend that echoes no language back would otherwise leave a
-      // recording we deliberately transcribed as German labelled "undetermined".
+      // recording we deliberately transcribed as German labeled "undetermined".
       ...(language ? { fallbackLanguage: language } : {}),
     });
 

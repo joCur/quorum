@@ -10,11 +10,13 @@ import { renderWithProviders, stubRecordingSession, useLanguage } from "./render
  */
 const startSpy = vi.hoisted(() => vi.fn());
 const stored = vi.hoisted(() => ({ current: null as string | null }));
+/** The window before the stored default has arrived, which the resting state has to survive. */
+const loading = vi.hoisted(() => ({ current: false }));
 
 vi.mock("@/features/settings/use-user-settings", () => ({
   useUserSettings: () => ({
-    settings: { transcriptionLanguage: stored.current },
-    status: "ready",
+    settings: { transcriptionLanguage: loading.current ? null : stored.current },
+    status: loading.current ? "loading" : "ready",
     saving: false,
     chooseTranscriptionLanguage: async () => undefined,
   }),
@@ -51,6 +53,7 @@ describe("the language a meeting is recorded in", () => {
   beforeEach(() => {
     startSpy.mockClear();
     stored.current = null;
+    loading.current = false;
   });
 
   it("is always on the stage, unlike the template picker", () => {
@@ -62,10 +65,26 @@ describe("the language a meeting is recorded in", () => {
     expect(screen.getByLabelText(LANGUAGE_LABEL)).toBeInTheDocument();
   });
 
-  it("rests on detection for a user who has chosen no default", () => {
+  it("rests on following the default, which is not the same as asking for detection", () => {
     renderStage();
 
-    expect(screen.getByLabelText<HTMLSelectElement>(LANGUAGE_LABEL).value).toBe("auto");
+    // The resting option says what actually happens — the account decides, and below it the
+    // installation. Resting on "detect" would claim detection on a stack configured for one
+    // language, and would leave detection itself unreachable: selecting the option already on
+    // screen fires no change at all.
+    expect(screen.getByLabelText<HTMLSelectElement>(LANGUAGE_LABEL).value).toBe("");
+    expect(screen.getByRole("option", { name: "Default" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Detect automatically" })).toBeInTheDocument();
+  });
+
+  it("rests on following the default while the stored one is still loading", () => {
+    loading.current = true;
+    renderStage();
+
+    // The screen has not read the default yet, so the only honest thing it can state is that it
+    // is following it — and a recording started in that instant is resolved from the server's
+    // copy rather than from a screen that has not seen it.
+    expect(screen.getByLabelText<HTMLSelectElement>(LANGUAGE_LABEL).value).toBe("");
   });
 
   it("opens on the user's default", () => {
@@ -116,13 +135,26 @@ describe("the language a meeting is recorded in", () => {
 
     await user.click(screen.getByRole("button", { name: RECORD_BUTTON }));
 
-    // Resting on "detect" is not the same as asking for it. An installation configured for one
-    // language must still get that language here — it is the link below the user's default, and
-    // claiming detection would silently overrule it for everyone who never opened settings.
+    // An installation configured for one language must still get that language here — it is the
+    // link below the user's default, and claiming detection would silently overrule it for
+    // everyone who never opened settings.
     expect(startSpy).toHaveBeenCalledWith(null, null, null, "in-person", null);
   });
 
-  it("asks for detection explicitly when that is what is on screen", async () => {
+  it("can ask for detection from the resting state, without toggling away and back", async () => {
+    const user = userEvent.setup();
+    renderStage();
+
+    await user.selectOptions(screen.getByLabelText(LANGUAGE_LABEL), "auto");
+    await user.click(screen.getByRole("button", { name: RECORD_BUTTON }));
+
+    // Detection has to be reachable in one move from where the picker rests. It is a decision,
+    // not silence: sending nothing would let the installation's language override what the user
+    // just asked for.
+    expect(startSpy).toHaveBeenCalledWith(null, null, null, "in-person", "auto");
+  });
+
+  it("asks for detection explicitly over a stored default", async () => {
     const user = userEvent.setup();
     stored.current = "de";
     renderStage();
@@ -130,9 +162,33 @@ describe("the language a meeting is recorded in", () => {
     await user.selectOptions(screen.getByLabelText(LANGUAGE_LABEL), "auto");
     await user.click(screen.getByRole("button", { name: RECORD_BUTTON }));
 
-    // "Detect it" is a decision, not silence: sending nothing would let the user's own default —
-    // or the installation's — override what the user just asked for.
     expect(startSpy).toHaveBeenCalledWith(null, null, null, "in-person", "auto");
+  });
+
+  it("can go back to following the default without the control snapping to its name", async () => {
+    const user = userEvent.setup();
+    stored.current = "de";
+    renderStage();
+
+    const select = screen.getByLabelText<HTMLSelectElement>(LANGUAGE_LABEL);
+    await user.selectOptions(select, "");
+
+    // Deliberately following the default is a third state, not a return to untouched: collapsing
+    // the two would redisplay "German" the instant somebody chose to follow it.
+    expect(select.value).toBe("");
+
+    await user.click(screen.getByRole("button", { name: RECORD_BUTTON }));
+    expect(startSpy).toHaveBeenCalledWith(null, null, null, "in-person", null);
+  });
+
+  it("stops taking a language once the recording is starting", () => {
+    // Past the button press the session is already being opened with what the screen said. A
+    // control that still moved would collect a choice that can never reach `session.start`.
+    renderWithProviders(<RecordRoute />, {
+      recording: stubRecordingSession({ start: startSpy, state: { phase: "requesting" } }),
+    });
+
+    expect(screen.getByLabelText(LANGUAGE_LABEL)).toBeDisabled();
   });
 
   it("names the languages in the reader's language", async () => {

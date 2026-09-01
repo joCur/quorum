@@ -96,7 +96,8 @@
       "label": "Vorlage für die Zusammenfassung"
     },
     "languageField": {
-      "label": "Gesprochene Sprache"
+      "label": "Gesprochene Sprache",
+      "followDefault": "Standard"
     },
     "inputField": {
       "label": "Mikrofon",

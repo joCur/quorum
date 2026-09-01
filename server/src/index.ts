@@ -96,6 +96,7 @@ export {
   EMPTY_USER_SETTINGS,
   InMemoryUserSettingsStore,
   PostgresUserSettingsStore,
+  UserSettingsUnavailableError,
 } from "./settings/repository.js";
 export type { UserSettingsScope, UserSettingsStore } from "./settings/repository.js";
 export { InMemoryRecordingStorage } from "./recording/storage/memory.js";

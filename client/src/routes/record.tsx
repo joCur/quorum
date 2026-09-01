@@ -38,7 +38,6 @@ import { useUserSettings } from "@/features/settings/use-user-settings";
 import { useTemplates } from "@/features/templates/use-templates";
 import { formatDuration } from "@/lib/duration";
 import {
-  AUTODETECT_LANGUAGE,
   TRANSCRIPTION_LANGUAGES,
   type LimitErrorCode,
   type TranscriptionLanguage,
@@ -47,6 +46,15 @@ import { cn } from "@/lib/utils";
 
 /** How long the finalized screen waits for a closing limit before it navigates on. */
 const FINALIZE_SETTLE_MS = 600;
+
+/**
+ * The language picker's resting option: this recording states nothing of its own and follows
+ * whatever the account, and below it the installation, is set to.
+ *
+ * The empty string because that is what an `option` with no value of its own carries, which keeps
+ * "no statement" out of the tags themselves — `TRANSCRIPTION_LANGUAGES` stays a list of languages.
+ */
+const NO_STATEMENT = "";
 
 /**
  * Recording screen — full-screen and distraction-free on every size.
@@ -72,7 +80,11 @@ export function RecordRoute() {
   // `null` means "not touched yet", which is what keeps the field following the user's default
   // while it is still loading — an explicit choice replaces it and is never overwritten again.
   const [chosenTemplate, setChosenTemplate] = React.useState<string | null>(null);
-  const [chosenLanguage, setChosenLanguage] = React.useState<TranscriptionLanguage | null>(null);
+  // Three states rather than two, because "follow my default" is itself a choice a user can make
+  // here: `undefined` is untouched and follows the stored default, `null` is that default
+  // deliberately followed, and a tag is this meeting's own. Collapsing the first two would snap
+  // the control back to the default's name the moment somebody selected "follow it".
+  const [chosenLanguage, setChosenLanguage] = React.useState<TranscriptionLanguage | null>();
   const [mode, setMode] = React.useState<CaptureMode>(() => readRememberedCaptureMode());
   // Read once: whether this browser has screen capture at all does not change while the screen is
   // open, and calling it per render would be a permission-adjacent probe on every keystroke.
@@ -87,17 +99,20 @@ export function RecordRoute() {
   const defaultTemplate = templates.templates.find((view) => view.isDefault)?.template.id ?? null;
   const templateId = chosenTemplate ?? defaultTemplate ?? "";
   // What this recording states about its language: a choice made here, otherwise the user's
-  // default, otherwise nothing.
+  // default, otherwise nothing — and the control shows exactly that, `NO_STATEMENT` included.
   //
-  // NOTHING IS NOT THE SAME AS "DETECT IT". An untouched picker has said nothing, and an
-  // installation configured for one language must still get that language rather than detection —
-  // that is the link of the chain below the user's default. Only a deliberate pick of "detect"
-  // stops the chain here. It also covers the first instants of the screen, before the stored
-  // default has loaded: a recording started right then falls to the server's copy of it.
-  const statedLanguage = chosenLanguage ?? settings.settings.transcriptionLanguage;
-  // The control itself always shows something, and detection is what a user who has chosen
-  // nothing would see happen on a stack that configures no language of its own.
-  const language = statedLanguage ?? AUTODETECT_LANGUAGE;
+  // NOTHING IS NOT THE SAME AS "DETECT IT". Detection is a decision that ends the chain; saying
+  // nothing hands it on, and an installation configured for one language still gets that language.
+  // The two therefore need two options rather than one resting on the other's label: a picker that
+  // displayed "detect" while sending nothing would claim something untrue on such a stack, and it
+  // would also leave detection unreachable — picking the option already displayed fires no change.
+  //
+  // Saying nothing is also what the first instants of the screen state, before the stored default
+  // has loaded. That is the honest answer at that moment, and it is the one that lets the server
+  // resolve from its own copy rather than from a screen that has not read it yet.
+  const statedLanguage =
+    chosenLanguage === undefined ? settings.settings.transcriptionLanguage : chosenLanguage;
+  const language = statedLanguage ?? NO_STATEMENT;
   // One template is no choice. Showing a select with a single option would be a control that
   // cannot do anything — the resting state stays silent until the user has templates of their own.
   const offerTemplates = templates.status === "ready" && templates.templates.length > 1;
@@ -207,7 +222,11 @@ export function RecordRoute() {
                 asking the question: it opens on the user's own default, most meetings never
                 touch it, and the ones held in another language are exactly the ones that used to
                 come back decoded as gibberish. Hence one quiet line instead of a field of its
-                own — an indicator that happens to be changeable, and only before capture. */}
+                own — an indicator that happens to be changeable, and only before capture.
+
+                Disabled from the moment the button is pressed: past that point the recording has
+                been started with what the screen said, and a control that still moved would be
+                collecting a choice that can no longer reach the session. */}
             <div className="flex items-center justify-between gap-3">
               <Label
                 htmlFor="recording-language"
@@ -219,9 +238,20 @@ export function RecordRoute() {
               <Select
                 id="recording-language"
                 className="h-10 w-auto min-w-[10rem] text-sm"
+                disabled={busy}
                 value={language}
-                onChange={(event) => setChosenLanguage(event.target.value as TranscriptionLanguage)}
+                onChange={(event) =>
+                  setChosenLanguage(
+                    event.target.value === NO_STATEMENT
+                      ? null
+                      : (event.target.value as TranscriptionLanguage),
+                  )
+                }
               >
+                {/* Following the default is its own option, and the resting one. It is not a
+                    synonym for detection: it is what leaves the decision to the account and,
+                    below that, to the installation. */}
+                <option value={NO_STATEMENT}>{t("recording.languageField.followDefault")}</option>
                 {TRANSCRIPTION_LANGUAGES.map((option) => (
                   <option key={option} value={option}>
                     {t(`transcriptionLanguages.${option}`)}

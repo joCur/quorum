@@ -1,7 +1,11 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import fp from "fastify-plugin";
 import { UserSettingsUpdateSchema, type UserSettings } from "@quorum/shared";
-import type { UserSettingsScope, UserSettingsStore } from "./repository.js";
+import {
+  UserSettingsUnavailableError,
+  type UserSettingsScope,
+  type UserSettingsStore,
+} from "./repository.js";
 
 export interface UserSettingsRoutesOptions {
   store: UserSettingsStore;
@@ -41,13 +45,30 @@ const userSettingsRoutesImpl: FastifyPluginAsync<UserSettingsRoutesOptions> = as
         message: "The settings could not be read.",
       });
     }
-    const body: UserSettings = await store.updateSettings(
-      scopeOf(request.requireContext()),
-      update.data,
-    );
-    return body;
+    try {
+      const body: UserSettings = await store.updateSettings(
+        scopeOf(request.requireContext()),
+        update.data,
+      );
+      return body;
+    } catch (error) {
+      return unavailable(error, reply);
+    }
   });
 };
+
+/**
+ * The schema cannot hold the preference yet — the worker that owns `user_settings` has not
+ * applied its migrations. 503 rather than 500: nothing is wrong with the request, and it will
+ * succeed once the worker has come up, which is what "try again shortly" tells the caller.
+ */
+function unavailable(error: unknown, reply: FastifyReply): FastifyReply {
+  if (!(error instanceof UserSettingsUnavailableError)) throw error;
+  return reply.code(503).send({
+    error: "settings_unavailable",
+    message: "The setting could not be saved right now. Try again shortly.",
+  });
+}
 
 function scopeOf(context: { tenantId: string; userId: string }): UserSettingsScope {
   return { tenantId: context.tenantId, userId: context.userId };

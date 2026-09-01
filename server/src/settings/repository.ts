@@ -19,8 +19,19 @@ import { UserSettingsSchema } from "@quorum/shared";
  * summary feature's code, which is where anyone changing it will look.
  */
 
-/** PostgreSQL `undefined_table` — the worker has not applied its schema yet. */
+/**
+ * The two ways this store can find the schema not ready, both of which happen in normal
+ * operation rather than only in a broken deployment.
+ *
+ * `undefined_table` is a stack whose worker has never started. `undefined_column` is the more
+ * common one and the reason it is handled at all: `user_settings` already exists in every
+ * deployment that used the default summary template, and the transcription language is a column
+ * added to it. Between the API rolling out and the worker restarting with the new migration list,
+ * the table is there and the column is not — a window in which naming the column raises 42703 on
+ * every read and every write.
+ */
 const UNDEFINED_TABLE = "42P01";
+const UNDEFINED_COLUMN = "42703";
 
 /** Tenant and user a request runs under (ADR-001). Never read from a request body. */
 export interface UserSettingsScope {
@@ -30,6 +41,21 @@ export interface UserSettingsScope {
 
 /** Everything a user has chosen, with the untouched defaults filled in. */
 export const EMPTY_USER_SETTINGS: UserSettings = { transcriptionLanguage: null };
+
+/**
+ * Raised when the schema cannot hold the preference yet — no `user_settings` table, or one
+ * without the column.
+ *
+ * Only writes raise it. A read has a truthful answer in that state ("nothing is stored"), but a
+ * write does not: reporting success would tell the user their choice was saved when the statement
+ * never ran, and the screen would go on showing it until the next reload quietly dropped it.
+ */
+export class UserSettingsUnavailableError extends Error {
+  constructor() {
+    super("The user settings store is not ready yet.");
+    this.name = "UserSettingsUnavailableError";
+  }
+}
 
 export interface UserSettingsStore {
   /** What this user has chosen. A user who has chosen nothing reads as all defaults. */
@@ -41,17 +67,27 @@ export interface UserSettingsStore {
 export class PostgresUserSettingsStore implements UserSettingsStore {
   private readonly sql: postgres.Sql;
 
-  constructor(connectionString: string, options: postgres.Options<Record<string, never>> = {}) {
-    this.sql = postgres(connectionString, { max: 2, ...options });
+  /**
+   * Takes a connection string in production. An already-built `Sql` is the test seam: what this
+   * store mostly does is decide which database errors are a state to absorb and which are a
+   * failure to report, and that decision is only observable by making the database raise them.
+   */
+  constructor(
+    connection: string | postgres.Sql,
+    options: postgres.Options<Record<string, never>> = {},
+  ) {
+    this.sql =
+      typeof connection === "string" ? postgres(connection, { max: 2, ...options }) : connection;
   }
 
   /**
-   * A missing table, a missing row and a row of nulls all read as "nothing chosen".
+   * A missing table, a missing column, a missing row and a row of nulls all read as
+   * "nothing chosen".
    *
-   * That is what lets the recording endpoint ask for a user's default on a stack whose worker has
-   * never started: the answer is the same as for a user who has never opened the settings screen,
-   * and the chain carries on to the deployment default rather than failing a recording over a
-   * preference.
+   * That is what lets the recording endpoint ask for a user's default mid-deploy, or on a stack
+   * whose worker has never started: the answer is the same as for a user who has never opened the
+   * settings screen, and the chain carries on to the deployment default rather than failing a
+   * recording — or the whole settings screen — over a preference that cannot be stored yet.
    */
   async findSettings(scope: UserSettingsScope): Promise<UserSettings> {
     try {
@@ -64,25 +100,33 @@ export class PostgresUserSettingsStore implements UserSettingsStore {
       `;
       return parseSettings(rows[0]?.transcription_language ?? null);
     } catch (error) {
-      if (isUndefinedTable(error)) return { ...EMPTY_USER_SETTINGS };
+      if (isSchemaNotReady(error)) return { ...EMPTY_USER_SETTINGS };
       throw error;
     }
   }
 
+  /**
+   * Unlike the read, this refuses rather than pretending: see `UserSettingsUnavailableError`.
+   */
   async updateSettings(
     scope: UserSettingsScope,
     update: UserSettingsUpdate,
   ): Promise<UserSettings> {
     if (!("transcriptionLanguage" in update)) return this.findSettings(scope);
     const language = update.transcriptionLanguage ?? null;
-    const rows = await this.sql<{ transcription_language: string | null }[]>`
-      INSERT INTO user_settings (tenant_id, user_id, transcription_language)
-      VALUES (${scope.tenantId}, ${scope.userId}, ${language})
-      ON CONFLICT (tenant_id, user_id) DO UPDATE
-         SET transcription_language = EXCLUDED.transcription_language, updated_at = now()
-      RETURNING transcription_language
-    `;
-    return parseSettings(rows[0]?.transcription_language ?? null);
+    try {
+      const rows = await this.sql<{ transcription_language: string | null }[]>`
+        INSERT INTO user_settings (tenant_id, user_id, transcription_language)
+        VALUES (${scope.tenantId}, ${scope.userId}, ${language})
+        ON CONFLICT (tenant_id, user_id) DO UPDATE
+           SET transcription_language = EXCLUDED.transcription_language, updated_at = now()
+        RETURNING transcription_language
+      `;
+      return parseSettings(rows[0]?.transcription_language ?? null);
+    } catch (error) {
+      if (isSchemaNotReady(error)) throw new UserSettingsUnavailableError();
+      throw error;
+    }
   }
 }
 
@@ -124,6 +168,8 @@ function parseSettings(transcriptionLanguage: string | null): UserSettings {
   return parsed.success ? parsed.data : { ...EMPTY_USER_SETTINGS };
 }
 
-function isUndefinedTable(error: unknown): boolean {
-  return (error as { code?: string } | null)?.code === UNDEFINED_TABLE;
+/** The table has not been created yet, or it predates the column this store writes. */
+function isSchemaNotReady(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === UNDEFINED_TABLE || code === UNDEFINED_COLUMN;
 }

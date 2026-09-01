@@ -96,7 +96,8 @@
       "label": "Summary template"
     },
     "languageField": {
-      "label": "Spoken language"
+      "label": "Spoken language",
+      "followDefault": "Default"
     },
     "inputField": {
       "label": "Microphone",
