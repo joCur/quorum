@@ -334,6 +334,14 @@
     "back": "Back to meetings",
     "loadError": "This meeting could not be loaded.",
     "deleted": "This meeting was deleted.",
+    "rename": {
+      "action": "Rename meeting",
+      "label": "Meeting title",
+      "placeholder": "Name this meeting",
+      "save": "Save name",
+      "cancel": "Discard changes",
+      "failed": "This name could not be saved."
+    },
     "view": {
       "label": "Meeting content",
       "transcript": "Transcript",

@@ -82,6 +82,7 @@ Server (`quorum-server`):
 | `meeting.index_failed`           | warn  | The meeting row could not be written; recording continued         |
 | `meeting.finalize_index_failed`  | warn  | The meeting could not be marked finalized; audio and job are safe |
 | `meeting.deleted`                | info  | A meeting and everything derived from it were removed             |
+| `meeting.renamed`                | info  | A user set or cleared a meeting's name; `cleared` says which      |
 | `limit.session_duration_exceeded` | info | A recording hit the duration cap and was finalized server-side     |
 | `limit.parallel_sessions_exceeded` | info | A recording was refused: the user is already at the session cap   |
 | `limit.chunk_rate_exceeded`      | info  | A connection was closed for sending chunks too fast               |
@@ -109,7 +110,6 @@ Worker (`quorum-worker`):
 | `summary.enqueued`          | info  | The follow-up summary job was placed on the queue                 |
 | `summary.enqueue_failed`    | error | Transcript is persisted but the summary job could not be queued   |
 | `summary.title.applied`     | info  | Whether the meeting took the name the summary suggested for it    |
-| `summary.title.persist_failed` | warn | The summary is stored, the name it suggested is not. Not a failed job |
 | `job.succeeded`             | info  | The artifact is persisted                                        |
 | `job.failed`                | error | The attempt failed; see `code` and `retryable`                    |
 | `job.settled`               | error | The queue outcome: retried, or moved to the dead-letter queue      |

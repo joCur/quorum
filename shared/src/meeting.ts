@@ -87,7 +87,25 @@ export const MeetingDetailSchema = z.object({
   jobs: z.array(JobSchema),
 });
 
+/**
+ * Renaming a meeting.
+ *
+ * `title` is required but may be empty: clearing the field is a thing a user means to do, and it
+ * returns the meeting to unnamed — which the next summary may fill again, exactly as it would
+ * have for a recording that was never named. An absent field is a malformed request rather than
+ * "leave it alone", so a client cannot clear a title by forgetting to send one.
+ *
+ * The bound is generous compared to what a generated title may be: a person naming their own
+ * meeting is not the party this cap is protecting the list from.
+ */
+export const MAX_MEETING_TITLE_LENGTH = 200;
+
+export const RenameMeetingRequestSchema = z.object({
+  title: z.string().max(MAX_MEETING_TITLE_LENGTH),
+});
+
 export type MeetingStatus = z.infer<typeof MeetingStatusSchema>;
+export type RenameMeetingRequest = z.infer<typeof RenameMeetingRequestSchema>;
 export type MeetingFailure = z.infer<typeof MeetingFailureSchema>;
 export type Meeting = z.infer<typeof MeetingSchema>;
 export type MeetingList = z.infer<typeof MeetingListSchema>;

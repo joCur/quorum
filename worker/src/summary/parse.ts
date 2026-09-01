@@ -132,16 +132,18 @@ export interface ParsedSummaryContent {
 }
 
 /**
- * The title out of the answer envelope.
+ * The title out of the answer envelope — and only out of the envelope.
  *
- * `title` is read only from an object at the top level. In the two fallback shapes the parser
- * tolerates for sections — a bare array, and an object keyed by section id — there is no envelope
- * to carry one, and a section called `title` is a section, not a name for the meeting.
+ * The requirement is `sections`, not merely an object: in the two shapes the parser tolerates
+ * instead of the envelope — a bare array, and an object keyed by section id — a key called
+ * `title` is a section of a template that happens to have a section with that id, and reading it
+ * as the meeting's name would put a paragraph of prose at the top of the screen.
  */
 function titleOf(parsed: unknown): string | null {
   if (Array.isArray(parsed) || typeof parsed !== "object" || parsed === null) return null;
   const record = parsed as Record<string, unknown>;
-  return normalizeGeneratedTitle(record["title"] ?? record["meetingTitle"]);
+  if (!("sections" in record)) return null;
+  return normalizeGeneratedTitle(record["title"]);
 }
 
 export function parseSummaryResponse(

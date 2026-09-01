@@ -14,9 +14,6 @@ import { MIGRATIONS } from "./schema.js";
 /** Arbitrary but fixed key; only this migration ever takes it. */
 const MIGRATION_LOCK_KEY = 6_120_931_042;
 
-/** PostgreSQL `undefined_table` — the API server has not applied its schema yet. */
-const UNDEFINED_TABLE = "42P01";
-
 export interface JobScope {
   tenantId: string;
   userId: string;
@@ -33,6 +30,13 @@ export interface SaveSummaryResult {
   summaryId: string;
   /** `false` when this job had already produced a summary — a replay. */
   created: boolean;
+  /**
+   * The name the meeting took from this summary, or `null` when it kept the one it had — a
+   * title the user wrote, one an earlier run suggested, or no suggestion to make. Decided and
+   * written in the same transaction as the summary, so a reader that can see the summary can
+   * see the name it produced.
+   */
+  appliedTitle: string | null;
 }
 
 /** Persistence port; the in-memory implementation in the tests mirrors it. */
@@ -86,16 +90,6 @@ export interface SummaryRepository {
    * deleted in the meantime. The check and the insert share one transaction.
    */
   saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult>;
-  /**
-   * Offers the generated name to a meeting nobody named. Returns the title the meeting carries
-   * afterwards when this call is what put it there, and `null` when the meeting kept what it had
-   * — a user's title, a name a previous run already suggested, or no suggestion to make.
-   */
-  applyGeneratedTitle(
-    meetingId: string,
-    tenantId: string,
-    generatedTitle: string | null,
-  ): Promise<string | null>;
   saveJob(job: Job, scope: JobScope, attempt: number): Promise<void>;
 }
 
@@ -403,13 +397,20 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
   async saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult> {
     try {
       return await this.sql.begin(async (sql) => {
-        await requireMeeting(sql, summary.meetingId, scope.tenantId);
+        // `FOR UPDATE`, not the `FOR SHARE` the other writers take: this transaction goes on to
+        // write the meeting's title, and taking the weaker lock first and upgrading it is how two
+        // concurrent summarize jobs for one meeting would deadlock. Taking the exclusive lock up
+        // front makes the lock order the same for everyone who touches this row — the deletion
+        // cascade included — so the two transactions queue instead of colliding.
+        const meeting = await requireMeeting(sql, summary.meetingId, scope.tenantId, "update");
 
         const existing = await sql<{ id: string }[]>`
           SELECT id FROM summaries WHERE job_id = ${jobId} FOR UPDATE
         `;
         const previous = existing[0];
-        if (previous) return { summaryId: previous.id, created: false };
+        // A replay makes no second offer: the name this summary suggested was already decided
+        // when it was first stored.
+        if (previous) return { summaryId: previous.id, created: false, appliedTitle: null };
 
         await sql`
           UPDATE summaries SET is_active = false
@@ -441,69 +442,15 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
           `;
           const found = winner[0];
           if (!found) throw new Error("summary vanished after a conflicting insert");
-          return { summaryId: found.id, created: false };
+          return { summaryId: found.id, created: false, appliedTitle: null };
         }
-        return { summaryId: row.id, created: true };
+
+        const appliedTitle = await nameMeeting(sql, summary, scope.tenantId, meeting);
+        return { summaryId: row.id, created: true, appliedTitle };
       });
     } catch (error) {
       if (error instanceof JobError || error instanceof MeetingGoneError) throw error;
       throw new JobError("SUMMARY_PERSIST_FAILED", "failed to persist the summary", {
-        retryable: true,
-        cause: error,
-      });
-    }
-  }
-
-  /**
-   * Writes the suggested name onto the meeting — the one statement in this worker that changes a
-   * row the API server owns.
-   *
-   * WHY THE WORKER WRITES IT: the title is derived from the transcript, and this process is where
-   * the transcript is read. The alternative, having the server compute a display title from the
-   * active summary on every read, would leave the list's title search looking at a column that no
-   * longer holds what the list shows. The write is deliberately the narrowest one possible: one
-   * column, only when it is empty, never a delete and never an insert. Everything else about
-   * `meetings` remains the server's, exactly as `schema.ts` on both sides describes.
-   *
-   * WHY IT DECIDES IN TYPESCRIPT RATHER THAN IN THE `WHERE` CLAUSE: "the user has not named this
-   * meeting" is a product rule (ADR-003 §2: machine output never overwrites what a person wrote),
-   * so it lives in `@quorum/shared` where it can be read and tested on its own. `FOR UPDATE` is
-   * what makes reading it and acting on it one decision — a rename committing in between would
-   * otherwise be overwritten by a suggestion that was made against the older row.
-   *
-   * A meeting deleted in the meantime is not an error here: there is simply no row to name.
-   */
-  async applyGeneratedTitle(
-    meetingId: string,
-    tenantId: string,
-    generatedTitle: string | null,
-  ): Promise<string | null> {
-    if (generatedTitle === null) return null;
-    try {
-      return await this.sql.begin(async (sql) => {
-        const rows = await sql<{ title: string | null }[]>`
-          SELECT title FROM meetings
-           WHERE id = ${meetingId} AND tenant_id = ${tenantId}
-           FOR UPDATE
-        `;
-        const row = rows[0];
-        if (!row) return null;
-
-        const title = generatedTitleUpdate(row.title, generatedTitle);
-        if (title === null) return null;
-
-        await sql`
-          UPDATE meetings
-             SET title = ${title}, updated_at = now()
-           WHERE id = ${meetingId} AND tenant_id = ${tenantId}
-        `;
-        return title;
-      });
-    } catch (error) {
-      // The table belongs to the server and may not exist yet on a fresh database. A meeting that
-      // was never indexed has no name to be missing.
-      if ((error as { code?: string } | null)?.code === UNDEFINED_TABLE) return null;
-      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to store the generated meeting title", {
         retryable: true,
         cause: error,
       });
@@ -542,32 +489,90 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
  * the follow-up already noted in `schema.ts` on both sides; this call does not
  * change that plan.
  *
- * WHY `FOR SHARE`: the row lock is what makes the check race-free rather than
- * merely narrow. The delete cascade opens with `SELECT ... FOR UPDATE` on the
- * same row, so a delete that arrives after this statement blocks until the
- * insert has committed, and a delete that arrives before it makes this
- * statement wait and then find nothing. Both transactions take the `meetings`
- * row first, so the lock order is consistent and cannot deadlock.
+ * WHY A ROW LOCK: it is what makes the check race-free rather than merely
+ * narrow. The delete cascade opens with `SELECT ... FOR UPDATE` on the same row,
+ * so a delete that arrives after this statement blocks until the insert has
+ * committed, and a delete that arrives before it makes this statement wait and
+ * then find nothing. Every transaction that touches a meeting takes this row
+ * first, so the lock order is consistent and cannot deadlock.
+ *
+ * WHICH LOCK: `share` for a caller that only needs the meeting to still be
+ * there, `update` for one that goes on to write the row — which today means
+ * `saveSummary` writing the generated title. A caller that will write must ask
+ * for the exclusive lock here rather than upgrade a shared one later: two
+ * transactions upgrading the same row is the one shape that deadlocks.
  *
  * WHY A MISSING TABLE COUNTS AS PRESENT: the server may not have applied its
  * schema yet on a fresh database. No meeting can have been deleted if no
  * meeting was ever recorded, so failing open here discards no data — whereas
  * failing closed would throw away real work over a start-order race.
+ *
+ * The row is handed back — `null` when the table is not there yet — so a caller
+ * that locked it does not have to read it a second time.
  */
 async function requireMeeting(
   sql: postgres.TransactionSql,
   meetingId: string,
   tenantId: string,
-): Promise<void> {
+  lock: "share" | "update" = "share",
+): Promise<MeetingRow | null> {
   const registered = await sql<{ present: boolean }[]>`
     SELECT to_regclass('public.meetings') IS NOT NULL AS present
   `;
-  if (registered[0]?.present !== true) return;
+  if (registered[0]?.present !== true) return null;
 
-  const rows = await sql<{ id: string }[]>`
-    SELECT id FROM meetings
+  const rows = await sql<MeetingRow[]>`
+    SELECT id, title FROM meetings
      WHERE id = ${meetingId} AND tenant_id = ${tenantId}
-     FOR SHARE
+     ${lock === "update" ? sql`FOR UPDATE` : sql`FOR SHARE`}
   `;
-  if (rows.length === 0) throw new MeetingGoneError(meetingId);
+  const row = rows[0];
+  if (!row) throw new MeetingGoneError(meetingId);
+  return row;
+}
+
+/** The columns of the server-owned `meetings` row this worker looks at. */
+interface MeetingRow {
+  id: string;
+  title: string | null;
+}
+
+/**
+ * Gives the meeting the name its summary suggested — the one write in this worker that changes a
+ * row the API server owns (see the ADR on machine-filled fields, and the ownership note in
+ * `schema.ts` on both sides).
+ *
+ * WHY THE WORKER WRITES IT: the title is derived from the transcript, and this process is where
+ * the transcript is read. Having the server compute a display title from the active summary on
+ * every read instead would leave the list's title search looking at a column that no longer holds
+ * what the list shows. The write is the narrowest one possible: one column, only when it is
+ * empty, never an insert and never a delete.
+ *
+ * WHY IT RUNS INSIDE `saveSummary`: the meeting turns "ready" the moment the summary row exists,
+ * and a client stops polling the moment it reads that. A title committed one transaction later
+ * can therefore miss the last read a screen ever makes, and the meeting stays "Untitled" until
+ * someone reloads by hand. Sharing the transaction means a reader that can see the summary can
+ * see the name it produced.
+ *
+ * WHY THE DECISION IS IN TYPESCRIPT AND NOT IN A `WHERE` CLAUSE: "the user has not named this
+ * meeting" is a product rule (ADR-003 §2 — machine output never overwrites what a person wrote),
+ * so it lives in `@quorum/shared` where it can be read and tested on its own. The row was locked
+ * `FOR UPDATE` before it was read, so a rename cannot commit between the decision and the write.
+ */
+async function nameMeeting(
+  sql: postgres.TransactionSql,
+  summary: Summary,
+  tenantId: string,
+  meeting: MeetingRow | null,
+): Promise<string | null> {
+  if (meeting === null) return null;
+  const title = generatedTitleUpdate(meeting.title, summary.generatedTitle);
+  if (title === null) return null;
+
+  await sql`
+    UPDATE meetings
+       SET title = ${title}, updated_at = now()
+     WHERE id = ${summary.meetingId} AND tenant_id = ${tenantId}
+  `;
+  return title;
 }

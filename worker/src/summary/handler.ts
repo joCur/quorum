@@ -1,7 +1,6 @@
 import {
   resolveOutputLanguage,
   type Job,
-  type Summary,
   type SummaryOptions,
   type SummarySection,
   type SummaryTemplate,
@@ -164,8 +163,17 @@ export async function runSummarizeJob(
       createdAt: now().toISOString(),
     });
 
+    // The summary and the name it suggested for the meeting are written together — see
+    // `nameMeeting` in the repository for why they share one transaction.
     const saved = await deps.repository.saveSummary(summary, scope, payload.job.id);
-    const appliedTitle = await applyGeneratedTitle(summary, payload.tenantId, deps, log);
+    if (summary.generatedTitle !== null && saved.created) {
+      log.info(
+        { event: "summary.title.applied", applied: saved.appliedTitle !== null },
+        saved.appliedTitle === null
+          ? "meeting kept the name it already had; the suggested title was not applied"
+          : "meeting took the generated title",
+      );
+    }
 
     const succeeded: Job = {
       ...payload.job,
@@ -185,7 +193,7 @@ export async function runSummarizeJob(
         sectionCount: summary.sections.length,
         repaired,
         model,
-        titled: appliedTitle !== null,
+        titled: saved.appliedTitle !== null,
       },
       saved.created ? "summary persisted" : "summary already existed; job replay was a no-op",
     );
@@ -196,7 +204,7 @@ export async function runSummarizeJob(
       sectionCount: summary.sections.length,
       repaired,
       transcriptTruncated: window.truncated,
-      appliedTitle,
+      appliedTitle: saved.appliedTitle,
     };
   } catch (error) {
     if (error instanceof MeetingGoneError) {
@@ -232,43 +240,6 @@ export async function runSummarizeJob(
       "summary job failed",
     );
     throw jobError;
-  }
-}
-
-/**
- * Offers the meeting the name the model suggested.
- *
- * Never fatal. The summary is written and paid for by the time this runs, and a title is a
- * convenience on top of it — failing the job here would dead-letter a complete summary over a
- * cosmetic write, and the retry would buy a second model call to produce the same document. A
- * failure is logged and the run reports success without a title.
- */
-async function applyGeneratedTitle(
-  summary: Summary,
-  tenantId: string,
-  deps: SummarizeHandlerDependencies,
-  log: WorkerLogger,
-): Promise<string | null> {
-  if (summary.generatedTitle === null) return null;
-  try {
-    const applied = await deps.repository.applyGeneratedTitle(
-      summary.meetingId,
-      tenantId,
-      summary.generatedTitle,
-    );
-    log.info(
-      { event: "summary.title.applied", applied: applied !== null },
-      applied === null
-        ? "meeting already had a name; the suggested title was not applied"
-        : "meeting took the generated title",
-    );
-    return applied;
-  } catch (error) {
-    log.warn(
-      { event: "summary.title.persist_failed", err: error },
-      "could not store the generated meeting title; the summary itself is unaffected",
-    );
-    return null;
   }
 }
 

@@ -217,18 +217,15 @@ describe("summarize job", () => {
       );
     });
 
-    it("takes the title in the language the model answered in", async () => {
-      const answer = JSON.stringify({
-        title: "Releasetermin und offene Aufgaben",
-        sections: [{ sectionId: "overview", content: ["Das Team hat sich geeinigt."] }],
-      });
-      const dependencies = deps({
-        chat: new FakeChatClient([answer]),
-        repository: new InMemorySummaryRepository([transcriptFixture({ language: "de" })]),
-      });
+    it("fills a title that is only whitespace, which is an empty line to a reader", async () => {
+      const dependencies = deps();
+      const repository = dependencies.repository as InMemorySummaryRepository;
+      repository.meetingTitles.set(MEETING_ID, "   ");
+
       const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
 
-      expect(outcome.appliedTitle).toBe("Releasetermin und offene Aufgaben");
+      expect(outcome.appliedTitle).toBe(SUGGESTED_TITLE);
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe(SUGGESTED_TITLE);
     });
 
     it("stores the summary even when the model suggested no title", async () => {
@@ -244,16 +241,29 @@ describe("summarize job", () => {
       expect(repository.summaries.get(outcome.summaryId)!.summary.generatedTitle).toBeNull();
     });
 
-    it("does not fail a paid-for summary over a title that could not be stored", async () => {
+    it("lands with the summary rather than after it, so a reader sees both or neither", async () => {
       const dependencies = deps();
       const repository = dependencies.repository as InMemorySummaryRepository;
-      repository.titleWriteFailure = new Error("meetings table is unhappy");
-
       const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
 
-      expect(outcome.appliedTitle).toBeNull();
-      expect(outcome.created).toBe(true);
-      expect(repository.jobStates.at(-1)!.status).toBe("succeeded");
+      // The store writes both in one step; what this pins is that the handler asks for it that
+      // way, because a meeting turns "ready" the moment the summary exists and a client stops
+      // polling on that.
+      expect(repository.summaries.has(outcome.summaryId)).toBe(true);
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe(SUGGESTED_TITLE);
+    });
+
+    it("makes no second offer when the job is replayed", async () => {
+      const dependencies = deps();
+      const repository = dependencies.repository as InMemorySummaryRepository;
+      await runSummarizeJob(summarizePayload(), 0, dependencies);
+      repository.meetingTitles.set(MEETING_ID, "Renamed by the user");
+
+      const replay = await runSummarizeJob(summarizePayload(), 1, dependencies);
+
+      expect(replay.created).toBe(false);
+      expect(replay.appliedTitle).toBeNull();
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe("Renamed by the user");
     });
   });
 

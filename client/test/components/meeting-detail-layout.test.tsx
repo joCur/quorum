@@ -134,6 +134,7 @@ vi.mock("@/features/meetings/use-meeting", () => ({
     deleting: false,
     reload: vi.fn(),
     remove: vi.fn(),
+    rename: vi.fn(),
   }),
 }));
 
@@ -152,6 +153,7 @@ vi.mock("@/features/templates/use-templates", () => ({
       create: vi.fn(),
       update: vi.fn(),
       remove: vi.fn(),
+      rename: vi.fn(),
       chooseDefault: vi.fn(),
     }) as unknown as TemplatesState,
 }));

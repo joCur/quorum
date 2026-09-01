@@ -4,6 +4,7 @@ import {
   generatedTitleUpdate,
   isUnnamedMeeting,
   normalizeGeneratedTitle,
+  normalizeUserTitle,
 } from "../src/meeting-title.js";
 
 describe("normalizing a generated title", () => {
@@ -44,6 +45,51 @@ describe("normalizing a generated title", () => {
   it("refuses punctuation on its own, which is not a name", () => {
     expect(normalizeGeneratedTitle("—")).toBeNull();
     expect(normalizeGeneratedTitle(".")).toBeNull();
+  });
+
+  it("refuses a title left as punctuation by the cut", () => {
+    // An answer that opens with a rule of dashes long enough to fill the cap: the words behind
+    // it are cut away, and what is left has to be refused rather than stored.
+    expect(normalizeGeneratedTitle(`${"-".repeat(125)} Quarterly planning`)).toBeNull();
+  });
+
+  it("refuses the words a model writes when it means null", () => {
+    for (const answer of ["null", "None", "N/A", "  undefined  ", "Untitled"]) {
+      expect(normalizeGeneratedTitle(answer)).toBeNull();
+    }
+  });
+
+  it("cuts on code points, so a long title cannot end in half a character", () => {
+    // The leading letter offsets the pairs, so a cut counted in UTF-16 units would land inside
+    // one and store a replacement character where the second half used to be.
+    const normalized = normalizeGeneratedTitle(`x${"a🎧".repeat(100)}`)!;
+
+    expect([...normalized]).toHaveLength(MAX_GENERATED_TITLE_LENGTH);
+    expect(normalized).not.toContain("�");
+    expect(normalized.endsWith("\uD83C")).toBe(false);
+  });
+
+  it("leaves quotes alone when stripping them would unbalance the title", () => {
+    expect(normalizeGeneratedTitle('"Budget" und "Personal"')).toBe('"Budget" und "Personal"');
+  });
+
+  it("still unwraps a title that is quoted as a whole", () => {
+    expect(normalizeGeneratedTitle("«Jahresplanung»")).toBe("Jahresplanung");
+    expect(normalizeGeneratedTitle('"Budget und Personal"')).toBe("Budget und Personal");
+  });
+});
+
+describe("a title the user typed", () => {
+  it("is trimmed, and empty means unnamed", () => {
+    expect(normalizeUserTitle("  Weekly sync  ")).toBe("Weekly sync");
+    expect(normalizeUserTitle("")).toBeNull();
+    expect(normalizeUserTitle("   ")).toBeNull();
+    expect(normalizeUserTitle(null)).toBeNull();
+  });
+
+  it("agrees with the unnamed rule the suggestion is decided by", () => {
+    expect(isUnnamedMeeting(normalizeUserTitle("   "))).toBe(true);
+    expect(isUnnamedMeeting(normalizeUserTitle("Weekly sync"))).toBe(false);
   });
 });
 

@@ -74,7 +74,7 @@ export const SummarySchema = z.object({
     resolvedSections: z.array(TemplateSectionSchema),
     options: SummaryOptionsSchema,
   }),
-  /** Womit erzeugt — analog model/modelVersion im Transcript */
+  /** What produced it — the counterpart of model/modelVersion on the transcript. */
   model: z.string(),
   promptVersion: z.string(),
   /**
@@ -85,8 +85,18 @@ export const SummarySchema = z.object({
    * takes it is decided once, when the summary is stored, by `generatedTitleUpdate` — a title the
    * user wrote always wins. `null` when the model offered none, and on every summary produced
    * before titles were asked for.
+   *
+   * `.catch(null)` rather than a plain constraint: this field is the least important thing in the
+   * document, and the readers parse the whole summary or drop it. A stored value that somehow
+   * violates the bound has to cost the name, never the summary it belongs to.
    */
-  generatedTitle: z.string().min(1).max(MAX_GENERATED_TITLE_LENGTH).nullable().default(null),
+  generatedTitle: z
+    .string()
+    .min(1)
+    .max(MAX_GENERATED_TITLE_LENGTH)
+    .nullable()
+    .default(null)
+    .catch(null),
   createdAt: z.string().datetime(),
   sections: z.array(SummarySectionSchema),
 });

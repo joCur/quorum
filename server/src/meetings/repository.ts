@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import {
+  normalizeUserTitle,
   JobSchema,
   SummarySchema,
   TranscriptSchema,
@@ -68,6 +69,15 @@ export interface MeetingStore {
   /** What the user has consumed: stored bytes overall, recorded seconds since `monthStart`. */
   readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage>;
   listMeetings(scope: MeetingScope, options?: ListMeetingsOptions): Promise<Meeting[]>;
+  /**
+   * Sets the meeting's name, or clears it when the title is empty. `null` when there is no such
+   * meeting in the caller's scope; otherwise the meeting as it now stands.
+   */
+  renameMeeting(
+    scope: MeetingScope,
+    meetingId: string,
+    title: string | null,
+  ): Promise<Meeting | null>;
   /** `null` when the meeting does not exist *or* belongs to another tenant or user. */
   findMeeting(scope: MeetingScope, meetingId: string): Promise<MeetingDetailRow | null>;
   /**
@@ -120,22 +130,55 @@ export class PostgresMeetingStore implements MeetingStore {
     });
   }
 
+  /**
+   * The index entry for a recording, written when the session starts and again when it ends.
+   *
+   * The title is normalized on the way in and the repeat write only ever fills an empty column.
+   * Both halves matter: the second call carries the title the session started with, so without
+   * the coalesce it would erase a name the row has been given since — the one the summary
+   * suggested, or one from a rename — and without the normalization a title of spaces would
+   * count as a name and do the erasing anyway.
+   */
   async recordSession(record: MeetingRecord): Promise<void> {
+    const title = normalizeUserTitle(record.title);
     await this.sql`
       INSERT INTO meetings (
         id, tenant_id, user_id, session_id, title, audio_format, created_at
       ) VALUES (
         ${record.meetingId}, ${record.tenantId}, ${record.userId}, ${record.sessionId},
-        ${record.title}, ${this.sql.json(record.audioFormat as unknown as postgres.JSONValue)},
+        ${title}, ${this.sql.json(record.audioFormat as unknown as postgres.JSONValue)},
         ${record.createdAt}
       )
       ON CONFLICT (session_id) DO UPDATE SET
-        -- A repeat of this write carries the title the recording started with, which for an
-        -- unnamed recording is null. Coalescing keeps it from erasing a name the row has been
-        -- given since — today the one the summary suggested, later a rename.
-        title = COALESCE(EXCLUDED.title, meetings.title),
+        title = COALESCE(NULLIF(btrim(EXCLUDED.title), ''), meetings.title),
         updated_at = now()
     `;
+  }
+
+  /**
+   * Renaming, and clearing the name (ADR-001 scoping: the tenant and user are in the predicate,
+   * so a rename of somebody else's meeting matches no row and reads as "no such meeting").
+   *
+   * An empty title stores NULL rather than an empty string, which returns the meeting to unnamed
+   * — the state a later summary may fill again, exactly as it would for a recording that was
+   * never named. Returns the meeting as it now stands, so the caller does not have to guess what
+   * it wrote.
+   */
+  async renameMeeting(
+    scope: MeetingScope,
+    meetingId: string,
+    title: string | null,
+  ): Promise<Meeting | null> {
+    const rows = await this.sql<{ id: string }[]>`
+      UPDATE meetings
+         SET title = ${normalizeUserTitle(title)}, updated_at = now()
+       WHERE id = ${meetingId}
+         AND tenant_id = ${scope.tenantId}
+         AND user_id = ${scope.userId}
+      RETURNING id
+    `;
+    if (rows.length === 0) return null;
+    return (await this.findMeeting(scope, meetingId))?.meeting ?? null;
   }
 
   /**

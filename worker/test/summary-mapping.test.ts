@@ -148,6 +148,28 @@ describe("response parsing", () => {
       parse(JSON.stringify([{ sectionId: "overview", content: ["It happened."] }])).title,
     ).toBeNull();
   });
+
+  it("does not read a section called `title` as the meeting's name", () => {
+    // The keyed-by-section-id shape carries no envelope, so a template whose section id happens
+    // to be "title" would otherwise have its prose lifted out and stored as the meeting name.
+    const sections = [
+      {
+        id: "title",
+        title: "Title",
+        instruction: "The formal title of the matter under discussion",
+        format: "prose" as const,
+      },
+      ...SECTIONS,
+    ];
+    const answer = JSON.stringify({
+      title: ["A whole paragraph, which is not a name."],
+      overview: ["It happened."],
+    });
+    const parsed = parseSummaryResponse(answer, sections);
+
+    expect(parsed.title).toBeNull();
+    expect(parsed.sections[0]!.content).toEqual(["A whole paragraph, which is not a name."]);
+  });
 });
 
 describe("malformed output", () => {

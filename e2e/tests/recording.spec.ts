@@ -136,21 +136,34 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 30_000 });
 
     // Nobody named this recording, so the summary named it. The stub suggests a fixed title, and
-    // the meeting carries it on both screens instead of the "Untitled" placeholder. Asserted
-    // against the stub only: a real backend picks its own words.
+    // the meeting carries it instead of the "Untitled" placeholder. Asserted against the stub
+    // only: a real backend picks its own words.
     //
-    // Reloaded rather than waited out: the title is stored right after the summary it came from,
-    // and a screen that stopped polling in between would hold a name that is one moment old.
-    await page.reload();
-    await expect(page.getByRole("heading", { name: STUB_SUMMARY_TITLE })).toBeVisible({
-      timeout: 30_000,
-    });
-    // And in the list, on this meeting's own row — every recording the suite made gets the same
+    // No reload: the name is written in the same transaction as the summary, so the very read
+    // that showed the summary above carries it. A screen that had to be refreshed by hand to
+    // learn its own title is the bug this asserts is absent.
+    await expect(page.getByRole("heading", { name: STUB_SUMMARY_TITLE })).toBeVisible();
+
+    // And in the list, on this meeting's own row — every recording the suite makes gets the same
     // stub name, so the row is addressed by the meeting it links to.
     await page.goto("/meetings");
     await expect(page.locator(`a[href="/meetings/${transcript.meetingId}"]`)).toContainText(
       STUB_SUMMARY_TITLE,
       { timeout: 30_000 },
+    );
+
+    // A generated name is a suggestion, so it can be corrected. The rename is what makes that
+    // true, and it is the reason the machine is allowed to write the field at all.
+    await page.goto(`/meetings/${transcript.meetingId}`);
+    await page.getByRole("button", { name: "Rename meeting" }).click();
+    const field = page.getByRole("textbox", { name: "Meeting title" });
+    await field.fill("Named by hand");
+    await page.getByRole("button", { name: "Save name" }).click();
+    await expect(page.getByRole("heading", { name: "Named by hand" })).toBeVisible();
+
+    await page.goto("/meetings");
+    await expect(page.locator(`a[href="/meetings/${transcript.meetingId}"]`)).toContainText(
+      "Named by hand",
     );
   }
 });

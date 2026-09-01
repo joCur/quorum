@@ -14,6 +14,12 @@
  * schema-validated documents that we read whole and rarely query field by field
  * (ADR-006 §4). The queryable metadata lives in real columns next to the blob,
  * which is what keeps the deletion cascade of ADR-001 auditable.
+ *
+ * WHAT THIS WORKER TOUCHES OUTSIDE ITS OWN TABLES: the server-owned `meetings`
+ * table is read to tell a deleted meeting from a broken job, and one column of
+ * it is written — `title`, and only where it is empty, to give a recording
+ * nobody named the name its summary suggested (ADR-008). Nothing else there is
+ * the worker's to change.
  */
 export const MIGRATIONS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS transcripts (
