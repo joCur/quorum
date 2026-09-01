@@ -97,56 +97,81 @@ export class OpenAiTranscriptionClient implements TranscriptionClient {
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    let response: Response;
+    // The budget has to cover reading the response, not just obtaining it:
+    // headers can arrive within it and leave the body to be streamed
+    // afterwards, and an attempt stuck there is exactly as stuck as one waiting
+    // for headers. Clearing the timer only after the transcript is parsed makes
+    // the configured value a whole-request limit in fact and not just in name.
     try {
-      response = await this.fetchImpl(`${this.baseUrl}/audio/transcriptions`, {
-        method: "POST",
-        body: form,
-        signal: controller.signal,
-        ...(this.apiKey ? { headers: { authorization: `Bearer ${this.apiKey}` } } : {}),
-      });
-    } catch (error) {
-      // Connection refused, DNS failure, timeout: the backend may still be
-      // starting up or reloading a model, so this is always worth a retry.
-      throw new JobError(
-        "TRANSCRIPTION_UNAVAILABLE",
-        `transcription request to ${this.baseUrl} failed: ${error instanceof Error ? error.message : String(error)}`,
-        { retryable: true, cause: error },
-      );
+      let response: Response;
+      try {
+        response = await this.fetchImpl(`${this.baseUrl}/audio/transcriptions`, {
+          method: "POST",
+          body: form,
+          signal: controller.signal,
+          ...(this.apiKey ? { headers: { authorization: `Bearer ${this.apiKey}` } } : {}),
+        });
+      } catch (error) {
+        if (controller.signal.aborted) throw this.budgetExceeded(error);
+        // Connection refused, DNS failure, timeout: the backend may still be
+        // starting up or reloading a model, so this is always worth a retry.
+        throw new JobError(
+          "TRANSCRIPTION_UNAVAILABLE",
+          `transcription request to ${this.baseUrl} failed: ${error instanceof Error ? error.message : String(error)}`,
+          { retryable: true, cause: error },
+        );
+      }
+
+      if (!response.ok) {
+        const { code, retryable } = errorCodeForHttpStatus(response.status);
+        const detail = (await safeText(response)).slice(0, 500);
+        throw new JobError(
+          code,
+          `transcription backend answered ${response.status}${detail ? `: ${detail}` : ""}`,
+          { retryable },
+        );
+      }
+
+      let body: unknown;
+      try {
+        body = await response.json();
+      } catch (error) {
+        // A body cut short by our own deadline is a slow backend, not a
+        // malformed answer — the difference decides whether the job retries.
+        if (controller.signal.aborted) throw this.budgetExceeded(error);
+        throw new JobError(
+          "TRANSCRIPTION_RESPONSE_INVALID",
+          "transcription backend did not return JSON",
+          { retryable: false, cause: error },
+        );
+      }
+
+      const parsed = WhisperTranscriptionResponseSchema.safeParse(body);
+      if (!parsed.success) {
+        throw new JobError(
+          "TRANSCRIPTION_RESPONSE_INVALID",
+          `transcription response does not match the OpenAI-compatible shape: ${parsed.error.message}`,
+          { retryable: false },
+        );
+      }
+      return parsed.data;
     } finally {
       clearTimeout(timeout);
     }
+  }
 
-    if (!response.ok) {
-      const { code, retryable } = errorCodeForHttpStatus(response.status);
-      const detail = (await safeText(response)).slice(0, 500);
-      throw new JobError(
-        code,
-        `transcription backend answered ${response.status}${detail ? `: ${detail}` : ""}`,
-        { retryable },
-      );
-    }
-
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch (error) {
-      throw new JobError(
-        "TRANSCRIPTION_RESPONSE_INVALID",
-        "transcription backend did not return JSON",
-        { retryable: false, cause: error },
-      );
-    }
-
-    const parsed = WhisperTranscriptionResponseSchema.safeParse(body);
-    if (!parsed.success) {
-      throw new JobError(
-        "TRANSCRIPTION_RESPONSE_INVALID",
-        `transcription response does not match the OpenAI-compatible shape: ${parsed.error.message}`,
-        { retryable: false },
-      );
-    }
-    return parsed.data;
+  /**
+   * The attempt ran out of its own budget. Retryable: a backend that needs more
+   * time than it was given is a capacity problem, and the next attempt may find
+   * a warmed-up model or a shorter queue. The message names no address — it
+   * reaches the user through the job's failure reason.
+   */
+  private budgetExceeded(cause: unknown): JobError {
+    return new JobError(
+      "TRANSCRIPTION_UNAVAILABLE",
+      `transcription did not finish within its ${this.timeoutMs} ms budget`,
+      { retryable: true, cause },
+    );
   }
 }
 

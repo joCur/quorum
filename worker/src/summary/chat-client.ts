@@ -120,73 +120,98 @@ export class OpenAiChatClient implements ChatCompletionClient {
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    let response: Response;
+    // Cleared only once the completion has been read, not once it has been
+    // requested: an unstreamed answer can arrive with its headers first and its
+    // body afterwards, and time spent waiting on the body is time spent waiting
+    // on the model. This is what makes `timeoutMs` a whole-request budget.
     try {
-      response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (error) {
-      // Connection refused, DNS failure, timeout: a hosted router has a bad
-      // minute, a self-hosted server is still loading the model. Retry.
-      throw new JobError(
-        "SUMMARY_UNAVAILABLE",
-        `summary request to ${this.baseUrl} failed: ${error instanceof Error ? error.message : String(error)}`,
-        { retryable: true, cause: error },
-      );
+      let response: Response;
+      try {
+        response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (controller.signal.aborted) throw this.budgetExceeded(error);
+        // Connection refused, DNS failure, timeout: a hosted router has a bad
+        // minute, a self-hosted server is still loading the model. Retry.
+        throw new JobError(
+          "SUMMARY_UNAVAILABLE",
+          `summary request to ${this.baseUrl} failed: ${error instanceof Error ? error.message : String(error)}`,
+          { retryable: true, cause: error },
+        );
+      }
+
+      if (!response.ok) {
+        const { code, retryable } = summaryErrorCodeForHttpStatus(response.status);
+        const detail = (await safeText(response)).slice(0, 500);
+        throw new JobError(
+          code,
+          `summary backend answered ${response.status}${detail ? `: ${detail}` : ""}`,
+          { retryable },
+        );
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        // Our own deadline cutting the body short is a slow model, not a
+        // malformed answer — the difference decides whether the job retries.
+        if (controller.signal.aborted) throw this.budgetExceeded(error);
+        throw new JobError("SUMMARY_RESPONSE_INVALID", "summary backend did not return JSON", {
+          retryable: false,
+          cause: error,
+        });
+      }
+
+      const parsed = ChatCompletionResponseSchema.safeParse(payload);
+      if (!parsed.success) {
+        throw new JobError(
+          "SUMMARY_RESPONSE_INVALID",
+          `summary response is not an OpenAI-compatible chat completion: ${parsed.error.message}`,
+          { retryable: false },
+        );
+      }
+
+      const choice = parsed.data.choices[0];
+      const content = choice?.message?.content ?? "";
+      if (content.trim().length === 0) {
+        throw new JobError(
+          "SUMMARY_RESPONSE_INVALID",
+          "summary backend returned an empty message",
+          { retryable: false },
+        );
+      }
+
+      return {
+        content,
+        promptTokens: parsed.data.usage?.prompt_tokens ?? null,
+        completionTokens: parsed.data.usage?.completion_tokens ?? null,
+        finishReason: choice?.finish_reason ?? null,
+        model: parsed.data.model ?? null,
+      };
     } finally {
       clearTimeout(timeout);
     }
+  }
 
-    if (!response.ok) {
-      const { code, retryable } = summaryErrorCodeForHttpStatus(response.status);
-      const detail = (await safeText(response)).slice(0, 500);
-      throw new JobError(
-        code,
-        `summary backend answered ${response.status}${detail ? `: ${detail}` : ""}`,
-        { retryable },
-      );
-    }
-
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      throw new JobError("SUMMARY_RESPONSE_INVALID", "summary backend did not return JSON", {
-        retryable: false,
-        cause: error,
-      });
-    }
-
-    const parsed = ChatCompletionResponseSchema.safeParse(payload);
-    if (!parsed.success) {
-      throw new JobError(
-        "SUMMARY_RESPONSE_INVALID",
-        `summary response is not an OpenAI-compatible chat completion: ${parsed.error.message}`,
-        { retryable: false },
-      );
-    }
-
-    const choice = parsed.data.choices[0];
-    const content = choice?.message?.content ?? "";
-    if (content.trim().length === 0) {
-      throw new JobError("SUMMARY_RESPONSE_INVALID", "summary backend returned an empty message", {
-        retryable: false,
-      });
-    }
-
-    return {
-      content,
-      promptTokens: parsed.data.usage?.prompt_tokens ?? null,
-      completionTokens: parsed.data.usage?.completion_tokens ?? null,
-      finishReason: choice?.finish_reason ?? null,
-      model: parsed.data.model ?? null,
-    };
+  /**
+   * The attempt ran out of its own budget. Retryable: a router having a slow
+   * minute is the common cause, and the message names no address — it reaches
+   * the user through the job's failure reason.
+   */
+  private budgetExceeded(cause: unknown): JobError {
+    return new JobError(
+      "SUMMARY_UNAVAILABLE",
+      `summary did not finish within its ${this.timeoutMs} ms budget`,
+      { retryable: true, cause },
+    );
   }
 }
 

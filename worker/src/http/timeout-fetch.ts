@@ -24,6 +24,21 @@ import { Agent, FormData as UndiciFormData, fetch as undiciFetch, type Dispatche
  */
 export const TIMEOUT_HEADROOM_MS = 30_000;
 
+/**
+ * How long the response body may go quiet before the transport gives up.
+ *
+ * Deliberately a small constant rather than something derived from the request
+ * budget, because `bodyTimeout` is an idle timer between chunks, not a total for
+ * the body: raising it never buys a slow download more time, it only widens the
+ * window in which a backend that died mid-body keeps the attempt alive. Deriving
+ * it from a 30-minute budget would stretch that window from undici's 300 s
+ * default to half an hour — the opposite of the intent. Once a backend has
+ * computed its answer the bytes follow promptly, so a minute of complete silence
+ * already means something is wrong. The whole-request limit is the caller's
+ * abort signal, which spans the body read too.
+ */
+export const BODY_IDLE_TIMEOUT_MS = 60_000;
+
 export interface TransportTimeouts {
   /** How long the backend may take to send response headers. */
   headersTimeout: number;
@@ -33,8 +48,10 @@ export interface TransportTimeouts {
 
 /** Transport timeouts for a request whose own budget is `timeoutMs`. */
 export function transportTimeoutsFor(timeoutMs: number): TransportTimeouts {
-  const budget = timeoutMs + TIMEOUT_HEADROOM_MS;
-  return { headersTimeout: budget, bodyTimeout: budget };
+  return {
+    headersTimeout: timeoutMs + TIMEOUT_HEADROOM_MS,
+    bodyTimeout: BODY_IDLE_TIMEOUT_MS,
+  };
 }
 
 /**
