@@ -1,6 +1,12 @@
 import { PgBoss } from "pg-boss";
-import { loadConfig } from "./config.js";
-import { createLogger } from "./logger.js";
+import { loadConfig, type WorkerConfig } from "./config.js";
+import { createLogger, type WorkerLogger } from "./logger.js";
+import {
+  createLifecycle,
+  isEntrypoint,
+  type ReleaseOptions,
+  type WorkerLifecycle,
+} from "./lifecycle.js";
 import { PostgresRepository } from "./db/repository.js";
 import { S3AudioSource } from "./storage/audio-source.js";
 import { OpenAiTranscriptionClient } from "./whisper/client.js";
@@ -14,6 +20,16 @@ import { startMetricsServer } from "./observability/server.js";
 
 export { loadConfig, WorkerConfigSchema, type WorkerConfig } from "./config.js";
 export { createLogger, type WorkerLogger } from "./logger.js";
+export {
+  createLifecycle,
+  isEntrypoint,
+  UNREQUESTED_SHUTDOWN_EXIT_CODE,
+  type LifecycleEvents,
+  type LifecycleOptions,
+  type ReleaseOptions,
+  type ShutdownTrigger,
+  type WorkerLifecycle,
+} from "./lifecycle.js";
 export * from "./errors.js";
 export * from "./ids.js";
 export * from "./payload.js";
@@ -76,7 +92,51 @@ async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config.LOG_LEVEL);
 
+  // Everything the worker has taken hold of, newest last. The shutdown walks it
+  // backwards, so a startup that fails halfway still gives back the port it
+  // already bound and the pool it already opened instead of leaving a process
+  // that answers `/healthz` with "ok" while consuming nothing.
+  const held: Array<(options: ReleaseOptions) => Promise<void>> = [];
+  const lifecycle = createLifecycle({
+    logger,
+    release: async (options) => {
+      for (const give of [...held].reverse()) await give(options);
+    },
+    exit: (code) => process.exit(code),
+  });
+  // Installed before the first resource exists: a signal that arrives during a
+  // slow migration has to be answered too.
+  lifecycle.install(process);
+
+  try {
+    await start(config, logger, lifecycle, held);
+  } catch (error: unknown) {
+    await lifecycle.shutdown({ kind: "startup-failed", error });
+  }
+}
+
+/**
+ * How long the queue may spend letting in-flight jobs finish during a requested
+ * stop, before it fails them back onto the queue and closes its pool.
+ *
+ * Explicit rather than pg-boss's own default, because the number has to be read
+ * together with two others: the lifecycle's release ceiling must sit above it
+ * (or a slow job makes every restart look like a fault), and the container's
+ * `stop_grace_period` must sit above that (or Docker sends SIGKILL mid-drain).
+ * A transcription attempt is far longer than this on CPU — that is deliberate:
+ * a redeploy should not wait out a Whisper run, and the job is safe, because
+ * pg-boss returns it to the queue and the write is idempotent.
+ */
+const QUEUE_DRAIN_TIMEOUT_MS = 20_000;
+
+async function start(
+  config: WorkerConfig,
+  logger: WorkerLogger,
+  lifecycle: WorkerLifecycle,
+  held: Array<(options: ReleaseOptions) => Promise<void>>,
+): Promise<void> {
   const repository = new PostgresRepository(config.DATABASE_URL);
+  held.push(() => repository.close());
   await repository.migrate();
   // The system default template has to exist before the first summary job runs
   // (ADR-004 §1). Seeding is an insert-if-absent of one immutable version, so
@@ -114,6 +174,7 @@ async function main(): Promise<void> {
     metrics,
     port: config.WORKER_METRICS_PORT,
   });
+  held.push(() => metricsServer.close());
 
   // Before any job is fetched, and after the health endpoint is already
   // answering — a first-time download of a large model takes longer than the
@@ -162,7 +223,17 @@ async function main(): Promise<void> {
 
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });
   boss.on("error", (error: unknown) => logger.error({ err: error }, "pg-boss error"));
+  // pg-boss stopping itself is invisible from outside: the metrics port keeps
+  // answering and the container keeps looking healthy while no job is ever
+  // fetched again. Treat it as the fault it is instead of idling forever.
+  boss.on("stopped", () => lifecycle.triggerShutdown({ kind: "queue-stopped" }));
   await boss.start();
+  // Graceful only for a requested stop: running jobs finish and nothing new is
+  // fetched. After a fault the process is not trustworthy enough to be worth
+  // waiting for, and the jobs are better off back on the queue.
+  held.push(({ graceful }) =>
+    boss.stop(graceful ? { graceful: true, timeout: QUEUE_DRAIN_TIMEOUT_MS } : { graceful: false }),
+  );
 
   await startTranscribeWorker({
     boss,
@@ -212,25 +283,20 @@ async function main(): Promise<void> {
     },
     "worker is consuming transcribe and summarize jobs",
   );
-
-  for (const signal of ["SIGINT", "SIGTERM"] as const) {
-    process.once(signal, () => {
-      void (async () => {
-        logger.info({ event: "worker.stopping", signal }, "shutting down");
-        // Graceful: running jobs finish, nothing new is fetched.
-        await boss.stop({ graceful: true });
-        await metricsServer.close();
-        await repository.close();
-      })();
-    });
-  }
 }
 
 // Only run when executed directly, so importing the package in tests is free of
 // side effects.
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+if (isEntrypoint(import.meta.url, process.argv[1])) {
   main().catch((error: unknown) => {
+    // Reachable only while the lifecycle guard does not exist yet — the
+    // configuration or the logger itself failed — so there is nothing to log
+    // with and nothing to release. Plain `1` rather than the guard's `70`: this
+    // is a process that never started, which is what every runtime already
+    // spells `1`, and claiming the more specific code for it would blur the one
+    // distinction the guard's code exists to draw. `exit`, not `exitCode`: a
+    // half-built process must not linger.
     console.error(error);
-    process.exitCode = 1;
+    process.exit(1);
   });
 }

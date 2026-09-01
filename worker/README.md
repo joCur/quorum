@@ -239,6 +239,24 @@ Structured JSON via pino. Every line emitted while a job runs carries `jobId`, `
 
 Summary lines additionally carry `transcriptId`, `templateId` and — where the backend reports them — `promptTokens` and `completionTokens`, which is what makes the assumptions in `docs/COST-MODEL.md` checkable against reality instead of against an estimate.
 
+## Process lifecycle
+
+A queue consumer stops for exactly one legitimate reason: somebody asked it to. `SIGINT` and `SIGTERM` therefore shut it down gracefully — running jobs finish, nothing new is fetched — log one `worker.stopping` line at **`warn`** and exit **0**. `warn` rather than `info` is deliberate: containers default to `LOG_LEVEL=info` and would show either, but the end-to-end harness runs the worker at `warn`, and so does any operator who has turned the volume down — and this is the one line that separates "someone stopped it" from "it vanished".
+
+Every other way out is a fault and is reported as one. A failed startup, an exception that reached the top of the stack, a rejection nobody handled, the job queue stopping by itself, or the event loop simply running dry all log `worker.stopping` at **`error`** with a `reason` field, stop the queue **without** draining it — a process that has lost its footing is not worth waiting for, and the jobs are safer back on the queue — and exit **70** (sysexits `EX_SOFTWARE`). The last of those reasons is why the guard exists at all: a Node process whose event loop empties exits 0 without printing anything, and a supervisor reads 0 as "finished" — which a worker never is. See `src/lifecycle.ts`.
+
+The shutdown gives back what the process holds — queue, metrics port, database pool — in reverse order of acquisition, including after a startup that only got halfway, so a failed start leaves no bound port behind. A release that fails on a **requested** stop stays a clean exit and logs `worker.shutdown-failed` at `warn`: during a `compose down` the database and the worker are signalled at the same moment, so a pool close that loses its connection is the ordinary shape of a correct teardown, not a crash.
+
+Three timeouts have to be read together, smallest first:
+
+| Budget                                  | Value | Where                                          |
+| --------------------------------------- | ----- | ---------------------------------------------- |
+| Drain: how long in-flight jobs may finish | 20s  | `QUEUE_DRAIN_TIMEOUT_MS` in `src/index.ts`      |
+| Release ceiling: the whole teardown       | 45s  | `src/lifecycle.ts`                              |
+| Container grace before `SIGKILL`          | 60s  | `stop_grace_period` on the `worker` service     |
+
+Each has to sit above the one before it. A ceiling below the drain window fires on every slow job and reports an ordinary restart as a fault; a container grace below the ceiling (Docker's default is **10s**) sends `SIGKILL` mid-teardown and the graceful drain exists only on paper. A job cut short by the drain window is not lost — pg-boss returns it to the queue and the write is idempotent. After a fault the release is capped far shorter, at 5s, since nothing is being waited for on that path.
+
 ## Tests
 
 ```bash
