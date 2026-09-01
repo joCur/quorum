@@ -1,4 +1,5 @@
 import { JobError, errorCodeForHttpStatus } from "../errors.js";
+import { createFetchWithTimeouts, createMultipartBody } from "../http/timeout-fetch.js";
 import {
   WhisperTranscriptionResponseSchema,
   type WhisperTranscriptionResponse,
@@ -35,6 +36,11 @@ export interface OpenAiTranscriptionClientOptions {
    * OpenAI-compatible surface of ADR-005.
    */
   vadFilter?: boolean;
+  /**
+   * Overrides the transport. The default one carries the timeouts derived from
+   * `timeoutMs`, so a substitute is for tests only — a plain global `fetch`
+   * would reinstate undici's five-minute headers timeout.
+   */
   fetchImpl?: typeof fetch;
 }
 
@@ -51,6 +57,10 @@ export interface OpenAiTranscriptionClientOptions {
  * `OpenAiTranscriptionClientOptions.vadFilter`. It changes only which audio the
  * model is shown — the timestamps that come back stay relative to the start of
  * the submitted recording, so nothing downstream has to compensate for it.
+ *
+ * A transcription backend answers when the transcript is finished, which is what
+ * makes `timeoutMs` the whole point of this client: it has to reach the
+ * transport, not just the `AbortController` (see `http/timeout-fetch.ts`).
  */
 export class OpenAiTranscriptionClient implements TranscriptionClient {
   readonly model: string;
@@ -66,11 +76,11 @@ export class OpenAiTranscriptionClient implements TranscriptionClient {
     this.apiKey = options.apiKey;
     this.timeoutMs = options.timeoutMs ?? 30 * 60_000;
     this.vadFilter = options.vadFilter ?? true;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? createFetchWithTimeouts(this.timeoutMs);
   }
 
   async transcribe(request: TranscriptionRequest): Promise<WhisperTranscriptionResponse> {
-    const form = new FormData();
+    const form = createMultipartBody();
     form.append(
       "file",
       new Blob([toArrayBuffer(request.audio)], { type: request.contentType }),

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { JobError, summaryErrorCodeForHttpStatus } from "../errors.js";
+import { createFetchWithTimeouts } from "../http/timeout-fetch.js";
 
 /**
  * The summary backend, reduced to the one call ADR-005 §2 commits to:
@@ -72,6 +73,11 @@ export interface OpenAiChatClientOptions {
    * models that ignore the instruction.
    */
   jsonMode?: boolean;
+  /**
+   * Overrides the transport. The default one carries the timeouts derived from
+   * `timeoutMs`, so a substitute is for tests only — a plain global `fetch`
+   * would reinstate undici's five-minute headers timeout.
+   */
   fetchImpl?: typeof fetch;
 }
 
@@ -93,7 +99,7 @@ export class OpenAiChatClient implements ChatCompletionClient {
     this.maxOutputTokens = options.maxOutputTokens ?? 4_000;
     this.timeoutMs = options.timeoutMs ?? 180_000;
     this.jsonMode = options.jsonMode ?? false;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? createFetchWithTimeouts(this.timeoutMs);
   }
 
   async complete(messages: ChatMessage[]): Promise<ChatCompletionResult> {
@@ -104,6 +110,10 @@ export class OpenAiChatClient implements ChatCompletionClient {
       // greedy decoding makes some models loop on repetitive transcripts.
       temperature: this.temperature,
       max_tokens: this.maxOutputTokens,
+      // Unstreamed, so the backend sends response headers only once the whole
+      // completion exists. That is why this client needs the same transport
+      // timeouts as the transcription one: without them a configured budget
+      // above five minutes would never be reached.
       stream: false,
       ...(this.jsonMode ? { response_format: { type: "json_object" } } : {}),
     };
