@@ -84,7 +84,15 @@ const VERIFY_GRACE_MS = 30_000;
 export interface ProvisioningLogger {
   info(fields: Record<string, unknown>, message: string): void;
   warn(fields: Record<string, unknown>, message: string): void;
+  fatal(fields: Record<string, unknown>, message: string): void;
 }
+
+/**
+ * The event an operator is sent looking for by name when the worker will not
+ * start. Named here rather than at the call site so it cannot drift from the
+ * throw it accompanies.
+ */
+export const PROVISIONING_FAILED_EVENT = "whisper.model.provisioning-failed";
 
 export type ModelProvisioningOutcome =
   /** Turned off by configuration; the backend is not contacted. */
@@ -170,14 +178,38 @@ interface ProvisioningContext {
  * Idempotent: a restart with the model already in the cache volume costs one
  * listing request and returns `present`.
  *
- * Throws `ModelProvisioningError` when the model cannot be made available. The
- * caller is expected to treat that as a startup failure — a worker that consumes
- * transcribe jobs it cannot serve turns one operator-visible startup error into
- * a dead-lettered job for every user who records something.
+ * Throws when the model cannot be made available, and logs
+ * `whisper.model.provisioning-failed` on the way out. The caller is expected to
+ * let the throw travel: a worker that consumes transcribe jobs it cannot serve
+ * turns one operator-visible startup error into a dead-lettered job for every
+ * user who records something.
+ *
+ * The line is written here rather than at the call site so that it cannot be
+ * forgotten and cannot arrive late. It names the model and the backend — which
+ * the generic startup-failure line the lifecycle guard writes does not — and
+ * emitting it before the throw is what puts it above that line in the log,
+ * where an operator reading top-down meets the specific reason first.
  */
 export async function ensureWhisperModel(
   options: EnsureWhisperModelOptions,
 ): Promise<ModelProvisioningOutcome> {
+  try {
+    return await provision(options);
+  } catch (error) {
+    options.logger.fatal(
+      {
+        event: PROVISIONING_FAILED_EVENT,
+        err: error,
+        whisperModel: options.model,
+        whisperBaseUrl: options.baseUrl,
+      },
+      "the configured transcription model is not available; not consuming jobs",
+    );
+    throw error;
+  }
+}
+
+async function provision(options: EnsureWhisperModelOptions): Promise<ModelProvisioningOutcome> {
   const {
     model,
     apiKey,

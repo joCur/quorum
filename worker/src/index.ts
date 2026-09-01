@@ -185,34 +185,20 @@ async function start(
   // backend answers a missing model with a terminal 404, so every recording made
   // in the meantime would dead-letter. Failing here instead turns that into one
   // startup error an operator can act on.
-  try {
-    await ensureWhisperModel({
-      baseUrl: config.WHISPER_BASE_URL,
-      model: config.WHISPER_MODEL,
-      apiKey: config.WHISPER_API_KEY,
-      enabled: config.WHISPER_MODEL_AUTO_INSTALL,
-      timeoutMs: config.WHISPER_MODEL_INSTALL_TIMEOUT_MS,
-      logger,
-    });
-  } catch (error) {
-    logger.fatal(
-      {
-        event: "whisper.model.provisioning-failed",
-        err: error,
-        whisperModel: config.WHISPER_MODEL,
-        whisperBaseUrl: config.WHISPER_BASE_URL,
-      },
-      "the configured transcription model is not available; not consuming jobs",
-    );
-    // Logged here, torn down elsewhere. The line is its own event because the
-    // pipeline runbook sends an operator looking for it by name, and the
-    // generic startup-failure line would carry neither the model nor the
-    // backend URL. Everything after it — giving back the port and the pool in
-    // the order they were taken, and exiting non-zero even when giving them
-    // back hangs or throws — belongs to the lifecycle guard, which is the only
-    // code in the worker that does that correctly.
-    throw error;
-  }
+  //
+  // No try/catch: the throw is meant to travel. It says its own piece on the way
+  // out — `whisper.model.provisioning-failed`, naming the model and the backend
+  // — and everything after that, giving back the port and the pool in the order
+  // they were taken and exiting non-zero even when giving them back hangs, is
+  // the lifecycle guard's job through `main`'s startup-failed route.
+  await ensureWhisperModel({
+    baseUrl: config.WHISPER_BASE_URL,
+    model: config.WHISPER_MODEL,
+    apiKey: config.WHISPER_API_KEY,
+    enabled: config.WHISPER_MODEL_AUTO_INSTALL,
+    timeoutMs: config.WHISPER_MODEL_INSTALL_TIMEOUT_MS,
+    logger,
+  });
 
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });
   boss.on("error", (error: unknown) => logger.error({ err: error }, "pg-boss error"));

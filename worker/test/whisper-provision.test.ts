@@ -17,8 +17,15 @@ import {
   transportTimeoutsFor,
 } from "../src/http/timeout-fetch.js";
 import {
+  createLifecycle,
+  UNREQUESTED_SHUTDOWN_EXIT_CODE,
+  type ReleaseOptions,
+} from "../src/lifecycle.js";
+import type { WorkerLogger } from "../src/logger.js";
+import {
   ensureWhisperModel,
   ModelProvisioningError,
+  PROVISIONING_FAILED_EVENT,
   type EnsureWhisperModelOptions,
   type ProvisioningLogger,
 } from "../src/whisper/provision.js";
@@ -26,8 +33,10 @@ import {
 /** The default this transport exists to escape: undici gives up at 300s. */
 const UNDICI_DEFAULT_HEADERS_TIMEOUT_MS = 300_000;
 
+type Level = "info" | "warn" | "fatal" | "error";
+
 interface LoggedLine {
-  level: "info" | "warn";
+  level: Level;
   event: unknown;
   message: string;
   fields: Record<string, unknown>;
@@ -36,11 +45,39 @@ interface LoggedLine {
 function recordingLogger(): { logger: ProvisioningLogger; lines: LoggedLine[] } {
   const lines: LoggedLine[] = [];
   const record =
-    (level: "info" | "warn") =>
+    (level: Level) =>
     (fields: Record<string, unknown>, message: string): void => {
       lines.push({ level, event: fields["event"], message, fields });
     };
-  return { logger: { info: record("info"), warn: record("warn") }, lines };
+  return {
+    logger: { info: record("info"), warn: record("warn"), fatal: record("fatal") },
+    lines,
+  };
+}
+
+/** A logger that is both the narrow provisioning port and a pino-shaped one. */
+function sharedLogger(): { logger: ProvisioningLogger & WorkerLogger; lines: LoggedLine[] } {
+  const lines: LoggedLine[] = [];
+  const record =
+    (level: Level) =>
+    (fields: Record<string, unknown>, message: string): void => {
+      lines.push({ level, event: fields["event"], message, fields });
+    };
+  return {
+    logger: {
+      debug: record("info"),
+      info: record("info"),
+      warn: record("warn"),
+      error: record("error"),
+      fatal: record("fatal"),
+    } as unknown as ProvisioningLogger & WorkerLogger,
+    lines,
+  };
+}
+
+/** For the cases whose subject is the HTTP behavior, not what was said about it. */
+function silentLogger(): ProvisioningLogger {
+  return { info: () => {}, warn: () => {}, fatal: () => {} };
 }
 
 interface Call {
@@ -403,7 +440,7 @@ describe("provisioning transport", () => {
     S3_SECRET_KEY: "secret",
   };
 
-  const logger: ProvisioningLogger = { info: () => {}, warn: () => {} };
+  const logger = silentLogger();
 
   it("builds its transport from the configured provisioning budget", async () => {
     const config = loadConfig({ ...base, WHISPER_MODEL_INSTALL_TIMEOUT_MS: "1200000" });
@@ -498,7 +535,7 @@ describe("provisioning over the real transport", () => {
       model: "Systran/faster-whisper-small",
       timeoutMs: 20_000,
       retryDelayMs: 10,
-      logger: { info: () => {}, warn: () => {} },
+      logger: silentLogger(),
     });
 
     expect(outcome.status).toBe("installed");
@@ -516,11 +553,111 @@ describe("provisioning over the real transport", () => {
       model: "Systran/faster-whisper-small",
       timeoutMs: 700,
       retryDelayMs: 10,
-      logger: { info: () => {}, warn: () => {} },
+      logger: silentLogger(),
     }).catch((caught: unknown) => caught)) as ModelProvisioningError;
 
     expect(error).toBeInstanceOf(ModelProvisioningError);
     expect(error.reason).toBe("install-failed");
     expect(error.message).toMatch(/abort/i);
+  });
+});
+
+describe("a provisioning failure and the shutdown guard", () => {
+  /**
+   * Mirrors how `main` wires the guard: a stack of release closures, newest
+   * last, and a startup whose throw is handed to `startup-failed`. The real
+   * `createLifecycle` and the real `ensureWhisperModel` are on both ends, so
+   * what is asserted below is the arrangement rather than a restatement of it.
+   *
+   * The startup body stops where `start` stops being reproducible without a
+   * database: it takes hold of two things and then provisions.
+   */
+  async function startupThatCannotProvision(): Promise<{
+    lines: LoggedLine[];
+    exit: ReturnType<typeof vi.fn>;
+    released: string[];
+    releaseOptions: ReleaseOptions[];
+  }> {
+    const { logger, lines } = sharedLogger();
+    const exit = vi.fn();
+    const released: string[] = [];
+    const releaseOptions: ReleaseOptions[] = [];
+
+    const held: Array<(options: ReleaseOptions) => Promise<void>> = [];
+    const lifecycle = createLifecycle({
+      logger,
+      release: async (options) => {
+        for (const give of [...held].reverse()) await give(options);
+      },
+      exit,
+    });
+
+    try {
+      held.push(async (options) => {
+        released.push("database pool");
+        releaseOptions.push(options);
+      });
+      held.push(async () => {
+        released.push("metrics port");
+      });
+      await ensureWhisperModel({
+        baseUrl: "http://whisper:8000/v1",
+        model: "small",
+        logger,
+        timeoutMs: 10_000,
+        retryDelayMs: 1_000,
+        // A model ID the backend does not know: terminal on the first answer,
+        // which is the failure an operator is most likely to actually cause.
+        fetchImpl: async (_input, init) =>
+          init?.method === "POST"
+            ? Response.json({ detail: "Model 'small' not found" }, { status: 404 })
+            : Response.json({ object: "list", data: [] }),
+      });
+    } catch (error: unknown) {
+      await lifecycle.shutdown({ kind: "startup-failed", error });
+    }
+
+    return { lines, exit, released, releaseOptions };
+  }
+
+  it("routes the failure through the guard instead of exiting on its own", async () => {
+    const { lines } = await startupThatCannotProvision();
+
+    const stopping = lines.find((line) => line.event === "worker.stopping");
+    expect(stopping?.fields["reason"]).toBe("startup-failed");
+    // At error level, which every threshold we deploy with shows.
+    expect(stopping?.level).toBe("error");
+  });
+
+  it("gives back what the startup had already taken, newest first", async () => {
+    const { released, releaseOptions } = await startupThatCannotProvision();
+
+    expect(released).toEqual(["metrics port", "database pool"]);
+    // A fault is not a drain: there is no in-flight work to protect, and the
+    // process is not trustworthy enough to wait on.
+    expect(releaseOptions.every((options) => options.graceful)).toBe(false);
+  });
+
+  it("says which model and which backend before it says the startup failed", async () => {
+    const { lines } = await startupThatCannotProvision();
+
+    const specific = lines.findIndex((line) => line.event === PROVISIONING_FAILED_EVENT);
+    const generic = lines.findIndex((line) => line.event === "worker.stopping");
+
+    expect(specific).toBeGreaterThanOrEqual(0);
+    // An operator reading top-down has to meet the reason before the verdict:
+    // the generic line carries neither of these two fields.
+    expect(specific).toBeLessThan(generic);
+    expect(lines[specific]?.fields["whisperModel"]).toBe("small");
+    expect(lines[specific]?.fields["whisperBaseUrl"]).toBe("http://whisper:8000/v1");
+  });
+
+  it("exits with the status that means nobody asked for this", async () => {
+    const { exit } = await startupThatCannotProvision();
+
+    // 70, not 1: a supervisor reads the code, and the worker has exactly one
+    // exit status for a stop it did not choose.
+    expect(exit).toHaveBeenCalledWith(UNREQUESTED_SHUTDOWN_EXIT_CODE);
+    expect(exit).not.toHaveBeenCalledWith(1);
   });
 });
