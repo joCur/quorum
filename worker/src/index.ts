@@ -1,6 +1,6 @@
 import { PgBoss } from "pg-boss";
 import { loadConfig, type WorkerConfig } from "./config.js";
-import { createLogger, type WorkerLogger } from "./logger.js";
+import { createLogger, logQueueError, type WorkerLogger } from "./logger.js";
 import {
   createLifecycle,
   isEntrypoint,
@@ -222,7 +222,9 @@ async function start(
   }
 
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });
-  boss.on("error", (error: unknown) => logger.error({ err: error }, "pg-boss error"));
+  boss.on("error", (error: unknown) => {
+    logQueueError(logger, error);
+  });
   // pg-boss stopping itself is invisible from outside: the metrics port keeps
   // answering and the container keeps looking healthy while no job is ever
   // fetched again. Treat it as the fault it is instead of idling forever.
