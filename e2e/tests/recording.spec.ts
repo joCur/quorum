@@ -183,11 +183,19 @@ test("says a recording could not be transcribed, in the user's language", async 
   await page.goto(`/meetings/${manifest?.meetingId}`);
 
   // What the user reads is about their recording — and it is the only message on the panel.
+  //
+  // A negative assertion here searches the whole document, hidden nodes included, and matches
+  // substrings — so the needle has to be one that only a real leak can produce. A short digit
+  // sequence is not: the support reference on the panel is a random UUID, and about one in a
+  // hundred contains "404" somewhere in its hex. The word-boundary pattern is immune to that,
+  // because hex delimits digits with word characters ("dc51c4049f1c") while a leaked status is
+  // delimited by punctuation and spaces ("answered 404:"). The two prose needles need no such
+  // care, and are kept long enough that nothing else can produce them.
   await expect(page.getByText("Transcription failed")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("This recording could not be transcribed.")).toBeVisible();
   await expect(page.getByText(failed.message)).toHaveCount(0);
   await expect(page.getByText("is not installed locally")).toHaveCount(0);
-  await expect(page.getByText("404")).toHaveCount(0);
+  await expect(page.getByText(/\b404\b/)).toHaveCount(0);
 
   // The code stays reachable for support, one click down rather than in the sentence.
   await page.getByText("Technical details").click();
