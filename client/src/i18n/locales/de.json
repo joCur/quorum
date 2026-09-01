@@ -348,6 +348,25 @@
         "summarizing": "Wird zusammengefasst"
       }
     },
+    "failure": {
+      "generic": "Dieses Meeting konnte nicht verarbeitet werden. Das Audio ist sicher und lässt sich weiterhin abspielen.",
+      "recordingUnfinished": "Diese Aufnahme wurde nie abgeschlossen, deshalb gibt es nichts zu transkribieren.",
+      "audioUnavailable": "Das Audio dieser Aufnahme konnte nicht geöffnet werden. Es ist weiterhin gespeichert — bitte versuche es später noch einmal.",
+      "audioEmpty": "Diese Aufnahme enthält kein Audio.",
+      "audioUnreadable": "Das Audio dieser Aufnahme konnte nicht gelesen werden, deshalb gibt es kein Transkript.",
+      "transcriptionUnavailable": "Transkribieren ist im Moment nicht möglich. Das Audio ist sicher — bitte versuche es in einigen Minuten noch einmal.",
+      "transcriptionFailed": "Diese Aufnahme konnte nicht transkribiert werden. Das Audio ist sicher und lässt sich weiterhin abspielen.",
+      "transcriptNotSaved": "Das Transkript konnte nicht gespeichert werden. Das Audio ist sicher — bitte versuche es später noch einmal.",
+      "transcriptMissing": "Das Transkript, aus dem diese Zusammenfassung entstehen sollte, existiert nicht mehr.",
+      "transcriptEmpty": "Das Transkript enthält keinen Text, der zusammengefasst werden könnte.",
+      "templateMissing": "Die Vorlage für diese Zusammenfassung ist nicht mehr verfügbar. Wähle eine andere Vorlage und versuche es noch einmal.",
+      "summaryUnavailable": "Zusammenfassen ist im Moment nicht möglich. Bitte versuche es in einigen Minuten noch einmal.",
+      "summaryFailed": "Die Zusammenfassung konnte nicht geschrieben werden. Dein Transkript ist unverändert — du kannst es noch einmal versuchen.",
+      "summaryNotSaved": "Die Zusammenfassung konnte nicht gespeichert werden. Bitte versuche es noch einmal.",
+      "details": "Technische Details",
+      "detailsCode": "Fehlercode: {{code}}",
+      "detailsReference": "Referenz: {{id}}"
+    },
     "player": {
       "label": "Wiedergabe",
       "play": "Abspielen",

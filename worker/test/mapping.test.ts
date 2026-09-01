@@ -148,6 +148,48 @@ describe("response mapping", () => {
     expect(transcript.segments[0]!.words?.[0]).toEqual({ word: "x", start: 0, end: 2 });
   });
 
+  /**
+   * With the silence filter on, the backend hands the model only the speech and
+   * reports the times of that speech in the original recording — a meeting whose
+   * first four minutes are an empty room starts at 245s, not at 0. Nothing here
+   * may re-base those onto the filtered audio: the player, the highlight and the
+   * pause marks all read segment times as offsets from the start of the
+   * recording (ADR-003 §5).
+   */
+  it("keeps timestamps relative to the original audio when silence was filtered out", () => {
+    const transcript = mapResponseToTranscript({
+      ...base,
+      response: {
+        text: "Good morning everyone. Let us start.",
+        language: "en",
+        duration: 300,
+        segments: [
+          { start: 245.6, end: 247.9, text: "Good morning everyone." },
+          { start: 248.4, end: 250.1, text: "Let us start." },
+        ],
+        words: [
+          { word: "Good", start: 245.6, end: 246 },
+          { word: "morning", start: 246, end: 246.6 },
+          { word: "everyone.", start: 246.6, end: 247.9 },
+          { word: "Let", start: 248.4, end: 248.7 },
+          { word: "us", start: 248.7, end: 249.1 },
+          { word: "start.", start: 249.1, end: 250.1 },
+        ],
+      },
+    });
+
+    expect(transcript.segments[0]).toMatchObject({ start: 245.6, end: 247.9 });
+    expect(transcript.segments[1]).toMatchObject({ start: 248.4, end: 250.1 });
+    expect(transcript.segments[0]!.words?.[0]).toEqual({ word: "Good", start: 245.6, end: 246 });
+    expect(transcript.segments[1]!.words?.at(-1)).toEqual({
+      word: "start.",
+      start: 249.1,
+      end: 250.1,
+    });
+    // Every word is claimed by exactly one segment, gap included.
+    expect(transcript.segments.flatMap((segment) => segment.words ?? [])).toHaveLength(6);
+  });
+
   it("is deterministic — the same job and response map to identical output", () => {
     const first = mapResponseToTranscript({ ...base, response: VERBOSE_RESPONSE_WITH_WORDS });
     const second = mapResponseToTranscript({ ...base, response: VERBOSE_RESPONSE_WITH_WORDS });
