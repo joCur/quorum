@@ -26,14 +26,6 @@ export {
   type TranscriptionClient,
   type TranscriptionRequest,
 } from "./whisper/client.js";
-export {
-  ensureWhisperModel,
-  ModelProvisioningError,
-  type EnsureWhisperModelOptions,
-  type ModelProvisioningOutcome,
-  type ModelProvisioningFailure,
-  type ProvisioningLogger,
-} from "./whisper/provision.js";
 export * from "./transcript/map.js";
 export { MIGRATIONS } from "./db/schema.js";
 export {
@@ -151,9 +143,21 @@ async function main(): Promise<void> {
       },
       "the configured transcription model is not available; not consuming jobs",
     );
-    await metricsServer.close();
-    await repository.close();
-    process.exit(1);
+    // The exit is in a `finally` because giving the resources back may itself
+    // reject or hang: a rejected close would otherwise skip the exit entirely,
+    // and the pool alone keeps the event loop alive — leaving a process that
+    // neither consumes jobs nor lets the restart policy replace it.
+    try {
+      await metricsServer.close();
+      await repository.close();
+    } catch (closeError: unknown) {
+      logger.error(
+        { event: "worker.shutdown-failed", err: closeError },
+        "releasing the worker's resources failed; exiting anyway",
+      );
+    } finally {
+      process.exit(1);
+    }
   }
 
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });

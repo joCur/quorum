@@ -20,17 +20,55 @@ import { z } from "zod";
  * profile and could not be tested. Here it runs identically on the CPU and GPU
  * profiles, because those differ only in how the backend is scheduled.
  *
- * WHAT IT ASSUMES: only the OpenAI-compatible model listing (`GET /models`) is
- * required. Installation (`POST /models/{id}`) and the registry are extensions
- * that the current backend offers and a leaner one may not — a backend without
- * a recognizable listing is left alone with a warning rather than blocked,
- * which is what keeps host-native serving (whisper.cpp, mlx-whisper) usable.
+ * WHAT IT ASSUMES, and what it does when the assumption fails, is written down
+ * in ADR-008: only the OpenAI-compatible model listing is expected, the download
+ * route is optional, and neither is a precondition for transcription.
  */
 
 /** The OpenAI-compatible listing shape; extra fields are ignored on purpose. */
 const ModelListSchema = z.object({
   data: z.array(z.object({ id: z.string() })),
 });
+
+/**
+ * Per-request timeout for the cheap listing calls.
+ *
+ * A constant rather than an option: the listing is a small JSON document that
+ * any healthy backend produces immediately, and a backend too busy to answer it
+ * in this long is one the retry loop should come back to rather than one to keep
+ * waiting on. The download has its own budget, which is the configurable one.
+ */
+const PROBE_TIMEOUT_MS = 15_000;
+
+/**
+ * How long the same "there is no such route" answer has to persist before it is
+ * believed.
+ *
+ * A single 404 on the model listing means one of two very different things: a
+ * backend that genuinely has no model management (host-native whisper.cpp), or a
+ * reverse proxy whose upstream route is not registered yet, or a base URL
+ * missing its `/v1`. Concluding the first from one response is how provisioning
+ * would silently switch itself off in exactly the deployments that need it, so
+ * the answer has to survive a window before it counts.
+ *
+ * Capped at half the overall budget so that collecting this evidence can never
+ * be what exhausts it — reaching the deadline then always means the backend was
+ * unreachable or erroring, never merely minimal.
+ */
+const UNSUPPORTED_CONFIRMATION_MS = 60_000;
+
+/** …and it has to be seen this often, so one slow answer in a flap cannot decide it. */
+const UNSUPPORTED_CONFIRMATION_ATTEMPTS = 3;
+
+/**
+ * Grace for the listing to catch up with a download that reported success.
+ *
+ * The download route answers when the bytes are on disk, but nothing in the API
+ * promises that the listing is updated in the same instant, and an ID may come
+ * back canonicalized. Throwing on the first read would turn a successful
+ * download into a restart loop over a race.
+ */
+const VERIFY_GRACE_MS = 30_000;
 
 /** Narrow port so the provisioner can be exercised without a real logger. */
 export interface ProvisioningLogger {
@@ -51,11 +89,13 @@ export type ModelProvisioningOutcome =
 export type ModelProvisioningFailure =
   /** The backend never answered within the budget. */
   | "backend-unreachable"
-  /** The backend does not know this model ID — a configuration error. */
+  /** The backend refused our credentials — a configuration error, not an outage. */
+  | "unauthorized"
+  /** The backend does not know this model ID — also a configuration error. */
   | "model-unknown"
   /** The download was attempted and kept failing. */
   | "install-failed"
-  /** The download reported success but the model is still not listed. */
+  /** The download reported success but the model never showed up in the listing. */
   | "not-installed";
 
 export class ModelProvisioningError extends Error {
@@ -86,12 +126,11 @@ export interface EnsureWhisperModelOptions {
   enabled?: boolean;
   /** Budget for the whole step: waiting for the backend plus the download. */
   timeoutMs?: number;
-  /** Per-request timeout for the cheap listing calls. */
-  probeTimeoutMs?: number;
   /** Pause between attempts while the backend is still starting. */
   retryDelayMs?: number;
   /** How often a running download reports that it is still running. */
   progressIntervalMs?: number;
+  /** Overrides the transport; tests use it to stand in for the backend. */
   fetchImpl?: typeof fetch;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -102,9 +141,9 @@ interface ProvisioningContext {
   model: string;
   logger: ProvisioningLogger;
   deadline: number;
-  probeTimeoutMs: number;
   retryDelayMs: number;
   progressIntervalMs: number;
+  confirmUnsupportedMs: number;
   now: () => number;
   sleep: (ms: number) => Promise<void>;
   request: (path: string, method: "GET" | "POST", timeoutMs: number) => Promise<Response>;
@@ -117,9 +156,9 @@ interface ProvisioningContext {
  * listing request and returns `present`.
  *
  * Throws `ModelProvisioningError` when the model cannot be made available. The
- * caller is expected to treat that as fatal — a worker that consumes transcribe
- * jobs it cannot serve turns one operator-visible startup failure into a
- * dead-lettered job for every user who records something.
+ * caller is expected to treat that as a startup failure — a worker that consumes
+ * transcribe jobs it cannot serve turns one operator-visible startup error into
+ * a dead-lettered job for every user who records something.
  */
 export async function ensureWhisperModel(
   options: EnsureWhisperModelOptions,
@@ -130,14 +169,13 @@ export async function ensureWhisperModel(
     logger,
     enabled = true,
     timeoutMs = 45 * 60_000,
-    probeTimeoutMs = 15_000,
     retryDelayMs = 5_000,
     progressIntervalMs = 30_000,
-    fetchImpl = fetch,
     now = () => Date.now(),
     sleep = defaultSleep,
   } = options;
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
+  const fetchImpl = options.fetchImpl ?? fetch;
 
   if (!enabled) {
     logger.warn(
@@ -156,9 +194,9 @@ export async function ensureWhisperModel(
     model,
     logger,
     deadline: now() + timeoutMs,
-    probeTimeoutMs,
     retryDelayMs,
     progressIntervalMs,
+    confirmUnsupportedMs: Math.min(UNSUPPORTED_CONFIRMATION_MS, Math.floor(timeoutMs / 2)),
     now,
     sleep,
     request: async (path, method, requestTimeoutMs) => {
@@ -177,7 +215,7 @@ export async function ensureWhisperModel(
   };
 
   const listing = await pollInstalledModels(context);
-  if (listing.kind === "unsupported") {
+  if (listing.kind === "absent-route") {
     logger.warn(
       {
         event: "whisper.model.provisioning-unsupported",
@@ -185,12 +223,15 @@ export async function ensureWhisperModel(
         whisperBaseUrl: baseUrl,
         detail: listing.detail,
       },
-      "the transcription backend has no model listing we recognize; assuming the model is served",
+      "the transcription backend has no model listing after repeated attempts; continuing without " +
+        "provisioning. If that is not intended, check that WHISPER_BASE_URL carries the /v1 suffix " +
+        "and reaches the backend itself; if it is, set WHISPER_MODEL_AUTO_INSTALL=false to say so",
     );
     return { status: "unsupported", detail: listing.detail };
   }
 
-  if (listing.ids.includes(model)) {
+  const alreadyInstalled = matchModelId(context, listing.ids);
+  if (alreadyInstalled) {
     logger.info(
       { event: "whisper.model.present", whisperModel: model, whisperBaseUrl: baseUrl },
       "the configured transcription model is installed",
@@ -210,10 +251,9 @@ export async function ensureWhisperModel(
   );
 
   await installModel(context);
+  await verifyInstalled(context);
 
   const durationMs = now() - startedAt;
-  await verifyInstalled(context, durationMs);
-
   logger.info(
     {
       event: "whisper.model.installed",
@@ -227,24 +267,44 @@ export async function ensureWhisperModel(
 }
 
 /**
- * Reads the listing, retrying while the backend is unreachable or erroring.
+ * Reads the listing, retrying while the backend is unreachable or erroring, and
+ * while a missing route has not yet proven itself missing.
  *
  * The retry is not politeness: the worker starts alongside the backend, so
  * "connection refused" on the first attempt is the normal case, not a fault.
  */
 async function pollInstalledModels(
   context: ProvisioningContext,
-): Promise<InstalledModels | UnsupportedBackend> {
+): Promise<InstalledModels | AbsentRoute> {
   let announcedWait = false;
+  let absentSince: number | undefined;
+  let absentSeen = 0;
+
   for (;;) {
-    const attempt = await readInstalledModels(context);
-    if (attempt.kind !== "retry") return attempt;
+    const attempt = await readInstalledModels(context, PROBE_TIMEOUT_MS);
+    if (attempt.kind === "list") return attempt;
+    if (attempt.kind === "unauthorized") throw unauthorized(context, "reading the model listing");
+
+    if (attempt.kind === "absent-route") {
+      absentSince ??= context.now();
+      absentSeen += 1;
+      // Believed only once it has held for the confirmation window AND been
+      // answered the same way often enough. A proxy that has not registered its
+      // upstream yet answers exactly like a backend without the route, and only
+      // time tells the two apart.
+      if (
+        absentSeen >= UNSUPPORTED_CONFIRMATION_ATTEMPTS &&
+        context.now() - absentSince >= context.confirmUnsupportedMs
+      ) {
+        return attempt;
+      }
+    }
 
     if (context.now() >= context.deadline) {
       throw new ModelProvisioningError(
         "backend-unreachable",
         context.model,
-        `the transcription backend at ${context.baseUrl} did not answer a model listing in time: ${attempt.detail}`,
+        `the transcription backend at ${context.baseUrl} did not answer a usable model listing in time: ${attempt.detail}`,
       );
     }
     if (!announcedWait) {
@@ -267,8 +327,13 @@ interface InstalledModels {
   kind: "list";
   ids: string[];
 }
-interface UnsupportedBackend {
-  kind: "unsupported";
+/** The backend says the route does not exist. Whether that is true takes time to establish. */
+interface AbsentRoute {
+  kind: "absent-route";
+  detail: string;
+}
+interface Unauthorized {
+  kind: "unauthorized";
   detail: string;
 }
 interface RetryLater {
@@ -278,19 +343,20 @@ interface RetryLater {
 
 async function readInstalledModels(
   context: ProvisioningContext,
-): Promise<InstalledModels | UnsupportedBackend | RetryLater> {
+  timeoutMs: number,
+): Promise<InstalledModels | AbsentRoute | Unauthorized | RetryLater> {
   let response: Response;
   try {
-    response = await context.request("/models", "GET", context.probeTimeoutMs);
+    response = await context.request("/models", "GET", timeoutMs);
   } catch (error) {
     return { kind: "retry", detail: describe(error) };
   }
 
-  // A backend that never implements the route says so immediately and will keep
-  // saying it, so retrying is pointless — and blocking startup on a backend that
-  // simply serves one baked-in model would be worse than starting.
+  if (response.status === 401 || response.status === 403) {
+    return { kind: "unauthorized", detail: `GET /models answered ${response.status}` };
+  }
   if (response.status === 404 || response.status === 405 || response.status === 501) {
-    return { kind: "unsupported", detail: `GET /models answered ${response.status}` };
+    return { kind: "absent-route", detail: `GET /models answered ${response.status}` };
   }
   if (!response.ok) {
     return { kind: "retry", detail: `GET /models answered ${response.status}` };
@@ -300,12 +366,12 @@ async function readInstalledModels(
   try {
     body = await response.json();
   } catch {
-    return { kind: "unsupported", detail: "GET /models did not return JSON" };
+    return { kind: "absent-route", detail: "GET /models did not return JSON" };
   }
   const parsed = ModelListSchema.safeParse(body);
   if (!parsed.success) {
     return {
-      kind: "unsupported",
+      kind: "absent-route",
       detail: "GET /models did not return an OpenAI-compatible model list",
     };
   }
@@ -315,14 +381,17 @@ async function readInstalledModels(
 /**
  * Downloads the model, retrying transient failures until the deadline.
  *
- * A 404 is the case worth separating from all the others: the backend looked the
- * ID up and does not have it, which is a typo in `WHISPER_MODEL` rather than a
- * bad day on the network. Retrying it would turn a one-line fix into a slow,
- * silent startup, so it fails immediately and says how to find the right ID.
+ * Two answers are separated from all the others because no amount of waiting
+ * changes them: a 404 means the backend looked the ID up and does not have it —
+ * a typo in `WHISPER_MODEL` — and a 401/403 means the credentials are wrong.
+ * Retrying either would turn a one-line fix into a slow, silent startup.
  */
 async function installModel(context: ProvisioningContext): Promise<void> {
   const path = `/models/${modelPath(context.model)}`;
   for (;;) {
+    // The download answers only when it is finished, so its budget is whatever
+    // is left of the overall one — and the transport's header timeout is sized
+    // from that same number, not from a library default.
     const remaining = Math.max(context.deadline - context.now(), 1);
     let response: Response;
     try {
@@ -333,6 +402,10 @@ async function installModel(context: ProvisioningContext): Promise<void> {
     }
 
     if (response.ok) return;
+
+    if (response.status === 401 || response.status === 403) {
+      throw unauthorized(context, `downloading the model (POST answered ${response.status})`);
+    }
 
     if (response.status === 404 || response.status === 400 || response.status === 422) {
       throw new ModelProvisioningError(
@@ -346,6 +419,15 @@ async function installModel(context: ProvisioningContext): Promise<void> {
 
     await retryOrGiveUp(context, `POST ${path} answered ${response.status}`);
   }
+}
+
+function unauthorized(context: ProvisioningContext, whileDoing: string): ModelProvisioningError {
+  return new ModelProvisioningError(
+    "unauthorized",
+    context.model,
+    `the transcription backend at ${context.baseUrl} refused our credentials while ${whileDoing}. ` +
+      `Set WHISPER_API_KEY to a token the backend accepts, or remove it if the backend expects none`,
+  );
 }
 
 async function retryOrGiveUp(context: ProvisioningContext, detail: string): Promise<void> {
@@ -371,32 +453,77 @@ async function retryOrGiveUp(context: ProvisioningContext, detail: string): Prom
 /**
  * Confirms the model really is on disk after a download reported success.
  *
- * Only a listing that comes back and does *not* contain the model is treated as
- * a failure. If the listing itself is unavailable at this point, the download's
- * own success is the better evidence, so that stays a warning: refusing to start
- * over a flaky second request would be a worse outcome than starting.
+ * Polled rather than read once: the download answers when the bytes have
+ * landed, and nothing promises the listing reflects that in the same instant. A
+ * single read would turn that race — and a backend that installs
+ * asynchronously — into a restart loop over a download that actually worked.
+ *
+ * A listing that cannot be read at all stays a warning rather than a failure.
+ * At this point the download's own success is the better evidence, and refusing
+ * to start over a flaky second request would be the worse outcome.
  */
-async function verifyInstalled(context: ProvisioningContext, durationMs: number): Promise<void> {
-  const listing = await readInstalledModels(context);
-  if (listing.kind === "list" && !listing.ids.includes(context.model)) {
-    throw new ModelProvisioningError(
-      "not-installed",
-      context.model,
-      `the transcription backend reported "${context.model}" as downloaded but does not list it as installed`,
-    );
+async function verifyInstalled(context: ProvisioningContext): Promise<void> {
+  const until = context.now() + VERIFY_GRACE_MS;
+
+  for (;;) {
+    const listing = await readInstalledModels(context, PROBE_TIMEOUT_MS);
+    if (listing.kind === "list") {
+      if (matchModelId(context, listing.ids)) return;
+    } else if (listing.kind === "unauthorized") {
+      throw unauthorized(context, "verifying the download");
+    } else {
+      context.logger.warn(
+        {
+          event: "whisper.model.verify-skipped",
+          whisperModel: context.model,
+          whisperBaseUrl: context.baseUrl,
+          detail: listing.detail,
+        },
+        "could not re-read the model listing after the download; trusting the download's own result",
+      );
+      return;
+    }
+    if (context.now() >= until) {
+      throw new ModelProvisioningError(
+        "not-installed",
+        context.model,
+        `the transcription backend reported "${context.model}" as downloaded but never listed it as ` +
+          `installed: after ${VERIFY_GRACE_MS}ms the listing still holds ${listing.ids.length} other model(s)`,
+      );
+    }
+    await context.sleep(context.retryDelayMs);
   }
-  if (listing.kind !== "list") {
+}
+
+/**
+ * Finds the configured model in a listing, tolerating a difference in case.
+ *
+ * Hugging Face IDs are written by people into an environment variable, and a
+ * backend may hand back its own canonical spelling. Insisting on a byte-exact
+ * match would re-download a model that is already there and then fail
+ * verification on it forever. The mismatch is still worth saying out loud: the
+ * transcription request itself sends the configured spelling, and a backend
+ * stricter than this comparison would reject it.
+ */
+function matchModelId(context: ProvisioningContext, ids: string[]): string | undefined {
+  const exact = ids.find((id) => id === context.model);
+  if (exact) return exact;
+
+  const wanted = context.model.trim().toLowerCase();
+  const loose = ids.find((id) => id.trim().toLowerCase() === wanted);
+  if (loose) {
     context.logger.warn(
       {
-        event: "whisper.model.verify-skipped",
+        event: "whisper.model.id-case-mismatch",
         whisperModel: context.model,
+        backendModelId: loose,
         whisperBaseUrl: context.baseUrl,
-        detail: listing.detail,
-        durationMs,
       },
-      "could not re-read the model listing after the download; trusting the download's own result",
+      "the backend spells the configured model differently; set WHISPER_MODEL to the backend's " +
+        "spelling, because transcription requests send the configured one verbatim",
     );
   }
+  return loose;
 }
 
 /**

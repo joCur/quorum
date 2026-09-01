@@ -10,6 +10,7 @@ import {
 interface LoggedLine {
   level: "info" | "warn";
   event: unknown;
+  message: string;
   fields: Record<string, unknown>;
 }
 
@@ -17,8 +18,8 @@ function recordingLogger(): { logger: ProvisioningLogger; lines: LoggedLine[] } 
   const lines: LoggedLine[] = [];
   const record =
     (level: "info" | "warn") =>
-    (fields: Record<string, unknown>): void => {
-      lines.push({ level, event: fields["event"], fields });
+    (fields: Record<string, unknown>, message: string): void => {
+      lines.push({ level, event: fields["event"], message, fields });
     };
   return { logger: { info: record("info"), warn: record("warn") }, lines };
 }
@@ -195,34 +196,110 @@ describe("Whisper model provisioning", () => {
     expect(lines.map((line) => line.event)).toContain("whisper.model.install-retry");
   });
 
-  it("reports a download that claims success but leaves the model unlisted", async () => {
-    const { run } = harness((call) =>
-      call.method === "POST" ? new Response("ok") : modelList("Systran/faster-whisper-tiny"),
-    );
+  it("waits for the listing to catch up with a download instead of failing on the first read", async () => {
+    // The download answers when the bytes are on disk; nothing promises the
+    // listing is updated in the same instant, and a backend that installs
+    // asynchronously would otherwise restart-loop over a download that worked.
+    let listings = 0;
+    const { run } = harness((call) => {
+      if (call.method === "POST") return new Response("ok");
+      listings += 1;
+      return listings > 3 ? modelList("Systran/faster-whisper-small") : modelList();
+    });
+
+    await expect(run()).resolves.toMatchObject({ status: "installed" });
+    expect(listings).toBe(4);
+  });
+
+  it("reports a download that claims success but never shows up in the listing", async () => {
+    let listings = 0;
+    const { run } = harness((call) => {
+      if (call.method === "POST") return new Response("ok");
+      listings += 1;
+      return modelList("Systran/faster-whisper-tiny");
+    });
 
     const error = (await run().catch((caught: unknown) => caught)) as ModelProvisioningError;
 
     expect(error).toBeInstanceOf(ModelProvisioningError);
     expect(error.reason).toBe("not-installed");
+    // Given real grace before the verdict, not decided on one read.
+    expect(listings).toBeGreaterThan(2);
   });
 
-  it("leaves a backend without an OpenAI-compatible model listing alone", async () => {
-    // A host-native server (whisper.cpp, mlx-whisper) answers the route but not
-    // with a model list; blocking startup on that would break a documented
-    // development path for no gain.
-    const { run, calls, lines } = harness(() => Response.json({ status: "ok" }));
+  it("accepts a listing that spells the model ID differently, and says so", async () => {
+    const { run, lines } = harness(() => modelList("Systran/Faster-Whisper-Small"));
 
-    await expect(run()).resolves.toMatchObject({ status: "unsupported" });
-    expect(calls).toHaveLength(1);
-    expect(lines.map((line) => line.event)).toContain("whisper.model.provisioning-unsupported");
+    await expect(run()).resolves.toEqual({ status: "present" });
+    // Re-downloading a model that is already there, forever, is the alternative.
+    const mismatch = lines.find((line) => line.event === "whisper.model.id-case-mismatch");
+    expect(mismatch?.fields["backendModelId"]).toBe("Systran/Faster-Whisper-Small");
   });
 
-  it("leaves a backend that has no model route at all alone", async () => {
-    const { run, calls } = harness(() => new Response("not found", { status: 404 }));
+  it("does not conclude from a single 404 that the backend has no model listing", async () => {
+    // A reverse proxy whose upstream route is not registered yet answers exactly
+    // like a backend that has no such route. Believing the first one would switch
+    // provisioning off in the deployments that need it most.
+    const { run, lines } = harness((call, index) => {
+      if (call.method === "POST") return new Response("ok");
+      if (index < 2) return new Response("not found", { status: 404 });
+      return index === 2 ? modelList() : modelList("Systran/faster-whisper-small");
+    });
+
+    await expect(run()).resolves.toMatchObject({ status: "installed" });
+    expect(lines.map((line) => line.event)).not.toContain("whisper.model.provisioning-unsupported");
+  });
+
+  it("leaves a backend alone once the missing route has proven itself missing", async () => {
+    // A host-native server (whisper.cpp, mlx-whisper) has no model management at
+    // all; blocking startup on that would break a documented development path.
+    const { run, calls, lines } = harness(() => new Response("not found", { status: 404 }));
 
     await expect(run()).resolves.toMatchObject({ status: "unsupported" });
-    // Immediately, rather than retrying a route that will never appear.
+    expect(calls.length).toBeGreaterThan(2);
+    const skipped = lines.find((line) => line.event === "whisper.model.provisioning-unsupported");
+    // The operator has to be told how to turn the skip into a decision.
+    expect(skipped?.message).toContain("WHISPER_MODEL_AUTO_INSTALL=false");
+  });
+
+  it("treats an unrecognizable model listing the same way", async () => {
+    const { run, calls } = harness(() => Response.json({ status: "ok" }));
+
+    await expect(run()).resolves.toMatchObject({ status: "unsupported" });
+    expect(calls.length).toBeGreaterThan(2);
+  });
+
+  it("fails immediately when the backend refuses the credentials", async () => {
+    const { run, calls } = harness(() => new Response("nope", { status: 401 }));
+
+    const error = (await run().catch((caught: unknown) => caught)) as ModelProvisioningError;
+
+    expect(error).toBeInstanceOf(ModelProvisioningError);
+    expect(error.reason).toBe("unauthorized");
+    expect(error.message).toContain("WHISPER_API_KEY");
+    // Deterministic: waiting out the whole budget would only delay the fix.
     expect(calls).toHaveLength(1);
+  });
+
+  it("fails immediately when the download is refused for the credentials", async () => {
+    const { run } = harness((call) =>
+      call.method === "POST" ? new Response("nope", { status: 403 }) : modelList(),
+    );
+
+    const error = (await run().catch((caught: unknown) => caught)) as ModelProvisioningError;
+
+    expect(error.reason).toBe("unauthorized");
+  });
+
+  it("warns rather than fails when the listing cannot be re-read after a download", async () => {
+    const { run, lines } = harness((call, index) => {
+      if (call.method === "POST") return new Response("ok");
+      if (index === 0) return modelList();
+      throw new Error("connection reset");
+    });
+
+    await expect(run()).resolves.toMatchObject({ status: "installed" });
+    expect(lines.map((line) => line.event)).toContain("whisper.model.verify-skipped");
   });
 
   it("contacts nothing when provisioning is turned off", async () => {

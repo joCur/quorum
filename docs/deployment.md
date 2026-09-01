@@ -326,7 +326,10 @@ whisper.model.provisioning-failed  the configured transcription model is not ava
 ```
 
 The container then restarts and repeats the message until `WHISPER_MODEL` is corrected and
-`up -d` has been run. To see the valid IDs yourself — the registry has several hundred entries, so
+`up -d` has been run. A `WHISPER_API_KEY` the backend refuses fails the same way and names that
+variable instead — neither is retried, because waiting changes neither one.
+
+To see the valid IDs yourself — the registry has several hundred entries, so
 narrow it to the family the `.env.example` profiles use:
 
 ```bash

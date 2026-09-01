@@ -52,12 +52,15 @@ Backends of this family separate two things that sound like one: loading a model
 
 The worker therefore provisions its own model before it consumes anything (`src/whisper/provision.ts`). It reads `GET /models`, downloads `WHISPER_MODEL` with `POST /models/{id}` when it is missing, verifies the result, and only then subscribes to the queues. It is the natural place for this: the worker is the only component that knows both the base URL and the model name (ADR-005), and it runs identically under the CPU and GPU compose profiles, which differ only in how the backend is scheduled.
 
-Four behaviors are worth knowing:
+What it does in each case:
 
-- **Idempotent.** A restart with the model already in the `whisper-models` volume costs one request and logs `whisper.model.present`.
-- **Loud on a bad model ID.** A backend that does not know the ID makes the worker exit at startup with a line naming it and the registry URL that lists valid ones — instead of dead-lettering somebody's recording later. It is not retried: a typo does not heal.
-- **Patient with a backend that is still starting.** Connection failures are retried until `WHISPER_MODEL_INSTALL_TIMEOUT_MS`; the health endpoint is already answering during the download, so a long first start does not read as an unhealthy container.
-- **Silent where it does not apply.** A backend without an OpenAI-compatible model listing — host-native `whisper.cpp` or `mlx-whisper` — is left alone with a warning rather than blocked. `WHISPER_MODEL_AUTO_INSTALL=false` turns the whole step off for an operator-managed model cache.
+- **Idempotent.** A restart with the model already in the `whisper-models` volume costs one request and logs `whisper.model.present`. A listing that spells the ID with different capitalization still counts as a match, and says so — re-downloading a model that is already there, on every start, is the alternative.
+- **Loud on a deterministic error.** A model ID the backend does not know, or credentials it refuses, fails the startup naming the variable to fix, instead of dead-lettering somebody's recording later. Neither is retried: waiting heals neither a typo nor a wrong token.
+- **Patient with a backend that is still starting.** Connection failures and 5xx are retried until `WHISPER_MODEL_INSTALL_TIMEOUT_MS`. The health endpoint is already answering during the download, so a long first start does not read as an unhealthy container.
+- **Slow to conclude that a backend has no model management.** A 404 on the listing is what a reverse proxy answers before its upstream route is registered, and what a base URL missing `/v1` answers forever. Deciding "no model management" from one response is how provisioning would switch itself off in the deployments that need it most, so the answer has to persist across a confirmation window before it is believed. Once it is, the step is skipped with a warning naming both likely causes.
+- **Careful about calling a download a failure.** Afterwards the listing is polled for a grace period rather than read once, because nothing promises that a finished download and an updated listing happen in the same instant.
+
+`WHISPER_MODEL_AUTO_INSTALL=false` turns the step off entirely, for an operator-managed model cache or a backend that bakes its models in. ADR-008 records the contract underneath all of this: which routes are required, which are optional, and what a minimal compliant backend has to implement.
 
 ## macOS development
 
