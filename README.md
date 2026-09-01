@@ -13,7 +13,7 @@ Meeting recording (in person & online) with configurable summaries, planned as a
   - ADR-005: Self-hosted Whisper + an OpenAI-compatible summary API
   - ADR-006: Stack decision (Fastify, React + Vite PWA, pg-boss, PostgreSQL, MinIO, whisperX, Keycloak)
   - ADR-007: Authentication stays on Keycloak; realm configuration becomes declarative
-  - ADR-008: Machine output may fill an empty user-owned field once, and never overwrite one
+  - ADR-009: Machine output may fill an empty user-owned field once, and never overwrite one
 - `docs/PITCH.md` — why we are building this, the V1 demo definition, our legal position
 - `docs/ROADMAP.md` — V1 → V2 → later (becomes GitHub issues at project start)
 - `docs/OPEN-QUESTIONS.md` — stack proposals, observability, abuse protection (deliberately open)

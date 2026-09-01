@@ -10,7 +10,7 @@
  *
  * ONE EXCEPTION TO "THE SERVER IS THE ONLY WRITER": the summary worker writes `meetings.title`,
  * and only where it is empty, to give a recording nobody named the name its summary suggested
- * (ADR-008). Every other column, and every insert and delete, is the server's alone.
+ * (ADR-009). Every other column, and every insert and delete, is the server's alone.
  *
  * WHY A MEETINGS TABLE AT ALL: before this table, a meeting existed only as a `session.json`
  * object in storage plus whatever rows the pipeline had produced. Listing meetings would have

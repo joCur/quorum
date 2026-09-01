@@ -1,4 +1,4 @@
-# ADR-008: Machine Output May Fill an Empty User-Owned Field
+# ADR-009: Machine Output May Fill an Empty User-Owned Field
 
 **Status:** Accepted · **Date:** 2026-09-01
 
