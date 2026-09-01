@@ -318,6 +318,10 @@ services:
   worker:
     image: ${QUORUM_IMAGE_REGISTRY:-ghcr.io/jocur}/quorum-worker:${QUORUM_VERSION:-latest}
     restart: unless-stopped
+    # Above the worker's own shutdown budget (a twenty-second drain inside a
+    # forty-five-second release ceiling), because Docker's default of ten
+    # seconds would SIGKILL every graceful stop halfway through.
+    stop_grace_period: 60s
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
