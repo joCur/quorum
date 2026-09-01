@@ -145,8 +145,13 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     await expect(page.getByRole("heading", { name: STUB_SUMMARY_TITLE })).toBeVisible({
       timeout: 30_000,
     });
+    // And in the list, on this meeting's own row — every recording the suite made gets the same
+    // stub name, so the row is addressed by the meeting it links to.
     await page.goto("/meetings");
-    await expect(page.getByText(STUB_SUMMARY_TITLE)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(`a[href="/meetings/${transcript.meetingId}"]`)).toContainText(
+      STUB_SUMMARY_TITLE,
+      { timeout: 30_000 },
+    );
   }
 });
 

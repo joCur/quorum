@@ -130,7 +130,10 @@ export class PostgresMeetingStore implements MeetingStore {
         ${record.createdAt}
       )
       ON CONFLICT (session_id) DO UPDATE SET
-        title = EXCLUDED.title,
+        -- A repeat of this write carries the title the recording started with, which for an
+        -- unnamed recording is null. Coalescing keeps it from erasing a name the row has been
+        -- given since — today the one the summary suggested, later a rename.
+        title = COALESCE(EXCLUDED.title, meetings.title),
         updated_at = now()
     `;
   }

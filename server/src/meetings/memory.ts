@@ -42,6 +42,9 @@ export class InMemoryMeetingStore implements MeetingStore {
     const existing = this.meetings.get(record.meetingId);
     this.meetings.set(record.meetingId, {
       ...record,
+      // Like the `COALESCE` of the SQL implementation: a repeat of this write must not erase a
+      // name the row was given after the recording started.
+      title: record.title ?? existing?.title ?? null,
       finalizedAt: existing?.finalizedAt ?? null,
       audioBytes: existing?.audioBytes ?? 0,
       recordedSeconds: existing?.recordedSeconds ?? 0,
