@@ -20,6 +20,32 @@ export function createLogger(level: string): WorkerLogger {
 }
 
 /**
+ * An error the pg-boss channel reported — a dropped connection, most of the time.
+ *
+ * Deliberately not `{ err: error }`: pino's default serializer walks an error's own enumerable
+ * properties, and node-postgres hangs its entire `Client` — connection parameters, socket state,
+ * type maps, pool counters — off a "Connection terminated unexpectedly" error. An ordinary
+ * shutdown would otherwise write a multi-kilobyte line per pooled connection. Message, pg error
+ * code and stack are the parts anyone reads.
+ */
+export function logQueueError(log: WorkerLogger, error: unknown): void {
+  if (!(error instanceof Error)) {
+    log.error({ event: "queue.error", message: String(error) }, "pg-boss error");
+    return;
+  }
+  const code = (error as { code?: unknown }).code;
+  log.error(
+    {
+      event: "queue.error",
+      message: error.message,
+      ...(typeof code === "string" ? { code } : {}),
+      stack: error.stack,
+    },
+    "pg-boss error",
+  );
+}
+
+/**
  * The one log line a deleted meeting produces, on both pipelines.
  *
  * Terminal and deliberately quiet: `info`, not `warn` or `error`. Someone
