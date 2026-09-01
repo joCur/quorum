@@ -174,6 +174,12 @@ services:
       # Whisper: the internal OpenAI-compatible endpoint (speaches).
       WHISPER_BASE_URL: ${WHISPER_BASE_URL:-http://whisper:8000/v1}
       WHISPER_MODEL: ${WHISPER_MODEL}
+      # The worker downloads WHISPER_MODEL onto the transcription backend before it takes its
+      # first job, and refuses to start if it cannot: the backend loads models on demand but
+      # never fetches them, so without this a fresh install dead-letters its first recording.
+      # Turn it off only where an operator manages the model cache by hand.
+      WHISPER_MODEL_AUTO_INSTALL: ${WHISPER_MODEL_AUTO_INSTALL:-true}
+      WHISPER_MODEL_INSTALL_TIMEOUT_MS: ${WHISPER_MODEL_INSTALL_TIMEOUT_MS:-2700000}
       # Unset means "let the model detect the language", which is what mixed-language
       # meetings want.
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}

@@ -34,6 +34,31 @@ export const WorkerConfigSchema = z.object({
   /** Optional bearer token — self-hosted backends usually need none. */
   WHISPER_API_KEY: z.string().optional(),
   /**
+   * Install `WHISPER_MODEL` on the transcription backend at startup when it is
+   * not on disk yet, and refuse to consume jobs until it is.
+   *
+   * On by default, because the alternative is a deployment that looks healthy
+   * and dead-letters the first recording anyone makes: downloading a model to
+   * disk is an explicit step in the backend's API, and only loading it into
+   * memory happens on demand. Turn it off for a backend that serves a baked-in
+   * model, or where an operator manages the model cache by hand.
+   */
+  WHISPER_MODEL_AUTO_INSTALL: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  /**
+   * Budget for the whole provisioning step — waiting for the backend to come up
+   * plus the download itself. Generous by default, because `large-v3` is several
+   * gigabytes over whatever line the deployment has; exceeding it is a loud
+   * startup failure rather than a silently degraded worker.
+   */
+  WHISPER_MODEL_INSTALL_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(45 * 60_000),
+  /**
    * BCP-47 hint passed to the backend. Empty means "let the model detect the
    * language", which is what we want for mixed-language meetings.
    */

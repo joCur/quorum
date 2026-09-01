@@ -46,11 +46,24 @@ Backends differ in where they put word timestamps. `speaches` attaches `words[]`
 
 `speakers[]` stays empty and every `speakerId` is null until diarization exists (ADR-003 §7). The user-correction overlays `editedText` and `editedSpeakerId` are never written by machine output — that is the whole point of ADR-003 §2.
 
+## Model provisioning
+
+Backends of this family separate two things that sound like one: loading a model into memory is automatic and on demand, downloading it to disk is not. A model that was never downloaded is answered with a terminal 404, so a fresh deployment used to transcribe nothing until an operator installed the model by hand — and the first person to record a meeting was the one who found out.
+
+The worker therefore provisions its own model before it consumes anything (`src/whisper/provision.ts`). It reads `GET /models`, downloads `WHISPER_MODEL` with `POST /models/{id}` when it is missing, verifies the result, and only then subscribes to the queues. It is the natural place for this: the worker is the only component that knows both the base URL and the model name (ADR-005), and it runs identically under the CPU and GPU compose profiles, which differ only in how the backend is scheduled.
+
+Four behaviors are worth knowing:
+
+- **Idempotent.** A restart with the model already in the `whisper-models` volume costs one request and logs `whisper.model.present`.
+- **Loud on a bad model ID.** A backend that does not know the ID makes the worker exit at startup with a line naming it and the registry URL that lists valid ones — instead of dead-lettering somebody's recording later. It is not retried: a typo does not heal.
+- **Patient with a backend that is still starting.** Connection failures are retried until `WHISPER_MODEL_INSTALL_TIMEOUT_MS`; the health endpoint is already answering during the download, so a long first start does not read as an unhealthy container.
+- **Silent where it does not apply.** A backend without an OpenAI-compatible model listing — host-native `whisper.cpp` or `mlx-whisper` — is left alone with a warning rather than blocked. `WHISPER_MODEL_AUTO_INSTALL=false` turns the whole step off for an operator-managed model cache.
+
 ## macOS development
 
 Docker on macOS has no GPU access, so the CUDA image is meaningless there. Both documented paths work without a code change:
 
-1. **CPU image (full stack parity).** Set `WHISPER_IMAGE_TAG=latest-cpu`, `WHISPER_DEVICE=cpu` and `WHISPER_MODEL=Systran/faster-whisper-small` with int8 in `.env`, start the stack as usual, and install that model once (see the deployment guide) — `speaches` answers 404 for a model it has not downloaded, and for a short name like `small`. Right for integration and end-to-end tests; slow but faithful.
+1. **CPU image (full stack parity).** Set `WHISPER_IMAGE_TAG=latest-cpu`, `WHISPER_DEVICE=cpu` and `WHISPER_MODEL=Systran/faster-whisper-small` with int8 in `.env` and start the stack as usual; the worker downloads that model on its first start (see *Model provisioning*). Use a full model ID — `speaches` answers 404 for a short name like `small`. Right for integration and end-to-end tests; slow but faithful.
 2. **Host-native Whisper (speed).** Run `whisper.cpp --server` or `mlx-whisper` on the host with Metal, leave the `whisper` container out, and point the worker at it:
 
    ```bash
@@ -186,8 +199,10 @@ Four tables, created with `CREATE TABLE IF NOT EXISTS` under an advisory lock on
 | `S3_ACCESS_KEY`              | —                           |                                                               |
 | `S3_SECRET_KEY`              | —                           |                                                               |
 | `WHISPER_BASE_URL`           | `http://whisper:8000/v1`    | OpenAI-compatible base URL, including `/v1`                   |
-| `WHISPER_MODEL`              | `small`                     | Model name sent with every request                            |
+| `WHISPER_MODEL`              | `Systran/faster-whisper-small` | Full model ID, sent with every request and provisioned at startup |
 | `WHISPER_API_KEY`            | unset                       | Bearer token; self-hosted backends need none                  |
+| `WHISPER_MODEL_AUTO_INSTALL` | `true`                      | Install `WHISPER_MODEL` on the backend before consuming jobs  |
+| `WHISPER_MODEL_INSTALL_TIMEOUT_MS` | `2700000`             | Budget for waiting on the backend plus that download          |
 | `WHISPER_LANGUAGE`           | unset                       | BCP-47 hint; unset means the backend detects the language     |
 | `WHISPER_VAD_FILTER`         | `true`                      | Send `vad_filter=true`; silence is skipped, not transcribed   |
 | `WHISPER_TIMEOUT_MS`         | `1800000`                   | Whole-request timeout for one transcription                   |
@@ -231,11 +246,11 @@ QUORUM_SUMMARY_INTEGRATION=1 SUMMARY_API_KEY=... SUMMARY_MODEL=... \
   pnpm vitest run worker/test/summary-integration.test.ts
 ```
 
-The unit tests mock object storage and HTTP. They cover manifest assembly, the response-to-`Transcript` mapping against fixtures of both response shapes, prompt construction from a template plus a transcript fixture, template override resolution, transcript windowing, the response-to-`Summary` mapping including every malformed-output case, the enqueue-on-transcript-success chain, the idempotency rules and the error taxonomy.
+The unit tests mock object storage and HTTP. They cover manifest assembly, the response-to-`Transcript` mapping against fixtures of both response shapes, prompt construction from a template plus a transcript fixture, template override resolution, transcript windowing, the response-to-`Summary` mapping including every malformed-output case, the enqueue-on-transcript-success chain, startup model provisioning against a faked backend, the idempotency rules and the error taxonomy.
 
 Both integration suites are opt-in. The transcription one needs a running MinIO, PostgreSQL and Whisper endpoint plus a real recording; the summary one needs PostgreSQL and a real OpenAI-compatible endpoint, and costs money per run. They are excluded from the default run because CI has none of those services — and the summary suite asserts on the *structure* of the answer, never on its wording, since a live model is not deterministic.
 
-`speaches` does not download a model implicitly — the first request for an uninstalled model answers `404`, which the worker reports as `TRANSCRIPTION_REJECTED`. Install it once per volume:
+The transcription integration suite talks to a Whisper endpoint directly rather than through the worker's startup, so it does not get provisioning for free. `speaches` never downloads a model implicitly, and the first request for an uninstalled one answers `404`. Install it once per volume:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/models/Systran/faster-whisper-small

@@ -4,6 +4,7 @@ import { createLogger } from "./logger.js";
 import { PostgresRepository } from "./db/repository.js";
 import { S3AudioSource } from "./storage/audio-source.js";
 import { OpenAiTranscriptionClient } from "./whisper/client.js";
+import { ensureWhisperModel } from "./whisper/provision.js";
 import { OpenAiChatClient } from "./summary/chat-client.js";
 import { PgBossSummaryEnqueuer } from "./summary/enqueue.js";
 import { SYSTEM_SUMMARY_TEMPLATE } from "./summary/template.js";
@@ -25,6 +26,14 @@ export {
   type TranscriptionClient,
   type TranscriptionRequest,
 } from "./whisper/client.js";
+export {
+  ensureWhisperModel,
+  ModelProvisioningError,
+  type EnsureWhisperModelOptions,
+  type ModelProvisioningOutcome,
+  type ModelProvisioningFailure,
+  type ProvisioningLogger,
+} from "./whisper/provision.js";
 export * from "./transcript/map.js";
 export { MIGRATIONS } from "./db/schema.js";
 export {
@@ -113,6 +122,39 @@ async function main(): Promise<void> {
     metrics,
     port: config.WORKER_METRICS_PORT,
   });
+
+  // Before any job is fetched, and after the health endpoint is already
+  // answering — a first-time download of a large model takes longer than the
+  // container's health probe would tolerate otherwise, and an unhealthy worker
+  // that is merely busy provisioning would be the wrong alarm.
+  //
+  // A worker that cannot get its model must not consume transcribe jobs: the
+  // backend answers a missing model with a terminal 404, so every recording made
+  // in the meantime would dead-letter. Failing here instead turns that into one
+  // startup error an operator can act on.
+  try {
+    await ensureWhisperModel({
+      baseUrl: config.WHISPER_BASE_URL,
+      model: config.WHISPER_MODEL,
+      apiKey: config.WHISPER_API_KEY,
+      enabled: config.WHISPER_MODEL_AUTO_INSTALL,
+      timeoutMs: config.WHISPER_MODEL_INSTALL_TIMEOUT_MS,
+      logger,
+    });
+  } catch (error) {
+    logger.fatal(
+      {
+        event: "whisper.model.provisioning-failed",
+        err: error,
+        whisperModel: config.WHISPER_MODEL,
+        whisperBaseUrl: config.WHISPER_BASE_URL,
+      },
+      "the configured transcription model is not available; not consuming jobs",
+    );
+    await metricsServer.close();
+    await repository.close();
+    process.exit(1);
+  }
 
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });
   boss.on("error", (error: unknown) => logger.error({ err: error }, "pg-boss error"));

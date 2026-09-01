@@ -106,6 +106,11 @@ trade-off, not a shortcut:
 - Real CPU Whisper spends minutes downloading and loading a model to produce that noise, which is
   most of a CI budget for no additional signal.
 
+The stub also answers the model listing the worker checks on startup, claiming the model the run
+configures. That keeps the worker's provisioning step on its ordinary path — the model is already
+there, nothing is downloaded — instead of pushing it into the fallback for backends that have no
+listing at all.
+
 `E2E_WHISPER=real` starts the CPU Whisper container with the smallest model and points the worker
 at it. That variant is what to run after touching the worker's transcription client, the response
 mapping, or the audio format — it is the only way to find out that a real backend still accepts
