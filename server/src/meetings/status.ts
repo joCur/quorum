@@ -5,6 +5,11 @@ export interface StageState {
   status: JobStatus;
   progress: number | null;
   error: { code: string; message: string } | null;
+  /**
+   * When the pipeline last wrote this row. Null when the store cannot say, which is read as
+   * "recent" — see {@link IN_FLIGHT_MAX_AGE_MS}.
+   */
+  updatedAt: string | null;
 }
 
 export interface MeetingStateInput {
@@ -16,7 +21,27 @@ export interface MeetingStateInput {
   summarize: StageState | null;
   hasTranscript: boolean;
   hasSummary: boolean;
+  /** Injectable clock, so the staleness window below is assertable. */
+  now?: Date;
 }
+
+/**
+ * How long a `queued` or `running` row is believed.
+ *
+ * A row is not a heartbeat. The worker writes `running` when an attempt starts and does not touch
+ * the row again until the attempt settles — so a worker that is killed mid-job, or an attempt
+ * that outlives pg-boss's own expiry on its last try, leaves a row that says `running` and always
+ * will. Before work in flight took precedence that was invisible; with it, such a row would tell
+ * a meeting that already has its transcript and summary that it is still being summarized, for
+ * ever, which is a worse lie than the one this precedence was added to fix.
+ *
+ * Six hours is chosen against the pipeline's own numbers rather than as a round figure: an
+ * attempt is capped at `WORKER_JOB_EXPIRE_SECONDS` (two hours by default) and every new attempt
+ * rewrites the row, so nothing that is genuinely running can go quiet for this long. A queue that
+ * is genuinely backed up keeps a live entry and its job row untouched — but then the meeting has
+ * no artifacts to fall back to either, and falls through to `queued`, which is what it is.
+ */
+export const IN_FLIGHT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 export interface MeetingState {
   status: MeetingStatus;
@@ -56,15 +81,17 @@ export function deriveMeetingState(input: MeetingStateInput): MeetingState {
     return { status: "recording", progress: null, failure: null };
   }
 
-  if (input.transcribe?.status === "running") {
-    return { status: "transcribing", progress: input.transcribe.progress, failure: null };
+  const now = input.now ?? new Date();
+  const transcribing = inFlight(input.transcribe, now);
+  if (transcribing === "running") {
+    return { status: "transcribing", progress: input.transcribe?.progress ?? null, failure: null };
   }
-  if (input.transcribe?.status === "queued") {
+  if (transcribing === "queued") {
     return { status: "queued", progress: null, failure: null };
   }
 
-  if (input.summarize?.status === "queued" || input.summarize?.status === "running") {
-    return { status: "summarizing", progress: input.summarize.progress, failure: null };
+  if (inFlight(input.summarize, now) !== null) {
+    return { status: "summarizing", progress: input.summarize?.progress ?? null, failure: null };
   }
 
   const transcribeFailure = failureOf(input.transcribe, "transcribe");
@@ -88,6 +115,19 @@ export function deriveMeetingState(input: MeetingStateInput): MeetingState {
   }
 
   return { status: "queued", progress: null, failure: null };
+}
+
+/**
+ * The state of a stage that is still on its way, or null when it is finished, never started, or
+ * so old that no live job could still be behind it.
+ */
+function inFlight(stage: StageState | null, now: Date): "queued" | "running" | null {
+  if (stage?.status !== "queued" && stage?.status !== "running") return null;
+  if (stage.updatedAt === null) return stage.status;
+  const writtenAt = Date.parse(stage.updatedAt);
+  // An unparseable timestamp is a store problem, not a reason to declare the job dead.
+  if (Number.isNaN(writtenAt)) return stage.status;
+  return now.getTime() - writtenAt > IN_FLIGHT_MAX_AGE_MS ? null : stage.status;
 }
 
 function failureOf(stage: StageState | null, name: MeetingFailure["stage"]): MeetingFailure | null {

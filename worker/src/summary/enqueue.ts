@@ -45,17 +45,32 @@ export function summarizeJobPayload(input: EnqueueSummaryInput): SummarizeJobPay
 /**
  * Enqueues the summary job for a freshly persisted transcript.
  *
- * The job id is derived from the transcript and the template (see `ids.ts`) and
- * used as the pg-boss singleton key, so a replayed transcribe job cannot buy a
- * second LLM call for the same transcript. Requesting a summary of the same
- * transcript with a *different* template is a different id and is meant to
- * create a second summary — meeting → summary is 1:n (ADR-004 §3).
+ * The job id is derived from the transcript and the template (see `ids.ts`), so
+ * a replayed transcribe job lands on the id the first run's summary already
+ * occupies. Requesting a summary of the same transcript with a *different*
+ * template is a different id and is meant to create a second summary — meeting
+ * → summary is 1:n (ADR-004 §3).
+ *
+ * WHAT THE SINGLETON KEY DOES NOT DO: deduplicate. The queue runs under
+ * pg-boss's `standard` policy, and none of the unique indexes behind
+ * `singletonKey` applies to that policy, so a second send of the same id
+ * inserts a second entry. The key is there to make every entry for one job
+ * findable. What keeps a replay from paying for a second model call is the
+ * summarize handler, which looks for a summary already stored under its own job
+ * id before it says anything to the backend.
  */
 export class PgBossSummaryEnqueuer implements SummaryEnqueuer {
   constructor(private readonly boss: PgBoss) {}
 
   async enqueue(input: EnqueueSummaryInput): Promise<void> {
     const payload = summarizeJobPayload(input);
-    await this.boss.send(SUMMARIZE_QUEUE, payload, { singletonKey: payload.job.id });
+    // A declined send answers with a null id rather than an error. The transcribe handler makes
+    // a point of logging an enqueue failure loudly instead of losing it, so it has to be told.
+    const queueJobId = await this.boss.send(SUMMARIZE_QUEUE, payload, {
+      singletonKey: payload.job.id,
+    });
+    if (queueJobId === null) {
+      throw new Error(`the ${SUMMARIZE_QUEUE} queue did not accept job ${payload.job.id}`);
+    }
   }
 }

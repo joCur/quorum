@@ -6,6 +6,11 @@ import { useTranscriptionRetry } from "@/features/meetings/use-transcription-ret
 
 export interface RetryTranscriptionProps {
   meetingId: string;
+  /**
+   * When the failure on screen was recorded — the mark the wait is measured against, so a job
+   * that fails again while the screen is reloading offers the action anew instead of freezing.
+   */
+  failedAt: string | null;
   /** Refreshes the meeting once the retry has been accepted. */
   onReload: () => void;
 }
@@ -21,9 +26,9 @@ export interface RetryTranscriptionProps {
  * No confirmation: retrying destroys nothing. The recording is untouched, and a meeting with no
  * transcript has nothing that a second attempt could overwrite.
  */
-export function RetryTranscription({ meetingId, onReload }: RetryTranscriptionProps) {
+export function RetryTranscription({ meetingId, failedAt, onReload }: RetryTranscriptionProps) {
   const { t } = useTranslation();
-  const retry = useTranscriptionRetry(meetingId, onReload);
+  const retry = useTranscriptionRetry(meetingId, failedAt, onReload);
 
   return (
     <div className="flex flex-col gap-2">

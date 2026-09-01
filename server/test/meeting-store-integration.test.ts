@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { PgBoss } from "pg-boss";
 import { MIGRATIONS as WORKER_MIGRATIONS } from "@quorum/worker/db-schema";
@@ -352,6 +352,202 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
       ]);
       expect((await store.findMeeting(ACME, WEEKLY))?.transcript).not.toBeNull();
     });
+  });
+
+  /**
+   * Handing a job back to the queue — the half of the retry endpoint that only real PostgreSQL
+   * and a real pg-boss can exercise.
+   *
+   * What is at stake is a duplicate transcription. `singletonKey` deduplicates nothing under the
+   * `standard` policy both queues run on, and the worker writes `failed` into the job row on every
+   * attempt including the ones pg-boss is still going to repeat by itself — so nothing but the
+   * queue itself can answer whether a job is already going to run.
+   */
+  describe("handing a failed job back to the queue", () => {
+    const RETRIED = uuid("7", 1);
+    const RETRIED_JOB = uuid("7", 2);
+    const QUEUES = { name: TRANSCRIBE_QUEUE, deadLetter: `${TRANSCRIBE_QUEUE}-dead-letter` };
+    let retryBoss: PgBoss;
+
+    const payloadFor = (jobId: string) => ({
+      job: { id: jobId, meetingId: RETRIED, type: "transcribe", status: "queued" },
+      tenantId,
+      userId: "user-1",
+      sessionId: RETRIED,
+    });
+
+    /** Puts the job row back into the failure every case starts from. */
+    const resetJobRow = async (): Promise<void> => {
+      await sql`DELETE FROM jobs WHERE id = ${RETRIED_JOB}`;
+      await sql`
+        INSERT INTO jobs (
+          id, meeting_id, tenant_id, user_id, session_id, type, status, progress, error,
+          result_id, attempt, created_at, started_at, finished_at, updated_at
+        ) VALUES (
+          ${RETRIED_JOB}, ${RETRIED}, ${tenantId}, ${"user-1"}, ${RETRIED}, ${"transcribe"},
+          ${"failed"}, ${null},
+          ${sql.json({ code: "TRANSCRIPTION_REJECTED", message: "backend answered 404" })},
+          ${null}, 3, ${"2026-08-26T10:05:30Z"}, ${"2026-08-26T10:05:31Z"},
+          ${"2026-08-26T10:06:00Z"}, now()
+        )
+      `;
+    };
+
+    const clearQueue = async (): Promise<void> => {
+      await sql`DELETE FROM pgboss.job WHERE data->'job'->>'meetingId' = ${RETRIED}`;
+    };
+
+    beforeAll(async () => {
+      retryBoss = new PgBoss({ connectionString });
+      await retryBoss.start();
+      await retryBoss.createQueue(QUEUES.name);
+      await retryBoss.createQueue(QUEUES.deadLetter);
+
+      await store.recordSession({
+        meetingId: RETRIED,
+        sessionId: RETRIED,
+        tenantId,
+        userId: "user-1",
+        title: "Failed once",
+        audioFormat: WEBM_OPUS,
+        createdAt: "2026-08-26T10:00:00Z",
+      });
+      await store.markFinalized(ACME, RETRIED, "2026-08-26T10:05:00Z");
+    }, 30_000);
+
+    afterAll(async () => {
+      await retryBoss.stop();
+      await clearQueue();
+    });
+
+    beforeEach(async () => {
+      await clearQueue();
+      await resetJobRow();
+    });
+
+    it("moves the row and enqueues, as one step", async () => {
+      const outcome = await store.requeueFailedJob(ACME, {
+        meetingId: RETRIED,
+        jobId: RETRIED_JOB,
+        queue: QUEUES,
+        enqueue: async () => {
+          await retryBoss.send(QUEUES.name, payloadFor(RETRIED_JOB));
+        },
+      });
+      expect(outcome).toBe("requeued");
+
+      const rows = await sql<{ status: string; attempt: number; error: unknown }[]>`
+        SELECT status, attempt, error FROM jobs WHERE id = ${RETRIED_JOB}
+      `;
+      expect(rows[0]).toMatchObject({ status: "queued", attempt: 0, error: null });
+      expect(await liveEntries(RETRIED_JOB)).toBe(1);
+      // And the meeting says so, which is what the client reads to stop offering the action.
+      expect((await store.findMeeting(ACME, RETRIED))?.meeting.status).toBe("queued");
+    });
+
+    it("refuses while the queue still holds an entry for the job", async () => {
+      // The trap: a `failed` row whose job pg-boss is going to repeat on its own after a backoff.
+      await retryBoss.send(QUEUES.name, payloadFor(RETRIED_JOB));
+
+      let enqueued = false;
+      const outcome = await store.requeueFailedJob(ACME, {
+        meetingId: RETRIED,
+        jobId: RETRIED_JOB,
+        queue: QUEUES,
+        enqueue: async () => {
+          enqueued = true;
+        },
+      });
+
+      expect(outcome).toBe("in-progress");
+      expect(enqueued).toBe(false);
+      expect(await liveEntries(RETRIED_JOB)).toBe(1);
+      const rows = await sql<{ status: string }[]>`
+        SELECT status FROM jobs WHERE id = ${RETRIED_JOB}
+      `;
+      expect(rows[0]?.status).toBe("failed");
+    });
+
+    it("does not mistake the parked attempt on the dead-letter queue for a live one", async () => {
+      await retryBoss.send(QUEUES.deadLetter, payloadFor(RETRIED_JOB));
+
+      const outcome = await store.requeueFailedJob(ACME, {
+        meetingId: RETRIED,
+        jobId: RETRIED_JOB,
+        queue: QUEUES,
+        enqueue: async () => {
+          await retryBoss.send(QUEUES.name, payloadFor(RETRIED_JOB));
+        },
+      });
+
+      expect(outcome).toBe("requeued");
+      // And the parked entry is gone, so the next operator bulk redrive does not replay a job
+      // this user has already had run again.
+      const parked = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM pgboss.job
+         WHERE name = ${QUEUES.deadLetter} AND data->'job'->>'id' = ${RETRIED_JOB}
+      `;
+      expect(parked[0]?.count).toBe(0);
+    });
+
+    it("rolls the row back when the enqueue fails", async () => {
+      await expect(
+        store.requeueFailedJob(ACME, {
+          meetingId: RETRIED,
+          jobId: RETRIED_JOB,
+          queue: QUEUES,
+          enqueue: async () => {
+            throw new Error("the queue said no");
+          },
+        }),
+      ).rejects.toThrow("the queue said no");
+
+      // No half state: a `queued` row with nothing behind it would leave the meeting waiting for
+      // a run nobody started.
+      const rows = await sql<{ status: string }[]>`
+        SELECT status FROM jobs WHERE id = ${RETRIED_JOB}
+      `;
+      expect(rows[0]?.status).toBe("failed");
+      expect(await liveEntries(RETRIED_JOB)).toBe(0);
+    });
+
+    it("refuses a job that has since succeeded", async () => {
+      await sql`UPDATE jobs SET status = 'succeeded' WHERE id = ${RETRIED_JOB}`;
+      const outcome = await store.requeueFailedJob(ACME, {
+        meetingId: RETRIED,
+        jobId: RETRIED_JOB,
+        queue: QUEUES,
+        enqueue: async () => {
+          throw new Error("must not be reached");
+        },
+      });
+      expect(outcome).toBe("nothing-to-retry");
+    });
+
+    it("refuses a job outside the caller's scope", async () => {
+      for (const scope of [OTHER_TENANT, OTHER_USER]) {
+        const outcome = await store.requeueFailedJob(scope, {
+          meetingId: RETRIED,
+          jobId: RETRIED_JOB,
+          queue: QUEUES,
+          enqueue: async () => {
+            throw new Error("must not be reached");
+          },
+        });
+        expect(outcome).toBe("nothing-to-retry");
+      }
+    });
+
+    /** Entries on the live queue for this job — `created`, `retry` or `active`. */
+    async function liveEntries(jobId: string): Promise<number> {
+      const rows = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM pgboss.job
+         WHERE name = ${QUEUES.name}
+           AND data->'job'->>'id' = ${jobId}
+           AND state < 'completed'
+      `;
+      return rows[0]?.count ?? 0;
+    }
   });
 
   it("reports a meeting of another tenant as missing", async () => {

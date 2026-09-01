@@ -164,6 +164,7 @@ describe("isRetryableJobErrorCode", () => {
       "MANIFEST_NOT_FOUND",
       "AUDIO_EMPTY",
       "AUDIO_DECODE_FAILED",
+      "AUDIO_TOO_LARGE",
       "JOB_PAYLOAD_INVALID",
       "TRANSCRIPT_INVALID",
       "TRANSCRIPT_NOT_FOUND",
@@ -188,17 +189,23 @@ describe("isRetryableJobErrorCode", () => {
     }
   });
 
-  it("allows the configuration failures the pipeline itself dead-letters", () => {
+  it("allows the transcription failures that name the backend, not the recording", () => {
     // Deliberately more generous than the per-attempt flags in `worker/src/errors.ts`: these name
-    // the backend, and a person asking again is saying the backend has been changed since.
-    for (const code of [
-      "TRANSCRIPTION_REJECTED",
-      "TRANSCRIPTION_RESPONSE_INVALID",
-      "SUMMARY_REJECTED",
-      "SUMMARY_RESPONSE_INVALID",
-    ]) {
+    // the backend, and a person asking again is saying the backend has been changed since. The
+    // one refusal of that family nobody can fix — audio too large for it — has its own code, so
+    // being generous here does not offer anyone a dead end.
+    for (const code of ["TRANSCRIPTION_REJECTED", "TRANSCRIPTION_RESPONSE_INVALID"]) {
       expect(isRetryableJobErrorCode(code), code).toBe(true);
     }
+  });
+
+  it("answers the summary codes exactly as the pipeline does", () => {
+    // No generosity on this side: a summary attempt is a paid call, `SUMMARY_REJECTED` covers an
+    // oversized prompt that would buy the same answer twice, and nothing offers a summary retry
+    // yet. Deciding it in advance would be guessing at a cost question for a feature that does
+    // not exist.
+    expect(isRetryableJobErrorCode("SUMMARY_REJECTED")).toBe(false);
+    expect(isRetryableJobErrorCode("SUMMARY_RESPONSE_INVALID")).toBe(false);
   });
 
   it("treats a code it has never heard of as not worth repeating", () => {

@@ -78,6 +78,13 @@ export interface SummaryRepository {
    */
   meetingExists(meetingId: string, tenantId: string): Promise<boolean>;
   /**
+   * The summary this job has already produced, or `null`.
+   *
+   * Asked before the model is called rather than after: `saveSummary` also
+   * recognizes a replay, but by then the tokens are spent.
+   */
+  findSummaryIdForJob(jobId: string, tenantId: string): Promise<string | null>;
+  /**
    * Persists the summary, or raises `MeetingGoneError` when the meeting was
    * deleted in the meantime. The check and the insert share one transaction.
    */
@@ -183,6 +190,14 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
    * abandon such a job, but the guard belongs here as well: the very first
    * thing a job does is record itself as `running`, long before it reaches a
    * point where a handler could check anything.
+   *
+   * A SUCCEEDED JOB IS NEVER FAILED BY A LATECOMER. Two attempts of one job id
+   * can be in flight at once — pg-boss's `standard` policy deduplicates nothing,
+   * so an operator redrive next to a running attempt is enough — and the loser
+   * finishing second would otherwise turn a meeting that has its transcript
+   * into a meeting that reports a failure, with the transcript still sitting
+   * there. Only that one transition is refused: a re-run announces itself as
+   * `running` first, and everything after that writes normally.
    */
   async saveJob(job: Job, scope: JobScope, attempt: number): Promise<void> {
     try {
@@ -206,6 +221,7 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
             started_at = COALESCE(jobs.started_at, EXCLUDED.started_at),
             finished_at = EXCLUDED.finished_at,
             updated_at = now()
+          WHERE NOT (jobs.status = 'succeeded' AND EXCLUDED.status = 'failed')
         `;
       });
     } catch (error) {
@@ -434,6 +450,20 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
     } catch (error) {
       if (error instanceof JobError || error instanceof MeetingGoneError) throw error;
       throw new JobError("SUMMARY_PERSIST_FAILED", "failed to persist the summary", {
+        retryable: true,
+        cause: error,
+      });
+    }
+  }
+
+  async findSummaryIdForJob(jobId: string, tenantId: string): Promise<string | null> {
+    try {
+      const rows = await this.sql<{ id: string }[]>`
+        SELECT id FROM summaries WHERE job_id = ${jobId} AND tenant_id = ${tenantId}
+      `;
+      return rows[0]?.id ?? null;
+    } catch (error) {
+      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to look for an existing summary", {
         retryable: true,
         cause: error,
       });

@@ -354,6 +354,7 @@
       "audioUnavailable": "Das Audio dieser Aufnahme konnte nicht geöffnet werden. Es ist weiterhin gespeichert — bitte versuche es später noch einmal.",
       "audioEmpty": "Diese Aufnahme enthält kein Audio.",
       "audioUnreadable": "Das Audio dieser Aufnahme konnte nicht gelesen werden, deshalb gibt es kein Transkript.",
+      "audioTooLong": "Diese Aufnahme ist zu lang, um sie am Stück zu transkribieren. Das Audio ist sicher und lässt sich weiterhin abspielen.",
       "transcriptionUnavailable": "Transkribieren ist im Moment nicht möglich. Das Audio ist sicher — bitte versuche es in einigen Minuten noch einmal.",
       "transcriptionFailed": "Diese Aufnahme konnte nicht transkribiert werden. Das Audio ist sicher und lässt sich weiterhin abspielen.",
       "transcriptNotSaved": "Das Transkript konnte nicht gespeichert werden. Das Audio ist sicher — bitte versuche es später noch einmal.",

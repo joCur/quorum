@@ -256,6 +256,32 @@ describe("idempotency", () => {
     expect(repository.activeSummaries).toHaveLength(1);
   });
 
+  /**
+   * The replay has to be free, not merely harmless.
+   *
+   * A transcribe job that runs again over a transcript it already produced enqueues the very same
+   * summarize id, and the queue deduplicates nothing — so this path is walked in the ordinary
+   * course of a retry. `saveSummary` has always recognized the replay, but only after the model
+   * has answered and the tokens are spent; the point is not to call it at all.
+   */
+  it("calls no model when the job has already produced its summary", async () => {
+    const dependencies = deps();
+    const first = await runSummarizeJob(summarizePayload(), 0, dependencies);
+    const chat = dependencies.chat as FakeChatClient;
+    const callsAfterFirst = chat.calls.length;
+
+    const replay = await runSummarizeJob(summarizePayload(), 1, dependencies);
+
+    expect(replay).toMatchObject({ summaryId: first.summaryId, created: false });
+    expect(chat.calls).toHaveLength(callsAfterFirst);
+    // And the job still reports itself finished, pointing at the summary that exists.
+    const repository = dependencies.repository as InMemorySummaryRepository;
+    expect(repository.jobStates.at(-1)).toMatchObject({
+      status: "succeeded",
+      resultId: first.summaryId,
+    });
+  });
+
   it("keeps one active summary per template when the meeting is summarized again", async () => {
     const dependencies = deps();
     await runSummarizeJob(summarizePayload(), 0, dependencies);

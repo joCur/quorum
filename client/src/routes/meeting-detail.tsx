@@ -16,7 +16,7 @@ import { SummaryAttribution, SummaryView } from "@/components/meetings/summary-v
 import { TranscriptView } from "@/components/meetings/transcript-view";
 import { formatMeetingDate, formatMeetingDuration, meetingLabel } from "@/features/meetings/format";
 import { asLimitCode, limitMessageKey } from "@/features/limits/messages";
-import { failedJobId, failureMessageKey } from "@/features/meetings/failure";
+import { failedJob, failedJobId, failureMessageKey } from "@/features/meetings/failure";
 import { isPipelineComplete } from "@/features/meetings/pipeline";
 import { useMeeting } from "@/features/meetings/use-meeting";
 import { useMeetingAudio } from "@/features/meetings/use-meeting-audio";
@@ -290,6 +290,7 @@ function TranscriptPanel({
 }) {
   const { t } = useTranslation();
   const failure = detail.meeting.failure;
+  const job = failedJob(detail, "transcribe");
 
   return (
     <div>
@@ -297,13 +298,17 @@ function TranscriptPanel({
         <FailurePanel
           title={t("meeting.transcript.failed")}
           code={failure.code}
-          jobId={failedJobId(detail, "transcribe")}
+          jobId={job?.id ?? null}
           // Offered only where another attempt could end differently. The taxonomy is the
           // pipeline's own (`shared/src/job.ts`), so the action appears exactly where the server
           // would accept it: no dead control, and no refusal the user could not have foreseen.
           action={
             isRetryableJobErrorCode(failure.code) ? (
-              <RetryTranscription meetingId={detail.meeting.id} onReload={onReload} />
+              <RetryTranscription
+                meetingId={detail.meeting.id}
+                failedAt={job?.finishedAt ?? null}
+                onReload={onReload}
+              />
             ) : null
           }
         />

@@ -45,6 +45,16 @@ export const TRANSCRIBE_QUEUE = "transcribe";
 export const SUMMARIZE_QUEUE = "summarize";
 
 /**
+ * Where the worker parks a transcription it has given up on. Nothing consumes it; an operator
+ * inspects it and redrives, and the retry endpoint clears the entry of a job it hands back.
+ *
+ * The name is duplicated from the worker's `payload.ts` rather than shared, because the two
+ * packages do not depend on each other — the queue name is the contract between them, exactly as
+ * `TRANSCRIBE_QUEUE` already is.
+ */
+export const TRANSCRIBE_DEAD_LETTER_QUEUE = `${TRANSCRIBE_QUEUE}-dead-letter`;
+
+/**
  * Payload placed on the queue: the `Job` from `shared/src/job.ts` plus the
  * tenant/user/session scope the worker needs to locate the audio in object
  * storage (ADR-001 scoping).
@@ -148,20 +158,24 @@ export class PgBossJobQueue implements JobQueue {
       tenantId: input.tenantId,
       userId: input.userId,
     });
-    // The job id is used as the pg-boss singleton key so a retried
-    // `session.end` cannot enqueue the same transcription twice.
-    await this.boss.send(TRANSCRIBE_QUEUE, payload, { singletonKey: input.jobId, priority });
+    // The job id travels as the pg-boss singleton key so an operator can find every entry for
+    // one job with a single predicate. It does NOT deduplicate: both queues run under pg-boss's
+    // `standard` policy, and none of the unique indexes that back `singletonKey` applies to that
+    // policy. Nothing about not enqueueing the same transcription twice may rest on it — the
+    // callers guard that themselves, `session.end` by only finalizing once and the retry endpoint
+    // by refusing while the queue still holds a live entry for the job.
+    await this.send(TRANSCRIBE_QUEUE, payload, { singletonKey: input.jobId, priority });
   }
 
   /**
    * WHY THE JOB ID IS NOT DERIVED HERE: the pipeline derives its summarize job
    * id from the transcript and the template so that a replayed transcribe job
-   * cannot buy a second model call. A regenerate is the opposite situation — the
-   * user is deliberately asking for the same transcript and template to be run
-   * again, usually after editing the template — so a derived id would make the
-   * second request a silent no-op. The caller mints a fresh id per request and
-   * refuses a second one while a summary for that meeting is still running, which
-   * is the protection that actually belongs here.
+   * lands on the id an existing summary already occupies. A regenerate is the
+   * opposite situation — the user is deliberately asking for the same transcript
+   * and template to be run again, usually after editing the template — so a
+   * derived id would make the second request a silent no-op. The caller mints a
+   * fresh id per request and refuses a second one while a summary for that
+   * meeting is still running, which is the protection that actually belongs here.
    */
   async enqueueSummarize(input: {
     jobId: string;
@@ -197,6 +211,25 @@ export class PgBossJobQueue implements JobQueue {
       tenantId: input.tenantId,
       userId: input.userId,
     });
-    await this.boss.send(SUMMARIZE_QUEUE, payload, { singletonKey: input.jobId, priority });
+    await this.send(SUMMARIZE_QUEUE, payload, { singletonKey: input.jobId, priority });
+  }
+
+  /**
+   * `boss.send` that treats "nothing was enqueued" as the failure it is.
+   *
+   * pg-boss answers a send it declined with a null id rather than an error — a queue that does
+   * not exist, or a policy that suppressed the insert. Every caller here has just told a user, or
+   * a job row, that work has started, so a silent null is the one answer none of them can act on
+   * correctly. Turning it into a throw puts it on the path the callers already handle.
+   */
+  private async send(
+    queue: string,
+    payload: TranscribeJobPayload,
+    options: { singletonKey: string; priority: number },
+  ): Promise<void> {
+    const queueJobId = await this.boss.send(queue, payload, options);
+    if (queueJobId === null) {
+      throw new Error(`the ${queue} queue did not accept job ${payload.job.id}`);
+    }
   }
 }

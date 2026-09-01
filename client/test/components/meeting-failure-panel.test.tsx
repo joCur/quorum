@@ -335,6 +335,41 @@ describe("retrying a failed transcription", () => {
     expect(screen.getByRole("button", { name: "Starting…" })).toBeDisabled();
   });
 
+  /**
+   * The deadlock the held flag produced.
+   *
+   * A retry of a job that fails again quickly can be back in the failed state before the reload
+   * that followed the click returns. The panel then never unmounts, and a `pending` flag that is
+   * only cleared on refusal would leave the button disabled on "Starting…" with no way back. The
+   * wait is a question about the data instead: it lasts while the failure on screen is the one
+   * that was clicked on, and a newer one ends it.
+   */
+  it("offers the action again when the retried job has failed once more", async () => {
+    let resolveRetry: (value: unknown) => void = () => undefined;
+    retryTranscription.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRetry = resolve;
+      }),
+    );
+    const { rerender } = renderRetryableFailure();
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(screen.getByRole("button", { name: "Starting…" })).toBeDisabled();
+
+    // The reload comes back with a *newer* failure of the same job — the retry ran and failed.
+    currentDetail = detailWithFailure({ stage: "transcribe", ...UNAVAILABLE }, [
+      failedJob({ error: UNAVAILABLE, finishedAt: "2026-08-29T10:20:00.000Z" }),
+    ]);
+    resolveRetry({ job: failedJob({ status: "queued", error: null }) });
+    rerender(
+      <Routes>
+        <Route path="/meetings/:meetingId" element={<MeetingDetailRoute />} />
+      </Routes>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+
   it("says why a refusal happened, in the user's own terms", async () => {
     retryTranscription.mockRejectedValue(
       new MeetingApiError(409, "transcription_in_progress", "This meeting is already running."),

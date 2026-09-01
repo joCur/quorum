@@ -71,25 +71,13 @@ export interface MeetingStore {
   /** `null` when the meeting does not exist *or* belongs to another tenant or user. */
   findMeeting(scope: MeetingScope, meetingId: string): Promise<MeetingDetailRow | null>;
   /**
-   * Hands a failed job back to the queue: `failed` → `queued`, with the error and the timings of
-   * the attempt that failed cleared, so the row describes the run that is about to happen rather
-   * than the one that did not.
+   * Hands a job back to the queue: its row goes to `queued` with the last attempt's error and
+   * timings cleared, and `target.enqueue` puts it on the queue — as one atomic step.
    *
-   * Returns `false` when the row is not — or no longer — failed in the caller's scope. That is
-   * the compare-and-set the retry endpoint rests on: two retries of the same job race for one
-   * row, and only the first of them finds a failure to undo.
+   * See {@link RequeueTarget} for why the enqueue runs in here rather than after the call, and
+   * `server/src/transcription/routes.ts` for what the outcomes mean to a caller.
    */
-  requeueFailedJob(scope: MeetingScope, meetingId: string, jobId: string): Promise<boolean>;
-  /**
-   * Undoes {@link requeueFailedJob} for a job that never reached the queue, so the meeting keeps
-   * reporting the failure it actually has instead of waiting for a run nobody started.
-   */
-  restoreFailedJob(
-    scope: MeetingScope,
-    meetingId: string,
-    jobId: string,
-    error: { code: string; message: string },
-  ): Promise<void>;
+  requeueFailedJob(scope: MeetingScope, target: RequeueTarget): Promise<RequeueOutcome>;
   /**
    * Removes every database row belonging to a meeting — summaries, transcripts, job rows, any
    * queued work and the meeting itself — in one transaction (ADR-001). Returns `false` when
@@ -97,6 +85,37 @@ export interface MeetingStore {
    */
   deleteMeeting(scope: MeetingScope, meetingId: string): Promise<boolean>;
   close(): Promise<void>;
+}
+
+/**
+ * What a retry found when it tried to hand a job back to the queue.
+ *
+ * `nothing-to-retry` covers the job that never failed, the one that has since succeeded and the
+ * id that names no row in this scope. They are one answer because they are one situation from the
+ * caller's side: there is nothing here to run again.
+ */
+export type RequeueOutcome = "requeued" | "in-progress" | "nothing-to-retry";
+
+export interface RequeueTarget {
+  meetingId: string;
+  jobId: string;
+  /** The queue the job runs on, and the dead-letter queue its last attempt was parked on. */
+  queue: { name: string; deadLetter: string };
+  /**
+   * Places the job on the queue.
+   *
+   * WHY IT IS A CALLBACK: the row move and the queue insert have to be one step. Enqueue first
+   * and a crash before the row move leaves a job running that the meeting still calls failed;
+   * move first and a crash before the enqueue leaves a meeting waiting forever for a run nobody
+   * started, which no user and no operator can tell from a slow queue. Running the enqueue inside
+   * the transaction that moves the row makes both impossible: the insert goes to the same
+   * PostgreSQL on another connection, and the row is only committed once it has happened. A
+   * failure of either rolls the row back to the failure it had.
+   *
+   * The row is locked for the duration, which is also what serializes two retries of one job:
+   * the second waits for the first to commit and then sees the queue entry it made.
+   */
+  enqueue: () => Promise<void>;
 }
 
 export const DEFAULT_MEETING_LIMIT = 50;
@@ -297,9 +316,10 @@ export class PostgresMeetingStore implements MeetingStore {
           progress: number | null;
           error: { code: string; message: string } | null;
           created_at: Date;
+          updated_at: Date | null;
         }[]
       >`
-        SELECT meeting_id, type, status, progress, error, created_at
+        SELECT meeting_id, type, status, progress, error, created_at, updated_at
           FROM jobs
          WHERE tenant_id = ${scope.tenantId}
            AND meeting_id IN ${sql(meetingIds)}
@@ -323,6 +343,7 @@ export class PostgresMeetingStore implements MeetingStore {
           status: row.status as StageState["status"],
           progress: row.progress,
           error: row.error,
+          updatedAt: toIso(row.updated_at),
         };
         const byType = facts.jobTypes.get(row.meeting_id) ?? new Map<string, StageState>();
         // Ascending order means the last row of a type wins — the most recent attempt.
@@ -390,26 +411,59 @@ export class PostgresMeetingStore implements MeetingStore {
   }
 
   /**
-   * The one statement the API writes into the worker's `jobs` table.
+   * The one place the API writes into the worker's `jobs` table, and the one place it inserts
+   * into the queue while holding a lock.
    *
-   * WHY THE EXCEPTION IS WORTH IT: everywhere else the pipeline state is derived rather than
+   * WHY THE WRITE EXISTS AT ALL: everywhere else the pipeline state is derived rather than
    * written, because every state is implied by rows that already exist (`status.ts`). A retry is
-   * the state that is not: the failed row is the newest thing anyone knows about the job, so
-   * until the worker picks the replay up, the meeting would go on reporting a failure the user
-   * has already acted on. Writing `queued` here is not a second writer for a fact the worker also
-   * owns — it is the same row, moved to the state the API just put it in, and the worker takes it
-   * from there.
+   * the state that is not. The failed row is the newest thing anyone knows about the job, so
+   * until the worker picks the replay up the meeting would go on reporting a failure the user has
+   * already acted on. This is not a second writer for a fact the worker owns — it is the same
+   * row, moved to the state the API just put it in, and the worker takes it from there.
    *
-   * The scope is part of the predicate (ADR-001), so a job id from another tenant or another
+   * WHY THE QUEUE IS CONSULTED FIRST: `singletonKey` deduplicates nothing under pg-boss's
+   * `standard` policy, so nothing but this check stands between a retry and a second live entry
+   * for the same job. That matters most in the window the eye does not see: a *retryable* failure
+   * writes `failed` into this row on every attempt, including the ones pg-boss is still going to
+   * repeat by itself, so a row saying `failed` is not the same thing as a job nobody is running.
+   * Asking the queue turns the question into the one that actually matters — is anything going to
+   * run this job — and it costs one indexed statement against the database the row lives in.
+   *
+   * It also answers the opposite question for free. A row left `queued` by a crash, with no entry
+   * behind it, is not "in progress"; it is stranded, and this hands it back rather than leaving
+   * the meeting waiting forever for a run nobody started.
+   *
+   * The scope is part of every predicate (ADR-001), so a job id from another tenant or another
    * user's meeting matches no row rather than being checked separately and found wanting.
    *
    * `attempt` returns to zero because the retry budget is fresh: the queue entry is a new one and
    * counts its own attempts. A missing `jobs` table means the worker never ran, which means there
-   * is no failed job to hand back.
+   * is no job here to hand back.
    */
-  async requeueFailedJob(scope: MeetingScope, meetingId: string, jobId: string): Promise<boolean> {
-    try {
-      const rows = await this.sql<{ id: string }[]>`
+  async requeueFailedJob(scope: MeetingScope, target: RequeueTarget): Promise<RequeueOutcome> {
+    return this.sql.begin(async (sql) => {
+      if (!(await tableExists(sql, "public", "jobs"))) return "nothing-to-retry";
+
+      const owned = await sql<{ status: string }[]>`
+        SELECT status FROM jobs
+         WHERE id = ${target.jobId}
+           AND meeting_id = ${target.meetingId}
+           AND tenant_id = ${scope.tenantId}
+           AND user_id = ${scope.userId}
+         FOR UPDATE
+      `;
+      const status = owned[0]?.status;
+      // `succeeded` and `canceled` are the two states a retry has no business touching; a missing
+      // row is the same answer from the caller's side. Everything else — `failed`, and the
+      // `queued`/`running` of a stranded row — is a candidate, and the queue decides.
+      if (status === undefined || status === "succeeded" || status === "canceled") {
+        return "nothing-to-retry";
+      }
+      if (await liveQueueEntryExists(sql, target.queue.name, target.jobId)) {
+        return "in-progress";
+      }
+
+      await sql`
         UPDATE jobs
            SET status = 'queued',
                error = NULL,
@@ -419,43 +473,17 @@ export class PostgresMeetingStore implements MeetingStore {
                started_at = NULL,
                finished_at = NULL,
                updated_at = now()
-         WHERE id = ${jobId}
-           AND meeting_id = ${meetingId}
+         WHERE id = ${target.jobId}
+           AND meeting_id = ${target.meetingId}
            AND tenant_id = ${scope.tenantId}
            AND user_id = ${scope.userId}
-           AND status = 'failed'
-        RETURNING id
       `;
-      return rows.length > 0;
-    } catch (error) {
-      if (isUndefinedTable(error)) return false;
-      throw error;
-    }
-  }
-
-  async restoreFailedJob(
-    scope: MeetingScope,
-    meetingId: string,
-    jobId: string,
-    error: { code: string; message: string },
-  ): Promise<void> {
-    try {
-      await this.sql`
-        UPDATE jobs
-           SET status = 'failed',
-               error = ${this.sql.json(error)},
-               finished_at = now(),
-               updated_at = now()
-         WHERE id = ${jobId}
-           AND meeting_id = ${meetingId}
-           AND tenant_id = ${scope.tenantId}
-           AND user_id = ${scope.userId}
-           AND status = 'queued'
-      `;
-    } catch (restoreError) {
-      if (isUndefinedTable(restoreError)) return;
-      throw restoreError;
-    }
+      // The entry the worker parked when it gave up. Leaving it would hand this job to the next
+      // operator bulk redrive as well, long after the user's retry finished it.
+      await dropDeadLetterEntry(sql, target.queue.deadLetter, target.jobId);
+      await target.enqueue();
+      return "requeued";
+    });
   }
 
   /**
@@ -536,6 +564,50 @@ async function tableExists(
     SELECT to_regclass(${`${schema}.${table}`}) IS NOT NULL AS exists
   `;
   return rows[0]?.exists === true;
+}
+
+/**
+ * Whether the queue still holds an entry for this job that has not finished.
+ *
+ * `state < 'completed'` is `created`, `retry` and `active` — pg-boss's own enum is ordered so
+ * that comparison reads as "not settled yet", and pg-boss's internals use the same one. The queue
+ * name is part of the predicate on purpose: a dead-lettered attempt keeps the payload and would
+ * otherwise look live from the dead-letter queue, which is exactly the entry a retry is here to
+ * replace.
+ *
+ * Reaching into pg-boss's tables is the same deliberate, narrow exception the deletion cascade
+ * and the fairness counter already make: there is no API for the question, and the payload shape
+ * is ours.
+ */
+async function liveQueueEntryExists(
+  sql: postgres.TransactionSql,
+  queue: string,
+  jobId: string,
+): Promise<boolean> {
+  if (!(await tableExists(sql, "pgboss", "job"))) return false;
+  const rows = await sql<{ one: number }[]>`
+    SELECT 1 AS one
+      FROM pgboss.job
+     WHERE name = ${queue}
+       AND data->'job'->>'id' = ${jobId}
+       AND state < 'completed'
+     LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
+/** Removes the parked attempt of a job that is being handed back to its own queue. */
+async function dropDeadLetterEntry(
+  sql: postgres.TransactionSql,
+  deadLetterQueue: string,
+  jobId: string,
+): Promise<void> {
+  if (!(await tableExists(sql, "pgboss", "job"))) return;
+  await sql`
+    DELETE FROM pgboss.job
+     WHERE name = ${deadLetterQueue}
+       AND data->'job'->>'id' = ${jobId}
+  `;
 }
 
 function toMeeting(row: MeetingRow, facts: PipelineFacts): Meeting {

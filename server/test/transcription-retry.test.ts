@@ -43,13 +43,28 @@ const TERMINAL = uuid("a", 2);
 const HEALTHY = uuid("a", 3);
 /** A transcription is already on its way. */
 const BUSY = uuid("a", 4);
+/**
+ * The trap. Its row says `failed`, because the worker writes that on every attempt — including
+ * the ones pg-boss is still going to repeat on its own — so the row alone cannot be trusted.
+ */
+const BACKING_OFF = uuid("a", 5);
+/** A `queued` row with nothing behind it: a crash between the row move and the enqueue. */
+const STRANDED = uuid("a", 6);
 const GLOBEX_MEETING = uuid("b", 1);
 
-const JOB_ID = uuid("9", 1);
+/**
+ * One job id per meeting, differing from the meeting's own id in a single group.
+ *
+ * The retry keeps the job's id, so the queue is asked about that id — one shared id across the
+ * fixtures would make every meeting look busy the moment any of them was.
+ */
+function jobIdFor(meetingId: string): string {
+  return `${meetingId.slice(0, 8)}-0000-4000-9000-${meetingId.slice(-12)}`;
+}
 
 function transcribeJob(meetingId: string, overrides: Partial<Job> = {}): Job {
   return {
-    id: JOB_ID,
+    id: jobIdFor(meetingId),
     meetingId,
     type: "transcribe",
     status: "failed",
@@ -122,7 +137,14 @@ function seedPipelines(): void {
     jobs: [transcribeJob(HEALTHY, { status: "succeeded", error: null })],
   });
   store.setPipeline(BUSY, { jobs: [transcribeJob(BUSY, { status: "running", error: null })] });
+  store.setPipeline(BACKING_OFF, { jobs: [transcribeJob(BACKING_OFF)] });
+  store.setPipeline(STRANDED, {
+    jobs: [transcribeJob(STRANDED, { status: "queued", error: null })],
+  });
   store.setPipeline(GLOBEX_MEETING, { jobs: [transcribeJob(GLOBEX_MEETING)] });
+  // What the queue is holding. The running job and the one pg-boss is still going to repeat by
+  // itself both have a live entry; the stranded row is the crash that left one behind without.
+  store.setLiveQueueEntries([jobIdFor(BUSY), jobIdFor(BACKING_OFF)]);
 }
 
 beforeAll(async () => {
@@ -130,6 +152,8 @@ beforeAll(async () => {
   await seed(TERMINAL, ACME);
   await seed(HEALTHY, ACME);
   await seed(BUSY, ACME);
+  await seed(BACKING_OFF, ACME);
+  await seed(STRANDED, ACME);
   await seed(GLOBEX_MEETING, GLOBEX);
 
   queue = new InMemoryJobQueue();
@@ -180,7 +204,7 @@ describe("retrying a failed transcription", () => {
 
     const accepted = response.json() as TranscriptionJobAccepted;
     expect(accepted.job).toMatchObject({
-      id: JOB_ID,
+      id: jobIdFor(RETRYABLE),
       meetingId: RETRYABLE,
       type: "transcribe",
       status: "queued",
@@ -193,7 +217,7 @@ describe("retrying a failed transcription", () => {
     // nothing and cannot produce a second transcript.
     expect(queue.enqueued).toEqual([
       {
-        jobId: JOB_ID,
+        jobId: jobIdFor(RETRYABLE),
         meetingId: RETRYABLE,
         tenantId: ACME.tenantId,
         userId: ACME.userId,
@@ -210,7 +234,11 @@ describe("retrying a failed transcription", () => {
     const after = await detail(RETRYABLE, ACME);
     expect(after.meeting.status).toBe("queued");
     expect(after.meeting.failure).toBeNull();
-    expect(after.jobs[0]).toMatchObject({ id: JOB_ID, status: "queued", error: null });
+    expect(after.jobs[0]).toMatchObject({
+      id: jobIdFor(RETRYABLE),
+      status: "queued",
+      error: null,
+    });
   });
 
   it("refuses a failure another attempt cannot undo", async () => {
@@ -236,12 +264,52 @@ describe("retrying a failed transcription", () => {
     expect(queue.enqueued).toHaveLength(0);
   });
 
+  /**
+   * The defect the row alone cannot see.
+   *
+   * A retryable failure writes `failed` into the job row on every attempt, including the ones
+   * pg-boss is about to repeat by itself after its backoff — and `singletonKey` deduplicates
+   * nothing under the `standard` policy both queues run on. A guard that trusted the row would
+   * therefore put a second live entry on the queue during the backoff of the first: two
+   * transcriptions of one recording, and a late failing attempt able to undo a finished one.
+   */
+  it("refuses while the queue is still going to repeat the failed job by itself", async () => {
+    const response = await retry(BACKING_OFF, ACME);
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ error: "transcription_in_progress" });
+    expect(queue.enqueued).toHaveLength(0);
+    // And the row is untouched, so the automatic retry still finds the state it left.
+    expect((await detail(BACKING_OFF, ACME)).jobs[0]).toMatchObject({ status: "failed" });
+  });
+
+  /**
+   * The opposite question, answered by the same check.
+   *
+   * A crash between the row move and the enqueue would leave a `queued` row with nothing behind
+   * it — a meeting waiting for ever on a run nobody started, which no user and no operator can
+   * tell from a slow queue. Asking the queue rather than the row makes that state recoverable by
+   * pressing the same button again.
+   */
+  it("hands back a queued row that no queue entry stands behind", async () => {
+    const response = await retry(STRANDED, ACME);
+    expect(response.statusCode).toBe(202);
+    expect(queue.enqueued).toEqual([expect.objectContaining({ jobId: jobIdFor(STRANDED) })]);
+  });
+
   it("accepts only the first of two retries of the same job", async () => {
     const [first, second] = await Promise.all([retry(RETRYABLE, ACME), retry(RETRYABLE, ACME)]);
     const codes = [first.statusCode, second.statusCode].sort((a, b) => a - b);
     expect(codes).toEqual([202, 409]);
-    // One accepted request, one transcription. This is the guard that makes a retry storm
-    // impossible without relying on the rate limiter alone.
+    // One accepted request, one transcription. The queue entry the first one made is what the
+    // second one runs into — the same thing that stops a retry storm without the rate limiter.
+    expect(queue.enqueued).toHaveLength(1);
+  });
+
+  it("refuses a second retry once the first has put the job on the queue", async () => {
+    expect((await retry(RETRYABLE, ACME)).statusCode).toBe(202);
+    const again = await retry(RETRYABLE, ACME);
+    expect(again.statusCode).toBe(409);
+    expect(again.json()).toMatchObject({ error: "transcription_in_progress" });
     expect(queue.enqueued).toHaveLength(1);
   });
 
@@ -257,18 +325,23 @@ describe("retrying a failed transcription", () => {
     expect(response.statusCode).toBe(404);
   });
 
-  it("puts the failure back when the job never reached the queue", async () => {
+  it("leaves the failure standing when the job never reached the queue", async () => {
     queue.failNextEnqueue = true;
     const response = await retry(RETRYABLE, ACME);
     expect(response.statusCode).toBe(503);
     expect(response.json()).toMatchObject({ error: "queue_unavailable" });
 
-    // The meeting reports the failure it actually has, and the action is available again — the
-    // one outcome a half-finished retry must not produce is a meeting waiting for a run nobody
+    // The row move and the enqueue are one step, so a failed enqueue takes the move with it. The
+    // meeting reports the failure it actually has and the action is available again — the one
+    // outcome a half-finished retry must not produce is a meeting waiting for a run nobody
     // started.
     const after = await detail(RETRYABLE, ACME);
     expect(after.meeting.status).toBe("failed");
     expect(after.meeting.failure).toMatchObject({ stage: "transcribe" });
+    expect(after.jobs[0]).toMatchObject({
+      status: "failed",
+      error: { code: "TRANSCRIPTION_UNAVAILABLE" },
+    });
 
     queue.failNextEnqueue = false;
     expect((await retry(RETRYABLE, ACME)).statusCode).toBe(202);
