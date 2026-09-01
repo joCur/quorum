@@ -204,21 +204,14 @@ async function start(
       },
       "the configured transcription model is not available; not consuming jobs",
     );
-    // The exit is in a `finally` because giving the resources back may itself
-    // reject or hang: a rejected close would otherwise skip the exit entirely,
-    // and the pool alone keeps the event loop alive — leaving a process that
-    // neither consumes jobs nor lets the restart policy replace it.
-    try {
-      await metricsServer.close();
-      await repository.close();
-    } catch (closeError: unknown) {
-      logger.error(
-        { event: "worker.shutdown-failed", err: closeError },
-        "releasing the worker's resources failed; exiting anyway",
-      );
-    } finally {
-      process.exit(1);
-    }
+    // Logged here, torn down elsewhere. The line is its own event because the
+    // pipeline runbook sends an operator looking for it by name, and the
+    // generic startup-failure line would carry neither the model nor the
+    // backend URL. Everything after it — giving back the port and the pool in
+    // the order they were taken, and exiting non-zero even when giving them
+    // back hangs or throws — belongs to the lifecycle guard, which is the only
+    // code in the worker that does that correctly.
+    throw error;
   }
 
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });

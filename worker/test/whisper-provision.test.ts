@@ -1,11 +1,30 @@
-import { describe, expect, it } from "vitest";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type * as TimeoutFetchModule from "../src/http/timeout-fetch.js";
+
+// Spies on the real implementation rather than replacing it, so the test that
+// talks to an actual HTTP server still runs over the real transport.
+vi.mock("../src/http/timeout-fetch.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof TimeoutFetchModule>();
+  return { ...actual, createFetchWithTimeouts: vi.fn(actual.createFetchWithTimeouts) };
+});
+
 import { loadConfig } from "../src/config.js";
+import {
+  BODY_IDLE_TIMEOUT_MS,
+  createFetchWithTimeouts,
+  transportTimeoutsFor,
+} from "../src/http/timeout-fetch.js";
 import {
   ensureWhisperModel,
   ModelProvisioningError,
   type EnsureWhisperModelOptions,
   type ProvisioningLogger,
 } from "../src/whisper/provision.js";
+
+/** The default this transport exists to escape: undici gives up at 300s. */
+const UNDICI_DEFAULT_HEADERS_TIMEOUT_MS = 300_000;
 
 interface LoggedLine {
   level: "info" | "warn";
@@ -357,5 +376,151 @@ describe("provisioning configuration", () => {
   it("can be turned off for an operator-managed model cache", () => {
     const config = loadConfig({ ...base, WHISPER_MODEL_AUTO_INSTALL: "false" });
     expect(config.WHISPER_MODEL_AUTO_INSTALL).toBe(false);
+  });
+
+  it("refuses a provisioning budget larger than a timer can hold", () => {
+    // An operator reaching for a bigger number wants more patience. Past this
+    // ceiling `setTimeout` truncates and fires immediately, so the budget would
+    // abort the first request after a millisecond and fail the whole startup —
+    // the exact opposite of what was asked for, with no hint as to why.
+    expect(() =>
+      loadConfig({ ...base, WHISPER_MODEL_INSTALL_TIMEOUT_MS: "2147483648" }),
+    ).toThrowError(/WHISPER_MODEL_INSTALL_TIMEOUT_MS/);
+  });
+
+  it("accepts the largest provisioning budget a timer can hold", () => {
+    const config = loadConfig({ ...base, WHISPER_MODEL_INSTALL_TIMEOUT_MS: "2147483647" });
+    expect(config.WHISPER_MODEL_INSTALL_TIMEOUT_MS).toBe(2_147_483_647);
+  });
+});
+
+describe("provisioning transport", () => {
+  const base = {
+    DATABASE_URL: "postgres://localhost/quorum",
+    S3_ENDPOINT: "http://minio:9000",
+    S3_BUCKET: "recordings",
+    S3_ACCESS_KEY: "key",
+    S3_SECRET_KEY: "secret",
+  };
+
+  const logger: ProvisioningLogger = { info: () => {}, warn: () => {} };
+
+  it("builds its transport from the configured provisioning budget", async () => {
+    const config = loadConfig({ ...base, WHISPER_MODEL_INSTALL_TIMEOUT_MS: "1200000" });
+    vi.mocked(createFetchWithTimeouts).mockClear();
+    // Stands in for the pool, so the assertion also proves the returned
+    // transport is the one actually used rather than merely constructed.
+    vi.mocked(createFetchWithTimeouts).mockReturnValueOnce(async () =>
+      Response.json({ object: "list", data: [{ id: "Systran/faster-whisper-small" }] }),
+    );
+
+    await expect(
+      ensureWhisperModel({
+        baseUrl: "http://whisper:8000/v1",
+        model: "Systran/faster-whisper-small",
+        timeoutMs: config.WHISPER_MODEL_INSTALL_TIMEOUT_MS,
+        logger,
+      }),
+    ).resolves.toEqual({ status: "present" });
+
+    // Without this the download would run on the global `fetch`, whose undici
+    // default ends the request after five minutes no matter what is configured.
+    expect(createFetchWithTimeouts).toHaveBeenCalledWith(1_200_000);
+  });
+
+  it("leaves an injected transport alone", async () => {
+    vi.mocked(createFetchWithTimeouts).mockClear();
+
+    await ensureWhisperModel({
+      baseUrl: "http://whisper:8000/v1",
+      model: "m",
+      logger,
+      fetchImpl: async () => Response.json({ object: "list", data: [{ id: "m" }] }),
+    });
+
+    expect(createFetchWithTimeouts).not.toHaveBeenCalled();
+  });
+
+  it("raises the header ceiling above the undici default for the shipped budget", () => {
+    const config = loadConfig(base);
+    const timeouts = transportTimeoutsFor(config.WHISPER_MODEL_INSTALL_TIMEOUT_MS);
+
+    expect(timeouts.headersTimeout).toBeGreaterThan(UNDICI_DEFAULT_HEADERS_TIMEOUT_MS);
+    // The body timer is an idle gap between chunks, not a total, so it stays
+    // small however long the download itself is allowed to take.
+    expect(timeouts.bodyTimeout).toBe(BODY_IDLE_TIMEOUT_MS);
+  });
+});
+
+describe("provisioning over the real transport", () => {
+  let server: Server | undefined;
+
+  afterEach(async () => {
+    const running = server;
+    server = undefined;
+    if (running) await new Promise<void>((resolve) => running.close(() => resolve()));
+  });
+
+  /** A backend that answers the download only after it has "finished" it. */
+  async function startBackend(installDelayMs: number): Promise<string> {
+    let installed = false;
+    server = createServer((request, response) => {
+      request.resume();
+      if (request.method === "POST") {
+        setTimeout(() => {
+          installed = true;
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end('"Model downloaded"');
+        }, installDelayMs);
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          object: "list",
+          data: installed ? [{ id: "Systran/faster-whisper-small" }] : [],
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve));
+    return `http://127.0.0.1:${(server?.address() as AddressInfo).port}/v1`;
+  }
+
+  it("survives a download that sends no response header until it is done", async () => {
+    // The shape that broke on the global transport: the backend holds the
+    // connection open, silent, for the whole download. Short here, hours on a
+    // real one — the transport is what makes the difference a matter of the
+    // configured budget rather than a fixed five minutes.
+    const baseUrl = await startBackend(300);
+
+    const outcome = await ensureWhisperModel({
+      baseUrl,
+      model: "Systran/faster-whisper-small",
+      timeoutMs: 20_000,
+      retryDelayMs: 10,
+      logger: { info: () => {}, warn: () => {} },
+    });
+
+    expect(outcome.status).toBe("installed");
+  });
+
+  it("ends a download that never answers on its own budget, not the transport's", async () => {
+    // The transport's header ceiling sits 30s above the budget on purpose, so
+    // the abort signal is what stops a hopeless download. That ordering is what
+    // keeps an exhausted budget legible as an exhausted budget rather than as a
+    // transport-level error that reads like a backend outage.
+    const baseUrl = await startBackend(60_000);
+
+    const error = (await ensureWhisperModel({
+      baseUrl,
+      model: "Systran/faster-whisper-small",
+      timeoutMs: 700,
+      retryDelayMs: 10,
+      logger: { info: () => {}, warn: () => {} },
+    }).catch((caught: unknown) => caught)) as ModelProvisioningError;
+
+    expect(error).toBeInstanceOf(ModelProvisioningError);
+    expect(error.reason).toBe("install-failed");
+    expect(error.message).toMatch(/abort/i);
   });
 });

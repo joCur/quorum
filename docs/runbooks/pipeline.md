@@ -199,6 +199,11 @@ done — minutes for `large-v3`. `whisper.model.provisioning-failed` is the oppo
 terminal and names the reason, usually a `WHISPER_MODEL` that is not a real model ID. See
 [the transcription model](../deployment.md#6-the-transcription-model).
 
+A download that instead fails at almost exactly five minutes, over and over, whatever
+`WHISPER_MODEL_INSTALL_TIMEOUT_MS` says, is the transport cap described under transcription below:
+a build older than the one that gave the download its own header timeout cannot install a model
+big enough to take longer than that. Upgrade the worker — no configuration change lifts it.
+
 If the container is restarting in a loop, the worker healthcheck is what surfaced it; the logs
 before each restart carry the reason.
 
