@@ -216,6 +216,14 @@ Structured JSON via pino. Every line emitted while a job runs carries `jobId`, `
 
 Summary lines additionally carry `transcriptId`, `templateId` and — where the backend reports them — `promptTokens` and `completionTokens`, which is what makes the assumptions in `docs/COST-MODEL.md` checkable against reality instead of against an estimate.
 
+## Process lifecycle
+
+A queue consumer stops for exactly one legitimate reason: somebody asked it to. `SIGINT` and `SIGTERM` therefore shut it down gracefully — running jobs finish, nothing new is fetched — log one `worker.stopping` line at **`warn`** and exit **0**. The level is deliberate: the container and the end-to-end harness both run at `warn`, so an `info` line about stopping is a line nobody ever reads.
+
+Every other way out is a fault and is reported as one. A failed startup, an exception that reached the top of the stack, a rejection nobody handled, the job queue stopping by itself, or the event loop simply running dry all log `worker.stopping` at **`error`** with a `reason` field and exit **70**. The last of those is why the guard exists at all: a Node process whose event loop empties exits 0 without printing anything, and a supervisor reads 0 as "finished" — which a worker never is. See `src/lifecycle.ts`.
+
+The shutdown gives back what the process holds — queue, metrics port, database pool — in reverse order of acquisition, including after a startup that only got halfway, so a failed start leaves no bound port behind. A release that hangs is capped at 30 seconds and then exits non-zero anyway.
+
 ## Tests
 
 ```bash
