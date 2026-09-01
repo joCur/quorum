@@ -1,6 +1,6 @@
 import { PgBoss } from "pg-boss";
 import { loadConfig } from "./config.js";
-import { createLogger } from "./logger.js";
+import { createLogger, logQueueError } from "./logger.js";
 import { PostgresRepository } from "./db/repository.js";
 import { S3AudioSource } from "./storage/audio-source.js";
 import { OpenAiTranscriptionClient } from "./whisper/client.js";
@@ -115,7 +115,9 @@ async function main(): Promise<void> {
   });
 
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });
-  boss.on("error", (error: unknown) => logger.error({ err: error }, "pg-boss error"));
+  boss.on("error", (error: unknown) => {
+    logQueueError(logger, error);
+  });
   await boss.start();
 
   await startTranscribeWorker({

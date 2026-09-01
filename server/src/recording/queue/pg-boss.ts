@@ -2,6 +2,7 @@ import { PgBoss } from "pg-boss";
 import postgres from "postgres";
 import { JobSchema, type Job } from "@quorum/shared";
 import type { JobQueue } from "../types.js";
+import { logQueueError, type ErrorLogger } from "../../observability/logging.js";
 import { fairnessPriority } from "./fairness.js";
 
 /**
@@ -105,8 +106,19 @@ export class PgBossJobQueue implements JobQueue {
     }
   }
 
-  async start(): Promise<void> {
+  /**
+   * Connects and declares the two queues.
+   *
+   * The logger arrives here rather than in the constructor because it is the API's — Fastify's —
+   * and that one exists only once the app is built, which happens with this queue already in
+   * hand. A listener is attached either way: pg-boss is an `EventEmitter`, and an `error` event
+   * from a dropped database connection with nobody listening is rethrown and ends the process.
+   */
+  async start(logger?: ErrorLogger): Promise<void> {
     if (this.started) return;
+    this.boss.on("error", (error: unknown) => {
+      if (logger) logQueueError(logger, error);
+    });
     await this.boss.start();
     await this.boss.createQueue(TRANSCRIBE_QUEUE);
     await this.boss.createQueue(SUMMARIZE_QUEUE);
