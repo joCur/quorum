@@ -31,10 +31,18 @@ const TONE_GUIDANCE: Record<SummaryOptions["tone"], string> = {
   casual: "Write plainly and conversationally, as a colleague would in a follow-up message.",
 };
 
+/**
+ * One language for everything the model writes.
+ *
+ * The title is named alongside the summary rather than left implicit: it is the one string that
+ * ends up outside the summary document, in the meeting list, and a German recording listed under
+ * an English name is the kind of detail that reads as a bug.
+ */
 function languageGuidance(outputLanguage: string): string {
   return outputLanguage === "auto"
-    ? "Write the summary in the dominant language of the transcript."
-    : `Write the summary in ${outputLanguage} (BCP-47), regardless of the transcript's language.`;
+    ? "Write the summary and the title in the dominant language of the transcript."
+    : `Write the summary and the title in ${outputLanguage} (BCP-47), regardless of the ` +
+        "transcript's language.";
 }
 
 function formatGuidance(section: TemplateSection): string {
@@ -66,8 +74,12 @@ export const SUMMARY_SYSTEM_PROMPT = [
   "",
   "Answer with a single JSON object and nothing else — no prose before or after it, no Markdown",
   "code fence. Its shape is:",
-  '{"sections":[{"sectionId":"<the id you were given>","content":[...]}]}',
+  '{"title":"...","sections":[{"sectionId":"<the id you were given>","content":[...]}]}',
   "Return one entry per requested section, using exactly the section ids from the request.",
+  "",
+  '"title" names the meeting: what it was about, in at most eight words, with no trailing period',
+  'and no quotation marks. Not a date, not the word "Meeting" on its own, not a sentence. Use',
+  "null when the transcript gives you nothing to name it after — a wrong name is worse than none.",
 ].join("\n");
 
 export interface PromptInput {
@@ -144,7 +156,7 @@ export function buildRepairMessages(
         `That answer could not be parsed: ${problem}`,
         "",
         "Send the same summary again as a single JSON object and nothing else — no explanation, no",
-        'Markdown fence. Shape: {"sections":[{"sectionId":"...","content":[...]}]}',
+        'Markdown fence. Shape: {"title":"...","sections":[{"sectionId":"...","content":[...]}]}',
       ].join("\n"),
     },
   ];

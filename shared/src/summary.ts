@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_GENERATED_TITLE_LENGTH } from "./meeting-title.js";
 
 /**
  * Summary templates and summaries (ADR-004)
@@ -76,6 +77,16 @@ export const SummarySchema = z.object({
   /** Womit erzeugt — analog model/modelVersion im Transcript */
   model: z.string(),
   promptVersion: z.string(),
+  /**
+   * A name for the meeting, produced from the same transcript as the sections.
+   *
+   * It is a suggestion and it is immutable, like every other part of this document: it records
+   * what the model proposed, whether or not the meeting ended up carrying it. Whether the meeting
+   * takes it is decided once, when the summary is stored, by `generatedTitleUpdate` — a title the
+   * user wrote always wins. `null` when the model offered none, and on every summary produced
+   * before titles were asked for.
+   */
+  generatedTitle: z.string().min(1).max(MAX_GENERATED_TITLE_LENGTH).nullable().default(null),
   createdAt: z.string().datetime(),
   sections: z.array(SummarySectionSchema),
 });

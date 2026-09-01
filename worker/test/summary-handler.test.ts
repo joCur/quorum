@@ -10,6 +10,7 @@ import { MEETING_ID, capturingLogger, silentLogger, transcribeJob } from "./help
 import {
   FakeChatClient,
   InMemorySummaryRepository,
+  SUGGESTED_TITLE,
   SUMMARIZE_JOB_ID,
   TRANSCRIPT_ID,
   WELL_FORMED_ANSWER,
@@ -89,7 +90,7 @@ describe("summarize job", () => {
         repository.summaries.get(outcome.summaryId)!.summary.templateSnapshot.options,
       ).toMatchObject({ outputLanguage: "de" });
       const prompt = (dependencies.chat as FakeChatClient).calls[0]![1]!.content;
-      expect(prompt).toContain("Write the summary in de");
+      expect(prompt).toContain("Write the summary and the title in de");
     });
 
     it("keeps an explicitly chosen language even when the transcript differs", async () => {
@@ -186,6 +187,74 @@ describe("summarize job", () => {
       outcome.summaryId,
     )!.summary;
     expect(summary.model).toBe("vendor/real-model-v2");
+  });
+
+  describe("the generated meeting title", () => {
+    it("names a meeting the user left unnamed", async () => {
+      const dependencies = deps();
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+      const repository = dependencies.repository as InMemorySummaryRepository;
+
+      expect(outcome.appliedTitle).toBe(SUGGESTED_TITLE);
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe(SUGGESTED_TITLE);
+      // The suggestion is part of the summary document either way — it is what the model said.
+      expect(repository.summaries.get(outcome.summaryId)!.summary.generatedTitle).toBe(
+        SUGGESTED_TITLE,
+      );
+    });
+
+    it("leaves a title the user typed alone, and still stores the suggestion", async () => {
+      const dependencies = deps();
+      const repository = dependencies.repository as InMemorySummaryRepository;
+      repository.meetingTitles.set(MEETING_ID, "Weekly sync");
+
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+
+      expect(outcome.appliedTitle).toBeNull();
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe("Weekly sync");
+      expect(repository.summaries.get(outcome.summaryId)!.summary.generatedTitle).toBe(
+        SUGGESTED_TITLE,
+      );
+    });
+
+    it("takes the title in the language the model answered in", async () => {
+      const answer = JSON.stringify({
+        title: "Releasetermin und offene Aufgaben",
+        sections: [{ sectionId: "overview", content: ["Das Team hat sich geeinigt."] }],
+      });
+      const dependencies = deps({
+        chat: new FakeChatClient([answer]),
+        repository: new InMemorySummaryRepository([transcriptFixture({ language: "de" })]),
+      });
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+
+      expect(outcome.appliedTitle).toBe("Releasetermin und offene Aufgaben");
+    });
+
+    it("stores the summary even when the model suggested no title", async () => {
+      const answer = JSON.stringify({
+        sections: [{ sectionId: "overview", content: ["It happened."] }],
+      });
+      const dependencies = deps({ chat: new FakeChatClient([answer]) });
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+      const repository = dependencies.repository as InMemorySummaryRepository;
+
+      expect(outcome.appliedTitle).toBeNull();
+      expect(repository.meetingTitles.has(MEETING_ID)).toBe(false);
+      expect(repository.summaries.get(outcome.summaryId)!.summary.generatedTitle).toBeNull();
+    });
+
+    it("does not fail a paid-for summary over a title that could not be stored", async () => {
+      const dependencies = deps();
+      const repository = dependencies.repository as InMemorySummaryRepository;
+      repository.titleWriteFailure = new Error("meetings table is unhappy");
+
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+
+      expect(outcome.appliedTitle).toBeNull();
+      expect(outcome.created).toBe(true);
+      expect(repository.jobStates.at(-1)!.status).toBe("succeeded");
+    });
   });
 
   it("records the job lifecycle from the shared job schema", async () => {

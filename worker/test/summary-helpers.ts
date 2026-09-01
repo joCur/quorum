@@ -1,4 +1,5 @@
 import {
+  generatedTitleUpdate,
   TRANSCRIPT_SCHEMA_VERSION,
   type Job,
   type Summary,
@@ -84,8 +85,12 @@ export function transcriptFixture(overrides: Partial<Transcript> = {}): Transcri
   };
 }
 
+/** The title the well-formed fixture answer suggests for the meeting. */
+export const SUGGESTED_TITLE = "Release date and follow-up work";
+
 /** A well-formed model answer for the system template. */
 export const WELL_FORMED_ANSWER = JSON.stringify({
+  title: SUGGESTED_TITLE,
   sections: [
     {
       sectionId: "overview",
@@ -136,7 +141,11 @@ export class InMemorySummaryRepository implements SummaryRepository {
   readonly jobStates: Job[] = [];
   readonly templates = new Map<string, SummaryTemplate>();
   readonly meetings = new Set<string>([MEETING_ID]);
+  /** The title column of the meeting rows the server owns; absent means the row has none. */
+  readonly meetingTitles = new Map<string, string | null>();
   transcripts = new Map<string, Transcript>();
+  /** Set to make the meeting-title write fail, standing in for a database that is unhappy. */
+  titleWriteFailure: Error | null = null;
   /**
    * Runs at the top of `saveSummary`, standing in for a delete that commits in
    * the last instant before the write.
@@ -165,6 +174,20 @@ export class InMemorySummaryRepository implements SummaryRepository {
 
   async meetingExists(meetingId: string): Promise<boolean> {
     return this.meetings.has(meetingId);
+  }
+
+  /** Mirrors the real repository: read the row, decide with the shared rule, write only then. */
+  async applyGeneratedTitle(
+    meetingId: string,
+    _tenantId: string,
+    generatedTitle: string | null,
+  ): Promise<string | null> {
+    if (this.titleWriteFailure) throw this.titleWriteFailure;
+    if (!this.meetings.has(meetingId)) return null;
+    const title = generatedTitleUpdate(this.meetingTitles.get(meetingId) ?? null, generatedTitle);
+    if (title === null) return null;
+    this.meetingTitles.set(meetingId, title);
+    return title;
   }
 
   async saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult> {

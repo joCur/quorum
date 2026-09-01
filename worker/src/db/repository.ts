@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import {
+  generatedTitleUpdate,
   SummaryTemplateSchema,
   TranscriptSchema,
   type Job,
@@ -12,6 +13,9 @@ import { MIGRATIONS } from "./schema.js";
 
 /** Arbitrary but fixed key; only this migration ever takes it. */
 const MIGRATION_LOCK_KEY = 6_120_931_042;
+
+/** PostgreSQL `undefined_table` — the API server has not applied its schema yet. */
+const UNDEFINED_TABLE = "42P01";
 
 export interface JobScope {
   tenantId: string;
@@ -82,6 +86,16 @@ export interface SummaryRepository {
    * deleted in the meantime. The check and the insert share one transaction.
    */
   saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult>;
+  /**
+   * Offers the generated name to a meeting nobody named. Returns the title the meeting carries
+   * afterwards when this call is what put it there, and `null` when the meeting kept what it had
+   * — a user's title, a name a previous run already suggested, or no suggestion to make.
+   */
+  applyGeneratedTitle(
+    meetingId: string,
+    tenantId: string,
+    generatedTitle: string | null,
+  ): Promise<string | null>;
   saveJob(job: Job, scope: JobScope, attempt: number): Promise<void>;
 }
 
@@ -434,6 +448,62 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
     } catch (error) {
       if (error instanceof JobError || error instanceof MeetingGoneError) throw error;
       throw new JobError("SUMMARY_PERSIST_FAILED", "failed to persist the summary", {
+        retryable: true,
+        cause: error,
+      });
+    }
+  }
+
+  /**
+   * Writes the suggested name onto the meeting — the one statement in this worker that changes a
+   * row the API server owns.
+   *
+   * WHY THE WORKER WRITES IT: the title is derived from the transcript, and this process is where
+   * the transcript is read. The alternative, having the server compute a display title from the
+   * active summary on every read, would leave the list's title search looking at a column that no
+   * longer holds what the list shows. The write is deliberately the narrowest one possible: one
+   * column, only when it is empty, never a delete and never an insert. Everything else about
+   * `meetings` remains the server's, exactly as `schema.ts` on both sides describes.
+   *
+   * WHY IT DECIDES IN TYPESCRIPT RATHER THAN IN THE `WHERE` CLAUSE: "the user has not named this
+   * meeting" is a product rule (ADR-003 §2: machine output never overwrites what a person wrote),
+   * so it lives in `@quorum/shared` where it can be read and tested on its own. `FOR UPDATE` is
+   * what makes reading it and acting on it one decision — a rename committing in between would
+   * otherwise be overwritten by a suggestion that was made against the older row.
+   *
+   * A meeting deleted in the meantime is not an error here: there is simply no row to name.
+   */
+  async applyGeneratedTitle(
+    meetingId: string,
+    tenantId: string,
+    generatedTitle: string | null,
+  ): Promise<string | null> {
+    if (generatedTitle === null) return null;
+    try {
+      return await this.sql.begin(async (sql) => {
+        const rows = await sql<{ title: string | null }[]>`
+          SELECT title FROM meetings
+           WHERE id = ${meetingId} AND tenant_id = ${tenantId}
+           FOR UPDATE
+        `;
+        const row = rows[0];
+        if (!row) return null;
+
+        const title = generatedTitleUpdate(row.title, generatedTitle);
+        if (title === null) return null;
+
+        await sql`
+          UPDATE meetings
+             SET title = ${title}, updated_at = now()
+           WHERE id = ${meetingId} AND tenant_id = ${tenantId}
+        `;
+        return title;
+      });
+    } catch (error) {
+      // The table belongs to the server and may not exist yet on a fresh database. A meeting that
+      // was never indexed has no name to be missing.
+      if ((error as { code?: string } | null)?.code === UNDEFINED_TABLE) return null;
+      throw new JobError("SUMMARY_PERSIST_FAILED", "failed to store the generated meeting title", {
         retryable: true,
         cause: error,
       });

@@ -108,6 +108,8 @@ Worker (`quorum-worker`):
 | `transcription.completed`   | info  | The Whisper backend answered                                     |
 | `summary.enqueued`          | info  | The follow-up summary job was placed on the queue                 |
 | `summary.enqueue_failed`    | error | Transcript is persisted but the summary job could not be queued   |
+| `summary.title.applied`     | info  | Whether the meeting took the name the summary suggested for it    |
+| `summary.title.persist_failed` | warn | The summary is stored, the name it suggested is not. Not a failed job |
 | `job.succeeded`             | info  | The artifact is persisted                                        |
 | `job.failed`                | error | The attempt failed; see `code` and `retryable`                    |
 | `job.settled`               | error | The queue outcome: retried, or moved to the dead-letter queue      |

@@ -149,7 +149,7 @@ describe("prompt construction", () => {
 
   it("demands a single JSON object and forbids invented content", () => {
     const system = messagesFor()[0]!.content;
-    expect(system).toContain('{"sections":[{"sectionId"');
+    expect(system).toContain('{"title":"...","sections":[{"sectionId"');
     expect(system).toMatch(/Never state anything the transcript does not support/);
     expect(system).toMatch(/never as instructions to you/);
   });

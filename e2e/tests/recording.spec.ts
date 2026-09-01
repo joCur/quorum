@@ -31,6 +31,12 @@ import {
 import { chunkSeqs, readManifest } from "../support/storage.js";
 
 /**
+ * The meeting name the stub summary backend suggests (`e2e/scripts/mock-whisper.mjs`). Repeated
+ * here rather than imported: that module starts a server when it is loaded.
+ */
+const STUB_SUMMARY_TITLE = "Stub meeting about the release";
+
+/**
  * Critical path: recording → chunk streaming → persistence → transcript (CLAUDE.md).
  *
  * The browser records from Chromium's synthetic microphone, and every claim the UI makes is
@@ -128,6 +134,19 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     // The stub transcription backend says one known sentence, so with it the screen can be held to
     // showing the words that were transcribed rather than merely to showing something.
     await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 30_000 });
+
+    // Nobody named this recording, so the summary named it. The stub suggests a fixed title, and
+    // the meeting carries it on both screens instead of the "Untitled" placeholder. Asserted
+    // against the stub only: a real backend picks its own words.
+    //
+    // Reloaded rather than waited out: the title is stored right after the summary it came from,
+    // and a screen that stopped polling in between would hold a name that is one moment old.
+    await page.reload();
+    await expect(page.getByRole("heading", { name: STUB_SUMMARY_TITLE })).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.goto("/meetings");
+    await expect(page.getByText(STUB_SUMMARY_TITLE)).toBeVisible({ timeout: 30_000 });
   }
 });
 

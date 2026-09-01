@@ -25,6 +25,11 @@ export interface SummaryMappingInput {
   model: string;
   promptVersion: string;
   createdAt: string;
+  /**
+   * The meeting name the model suggested, normalized, or null when it offered none. Recorded
+   * whether or not the meeting adopts it — the document says what the model produced.
+   */
+  generatedTitle: string | null;
 }
 
 /**
@@ -55,6 +60,7 @@ export function mapToSummary(input: SummaryMappingInput): Summary {
     },
     model: input.model,
     promptVersion: input.promptVersion,
+    generatedTitle: input.generatedTitle,
     createdAt: input.createdAt,
     sections: input.sections,
   };

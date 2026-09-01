@@ -43,6 +43,9 @@ let rejectNextTranscription = false;
  */
 let lastTranscriptionFields = null;
 
+/** The meeting name the stub suggests; the suite asserts on it verbatim. */
+const STUB_SUMMARY_TITLE = "Stub meeting about the release";
+
 /** Field names worth recording — everything else in the body is the audio itself. */
 const OBSERVED_FIELDS = ["model", "response_format", "language", "vad_filter"];
 
@@ -110,6 +113,10 @@ function transcription() {
  * The prompt names each section as `sectionId: "<id>"` and its shape as `Format: "<format>"`, and
  * the mapping keeps only sections it asked for. Echoing the requested ids back is therefore the
  * one thing a stub has to get right for the pipeline to produce a stored summary.
+ *
+ * The envelope also carries the suggested meeting title, which is the one part of a summary that
+ * leaves the summary: a recording nobody named takes it as its own name. A fixed string, so a
+ * test can hold the meeting list to showing it.
  */
 function summary(prompt) {
   const sections = [];
@@ -125,7 +132,7 @@ function summary(prompt) {
       sections.push({ sectionId, content: columns.length === 0 ? [] : [row] });
     }
   }
-  return { sections };
+  return { title: STUB_SUMMARY_TITLE, sections };
 }
 
 /** The raw bytes of a request, for the multipart body the transcription endpoint receives. */

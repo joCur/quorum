@@ -50,7 +50,10 @@ export const MeetingFailureSchema = z.object({
 export const MeetingSchema = z.object({
   id: z.string().uuid(),
   sessionId: z.string().uuid(),
-  /** User-supplied title; null when the recording was never named. */
+  /**
+   * What the meeting is called: the title the user gave it, or — for a recording they left
+   * unnamed — the one the summary suggested (`meeting-title.ts`). Null until either exists.
+   */
   title: z.string().nullable(),
   status: MeetingStatusSchema,
   audioFormat: AudioFormatSchema,

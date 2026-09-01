@@ -100,6 +100,7 @@ function summaryFor(meetingId: string, transcriptId: string): Summary {
     },
     model: "gpt-oss",
     promptVersion: "1",
+    generatedTitle: null,
     createdAt: "2026-08-29T10:08:00.000Z",
     sections: [
       {

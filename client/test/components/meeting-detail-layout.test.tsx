@@ -91,6 +91,7 @@ function detail(): MeetingDetail {
         },
         model: "llama",
         promptVersion: "1",
+        generatedTitle: null,
         // Relative to now, because the attribution line reports how long ago it was written.
         createdAt: TWO_HOURS_AGO,
         sections: [
