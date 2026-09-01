@@ -318,6 +318,10 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
       S3_BUCKET: ${S3_BUCKET}
+      # How long each step of the bootstrap waits out a MinIO that is healthy but not yet serving
+      # bucket calls. Raise it on a machine slow enough that the default is not generous; lower it
+      # to see a deliberate misconfiguration fail sooner.
+      MINIO_INIT_RETRY_WINDOW_SECONDS: ${MINIO_INIT_RETRY_WINDOW_SECONDS:-60}
     volumes:
       - ./scripts/minio-init.sh:/usr/local/bin/minio-init.sh:ro
     entrypoint: ["/bin/sh", "/usr/local/bin/minio-init.sh"]
