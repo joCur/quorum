@@ -153,7 +153,7 @@ Shared package: `@quorum/shared` (check the npm scope when setting up the reposi
 
 Docker containers have **no GPU access** on a Mac (a Linux VM, no Metal) — the CUDA image and `docker-compose.gpu.yml` are moot there. Two ways:
 
-1. **Default — the CPU image (full stack parity):** set the macOS profile in `.env` (`WHISPER_IMAGE_TAG=latest-cpu`, `WHISPER_DEVICE=cpu`, `WHISPER_MODEL=Systran/faster-whisper-small`, int8) and install that model once as described in [the deployment guide](docs/deployment.md) — the container serves no model it has not downloaded. An identical compose setup to production — the right choice for integration and E2E tests.
+1. **Default — the CPU image (full stack parity):** set the macOS profile in `.env` (`WHISPER_IMAGE_TAG=latest-cpu`, `WHISPER_DEVICE=cpu`, `WHISPER_MODEL=Systran/faster-whisper-small`, int8) and start the stack; the worker downloads that model on its first start, because the container serves no model it has not downloaded ([the deployment guide](docs/deployment.md) has the log lines and the failure cases). An identical compose setup to production — the right choice for integration and E2E tests.
 2. **Speed mode — Whisper natively with Metal:** start whisper.cpp (`--server`) or mlx-whisper on the host, leave the Whisper container out, and set `WHISPER_BASE_URL=http://host.docker.internal:8080/v1` in the worker. Large-model quality, fast — for intensive work on the transcription pipeline. Thanks to the OpenAI-compatible abstraction (ADR-005), the worker notices no difference.
 
 On Apple Silicon, watch out for arm64 images (speaches, Postgres and MinIO ship multi-arch), otherwise Rosetta emulation slows things down.

@@ -328,6 +328,12 @@ services:
       S3_SSE: ${S3_SSE:-AES256}
       WHISPER_BASE_URL: ${WHISPER_BASE_URL:-http://whisper:8000/v1}
       WHISPER_MODEL: ${WHISPER_MODEL}
+      # The worker downloads WHISPER_MODEL onto the transcription backend before it takes its
+      # first job, and refuses to start if it cannot: the backend loads models on demand but
+      # never fetches them, so without this a fresh install dead-letters its first recording.
+      # Turn it off only where an operator manages the model cache by hand.
+      WHISPER_MODEL_AUTO_INSTALL: ${WHISPER_MODEL_AUTO_INSTALL:-true}
+      WHISPER_MODEL_INSTALL_TIMEOUT_MS: ${WHISPER_MODEL_INSTALL_TIMEOUT_MS:-2700000}
       WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}
       # Silence is skipped instead of transcribed, which is what keeps a speechless
       # stretch from sending the model into a repetition loop. Set to false to transcribe
@@ -618,10 +624,10 @@ services:
       WHISPER__COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE}
       WHISPER__DEVICE: ${WHISPER_DEVICE}
     volumes:
-      # Where downloaded models live, so they survive a restart and a recreate. Downloading one is
-      # a one-time step after the first start — see "Install the transcription model" in the
-      # deployment guide. Without this volume the model is gone with the container, and every
-      # transcribe job fails until it is downloaded again.
+      # Where downloaded models live, so they survive a restart and a recreate. The worker fills it
+      # on its first start and finds it warm afterwards — see "The transcription model" in the
+      # deployment guide. Without this volume the model is gone with the container, and the worker
+      # downloads it again on the next start before it consumes anything.
       - whisper-models:/home/ubuntu/.cache/huggingface
     # No ports: only the worker talks to it, over the compose network.
     #

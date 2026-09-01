@@ -16,6 +16,13 @@ import { createServer } from "node:http";
 const port = Number.parseInt(process.env.MOCK_WHISPER_PORT ?? "8123", 10);
 
 /**
+ * The model this stub claims to have on disk. It has to match the worker's `WHISPER_MODEL`,
+ * because the worker verifies on startup that the configured model is installed and would
+ * otherwise try to download it here.
+ */
+const MODEL_ID = process.env.MOCK_WHISPER_MODEL ?? "mock-tiny";
+
+/**
  * Armed by a test through `POST /control/reject-transcription`, spent by the next transcription
  * request.
  *
@@ -61,8 +68,7 @@ function observedFields(body) {
 /** The shape a real OpenAI-compatible backend answers with when it does not have the model. */
 function rejection() {
   return {
-    detail:
-      "Model 'mock-tiny' is not installed locally. Install it or pick a model that is available.",
+    detail: `Model '${MODEL_ID}' is not installed locally. Install it or pick a model that is available.`,
   };
 }
 
@@ -204,7 +210,21 @@ const server = createServer((request, response) => {
     });
     return;
   }
-  if (request.url === "/health" || request.url === "/v1/models") {
+  if (request.url === "/v1/models") {
+    // The worker checks this listing on startup and installs the configured model when it is
+    // missing, so the stub answers in the real shape and claims the model the run gives it.
+    // Anything else would either send the worker into a download this endpoint cannot perform, or
+    // hide the check behind its "backend has no model listing" fallback.
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(
+      JSON.stringify({
+        object: "list",
+        data: [{ id: MODEL_ID, object: "model", owned_by: "quorum-e2e" }],
+      }),
+    );
+    return;
+  }
+  if (request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ status: "ok" }));
     return;
