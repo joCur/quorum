@@ -61,11 +61,18 @@ const WorkerConfigFields = z.object({
    * plus the download itself. Generous by default, because `large-v3` is several
    * gigabytes over whatever line the deployment has; exceeding it is a loud
    * startup failure rather than a silently degraded worker.
+   *
+   * Capped like the other timeouts, and for the same reason with a worse
+   * outcome here: this value becomes both an abort timer and the transport's
+   * header ceiling, so a number a timer cannot hold would abort the very first
+   * request after a millisecond and take the whole worker down with it. An
+   * operator reaching for a bigger number wants more patience, not none.
    */
   WHISPER_MODEL_INSTALL_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .positive()
+    .max(MAX_TIMEOUT_MS)
     .default(45 * 60_000),
   /**
    * BCP-47 hint passed to the backend. Empty means "let the model detect the
