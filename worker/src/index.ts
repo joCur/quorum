@@ -4,6 +4,7 @@ import { createLogger } from "./logger.js";
 import { PostgresRepository } from "./db/repository.js";
 import { S3AudioSource } from "./storage/audio-source.js";
 import { OpenAiTranscriptionClient } from "./whisper/client.js";
+import { ensureWhisperModel } from "./whisper/provision.js";
 import { OpenAiChatClient } from "./summary/chat-client.js";
 import { PgBossSummaryEnqueuer } from "./summary/enqueue.js";
 import { SYSTEM_SUMMARY_TEMPLATE } from "./summary/template.js";
@@ -113,6 +114,51 @@ async function main(): Promise<void> {
     metrics,
     port: config.WORKER_METRICS_PORT,
   });
+
+  // Before any job is fetched, and after the health endpoint is already
+  // answering — a first-time download of a large model takes longer than the
+  // container's health probe would tolerate otherwise, and an unhealthy worker
+  // that is merely busy provisioning would be the wrong alarm.
+  //
+  // A worker that cannot get its model must not consume transcribe jobs: the
+  // backend answers a missing model with a terminal 404, so every recording made
+  // in the meantime would dead-letter. Failing here instead turns that into one
+  // startup error an operator can act on.
+  try {
+    await ensureWhisperModel({
+      baseUrl: config.WHISPER_BASE_URL,
+      model: config.WHISPER_MODEL,
+      apiKey: config.WHISPER_API_KEY,
+      enabled: config.WHISPER_MODEL_AUTO_INSTALL,
+      timeoutMs: config.WHISPER_MODEL_INSTALL_TIMEOUT_MS,
+      logger,
+    });
+  } catch (error) {
+    logger.fatal(
+      {
+        event: "whisper.model.provisioning-failed",
+        err: error,
+        whisperModel: config.WHISPER_MODEL,
+        whisperBaseUrl: config.WHISPER_BASE_URL,
+      },
+      "the configured transcription model is not available; not consuming jobs",
+    );
+    // The exit is in a `finally` because giving the resources back may itself
+    // reject or hang: a rejected close would otherwise skip the exit entirely,
+    // and the pool alone keeps the event loop alive — leaving a process that
+    // neither consumes jobs nor lets the restart policy replace it.
+    try {
+      await metricsServer.close();
+      await repository.close();
+    } catch (closeError: unknown) {
+      logger.error(
+        { event: "worker.shutdown-failed", err: closeError },
+        "releasing the worker's resources failed; exiting anyway",
+      );
+    } finally {
+      process.exit(1);
+    }
+  }
 
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });
   boss.on("error", (error: unknown) => logger.error({ err: error }, "pg-boss error"));

@@ -288,22 +288,49 @@ a tenant of their own on first sign-in, exactly as it does for a sign-up.
 authenticates with on every deploy, so treat it as a deployment credential rather than a one-time
 one.
 
-## 6. Install the transcription model
+## 6. The transcription model
 
 Whisper serves only the models it already has on disk, and the stack ships none: a fresh
-deployment starts with an empty model cache. Until the model named in `WHISPER_MODEL` is
-installed, recording and playback work but no meeting is ever transcribed — Whisper answers
-`404 Model '…' is not installed locally`, and the transcribe job dead-letters as
-`TRANSCRIPTION_REJECTED` without retrying.
+deployment starts with an empty model cache. **The worker fills it for you.** Before it takes its
+first job it asks the backend which models are installed, downloads `WHISPER_MODEL` if it is
+missing, and only then starts consuming. There is nothing to run here — this section is what the
+log lines mean and what to do when one of them is a complaint.
 
 `WHISPER_MODEL` is a **full model ID**, not a size: `Systran/faster-whisper-small`, never `small`.
-A short name is exactly what produces the 404 above.
 
-Whisper publishes no host port, so every request below is made from inside its container, and the
-procedure is identical for the GPU file.
+**Watch it happen.** On a fresh deployment the first start of the worker downloads the model:
 
-**Which IDs are valid.** The registry lists everything the backend can fetch — several hundred
-entries, so narrow it to the family the `.env.example` profiles use:
+```bash
+docker compose -f docker-compose.release.yml logs -f worker
+```
+
+```
+whisper.model.install-started   the configured transcription model is missing; downloading it …
+whisper.model.install-progress  still downloading the transcription model
+whisper.model.installed         the configured transcription model is installed
+```
+
+`large-v3` is several gigabytes and takes a while; the smaller models are a few hundred megabytes.
+The worker stays healthy while it downloads and consumes no jobs until it is done, so nothing can
+be recorded into a backend that cannot transcribe it. Every later start finds the model already
+there and logs `whisper.model.present` instead — one request, no download.
+
+**When the model name is wrong**, the worker says so at startup and stops instead of waiting for
+someone to record a meeting:
+
+```
+whisper.model.provisioning-failed  the configured transcription model is not available
+  the transcription backend does not know the model "small" … WHISPER_MODEL must be a full model
+  ID such as Systran/faster-whisper-small … list the IDs this backend can fetch with
+  GET http://whisper:8000/v1/registry?task=automatic-speech-recognition
+```
+
+The container then restarts and repeats the message until `WHISPER_MODEL` is corrected and
+`up -d` has been run. A `WHISPER_API_KEY` the backend refuses fails the same way and names that
+variable instead — neither is retried, because waiting changes neither one.
+
+To see the valid IDs yourself — the registry has several hundred entries, so
+narrow it to the family the `.env.example` profiles use:
 
 ```bash
 docker compose -f docker-compose.release.yml exec whisper \
@@ -312,45 +339,35 @@ docker compose -f docker-compose.release.yml exec whisper \
 ```
 
 That includes `Systran/faster-whisper-tiny`, `-small`, `-medium` and `-large-v3`, which is the
-range the hardware profiles in `.env.example` cover. `large-v3` occupies several gigabytes in the
-model volume; the smaller ones a few hundred megabytes each.
+range the hardware profiles in `.env.example` cover.
 
-**Install the one you configured.** The ID contains a slash, and it goes into the path as it is:
-
-```bash
-docker compose -f docker-compose.release.yml exec whisper \
-  curl -sS -X POST "http://127.0.0.1:8000/v1/models/Systran/faster-whisper-small"
-```
-
-It answers `Model 'Systran/faster-whisper-small' downloaded` once the download has finished, which
-for the large models takes a while. Nothing else in the stack has to wait for it.
-
-**Verify it is installed.** The ID you set in `WHISPER_MODEL` has to appear here:
+**Verify by hand** — the ID you set in `WHISPER_MODEL` has to appear here:
 
 ```bash
 docker compose -f docker-compose.release.yml exec whisper \
   curl -sS http://127.0.0.1:8000/v1/models | grep -o '"id":"[^"]*"'
 ```
 
-Asking for a single model works too, and answers 404 while it is missing:
+Whisper publishes no host port, which is why that request is made from inside its container. The
+procedure is identical for the GPU file.
+
+**Downloaded models live in the `quorum_whisper-models` volume**, so they survive a restart, a
+`docker compose down`, a container recreate and an update — only `down -v` destroys them, and the
+worker then downloads the configured one again on the next start. Loading a model into memory is
+separate and happens on demand, which is why the first transcription after a start can be slow and
+may produce a short burst of `TRANSCRIPTION_UNAVAILABLE` that the worker retries by itself.
+
+**Changing the model later** means setting `WHISPER_MODEL` and running `up -d`: the worker and the
+Whisper container read that one variable, and the worker installs the new ID on its way up.
+Previously installed models stay in the volume.
+
+**Installing models yourself** is still possible — set `WHISPER_MODEL_AUTO_INSTALL=false` and the
+worker only reports what it finds instead of acting on it. The download is one request:
 
 ```bash
 docker compose -f docker-compose.release.yml exec whisper \
-  curl -sS -o /dev/null -w '%{http_code}\n' \
-  http://127.0.0.1:8000/v1/models/Systran/faster-whisper-small
+  curl -sS -X POST "http://127.0.0.1:8000/v1/models/Systran/faster-whisper-small"
 ```
-
-**This is a one-time step.** Downloaded models live in the `quorum_whisper-models` volume, so they
-survive a restart, a `docker compose down`, a container recreate and an update — only `down -v`
-destroys them, and after that they have to be installed again. Loading a model into memory is
-automatic and happens on demand, which is why the first transcription after a start can be slow
-and may produce a short burst of `TRANSCRIPTION_UNAVAILABLE` that the worker retries by itself.
-Only the download is manual.
-
-**Changing the model later** means setting `WHISPER_MODEL`, running `up -d` so the worker and
-Whisper both pick the new value up, and installing the new ID the same way. The worker and the
-container read that one variable, so a model that was never installed fails the same way as on the
-first deploy. Previously installed models stay in the volume.
 
 ## 7. Check it works
 
