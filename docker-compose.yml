@@ -276,8 +276,11 @@ services:
     ports:
       - "${MINIO_CONSOLE_PORT:-9001}:9001"   # admin console; the S3 API stays internal
     healthcheck:
-      # Without this the one-shot bucket bootstrap races MinIO's startup and fails, which then
-      # blocks `api` (it waits for that bootstrap to complete successfully).
+      # Without this the one-shot bucket bootstrap would start against a MinIO that is not even
+      # listening yet, and its failure blocks `api` (which waits for that bootstrap to complete
+      # successfully). Healthy is not the same as ready, though — MinIO answers this endpoint
+      # slightly before it accepts bucket calls — so the bootstrap retries the remaining gap
+      # itself; see scripts/minio-init.sh.
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live || exit 1"]
       interval: 5s
       timeout: 3s
