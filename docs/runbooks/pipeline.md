@@ -221,6 +221,18 @@ resolves itself; a `WHISPER_MODEL` that is misnamed or was never downloaded prod
 `TRANSCRIPTION_REJECTED` that never will — verify it against `GET /v1/models` as described in
 [install the transcription model](../deployment.md#6-install-the-transcription-model).
 
+One `TRANSCRIPTION_UNAVAILABLE` has a signature of its own, and older worker builds are still
+capable of producing it: every attempt fails after **exactly five minutes** with
+`fetch failed: Headers Timeout Error`, while the backend's own logs show the transcription running
+happily past that mark. That is the worker's HTTP client giving up on the wait for response headers,
+not the backend failing — the client's built-in 300 s header timeout used to cap
+`WHISPER_TIMEOUT_MS`, so the configured budget never applied. It bites whatever is slow enough to
+cross five minutes, in practice a large model on CPU, and no configuration works around it: each
+retry re-submits the same audio and dies at the same mark, walking the job into the dead-letter
+queue while the backend keeps computing transcripts nobody will collect. The cure is a worker build
+that derives its header and body timeouts from `WHISPER_TIMEOUT_MS`. Until that is deployed, stop
+the worker rather than letting retries stack load on the backend, and redrive afterwards.
+
 **3. Summary codes** (`SUMMARY_UNAVAILABLE`, `SUMMARY_REJECTED`, …): check the configured
 `SUMMARY_BASE_URL`. `SUMMARY_UNAVAILABLE` in a steady stream is usually a rate limit; sustained
 `SUMMARY_REJECTED` is usually an expired key or a model name the provider retired.

@@ -266,6 +266,9 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      undici:
+        specifier: ^8.10.0
+        version: 8.10.0
       zod:
         specifier: ^3.25.76
         version: 3.25.76

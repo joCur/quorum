@@ -1,5 +1,14 @@
 import { z } from "zod";
 import { JobError, summaryErrorCodeForHttpStatus } from "../errors.js";
+import {
+  createTimeoutDispatcher,
+  describeFetchFailure,
+  requestTimeoutOptions,
+  timeoutAwareFetch,
+  type Dispatcher,
+  type FetchImpl,
+  type RequestTimeoutOptions,
+} from "../http/fetch.js";
 
 /**
  * The summary backend, reduced to the one call ADR-005 §2 commits to:
@@ -63,7 +72,14 @@ export interface OpenAiChatClientOptions {
   apiKey?: string | undefined;
   temperature?: number;
   maxOutputTokens?: number;
+  /**
+   * Whole-request budget for one completion. A non-streaming completion sends no
+   * response headers until the model is done, so this governs the wait for
+   * headers as well as the abort signal.
+   */
   timeoutMs?: number;
+  /** Substituted in tests; production derives one from `timeoutMs`. */
+  dispatcher?: Dispatcher;
   /**
    * Send `response_format: {"type":"json_object"}`. Off by default: OpenAI and
    * OpenRouter accept it, but several self-hosted servers answer 400 to a field
@@ -72,18 +88,26 @@ export interface OpenAiChatClientOptions {
    * models that ignore the instruction.
    */
   jsonMode?: boolean;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchImpl;
 }
 
 export class OpenAiChatClient implements ChatCompletionClient {
   readonly model: string;
+  /**
+   * The undici timeouts derived from `timeoutMs`. The default budget is below
+   * undici's own 300 s header timeout, so this client never hit the cap that
+   * transcription did — but a deployment pointing at a slow self-hosted model
+   * and raising the budget would, which is why it is derived here too.
+   */
+  readonly requestTimeouts: RequestTimeoutOptions;
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly temperature: number;
   private readonly maxOutputTokens: number;
   private readonly timeoutMs: number;
   private readonly jsonMode: boolean;
-  private readonly fetchImpl: typeof fetch;
+  private readonly dispatcher: Dispatcher;
+  private readonly fetchImpl: FetchImpl;
 
   constructor(options: OpenAiChatClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -93,7 +117,10 @@ export class OpenAiChatClient implements ChatCompletionClient {
     this.maxOutputTokens = options.maxOutputTokens ?? 4_000;
     this.timeoutMs = options.timeoutMs ?? 180_000;
     this.jsonMode = options.jsonMode ?? false;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.requestTimeouts = requestTimeoutOptions(this.timeoutMs);
+    // One dispatcher per client, not per request: it owns the connection pool.
+    this.dispatcher = options.dispatcher ?? createTimeoutDispatcher(this.timeoutMs);
+    this.fetchImpl = options.fetchImpl ?? timeoutAwareFetch;
   }
 
   async complete(messages: ChatMessage[]): Promise<ChatCompletionResult> {
@@ -120,13 +147,14 @@ export class OpenAiChatClient implements ChatCompletionClient {
         },
         body: JSON.stringify(body),
         signal: controller.signal,
+        dispatcher: this.dispatcher,
       });
     } catch (error) {
       // Connection refused, DNS failure, timeout: a hosted router has a bad
       // minute, a self-hosted server is still loading the model. Retry.
       throw new JobError(
         "SUMMARY_UNAVAILABLE",
-        `summary request to ${this.baseUrl} failed: ${error instanceof Error ? error.message : String(error)}`,
+        `summary request to ${this.baseUrl} failed: ${describeFetchFailure(error)}`,
         { retryable: true, cause: error },
       );
     } finally {

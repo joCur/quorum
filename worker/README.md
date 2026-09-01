@@ -40,6 +40,8 @@ The worker only ever knows `WHISPER_BASE_URL` (ADR-005). Anything that speaks th
 - the whisperX-based serving wrapper once it exists (ADR-006 §6),
 - `whisper.cpp --server` or `mlx-whisper` running natively on a macOS host.
 
+A transcription is one long request: the backend sends no response headers until the transcript exists, which on a large model running on CPU is many minutes after the audio finished uploading. `WHISPER_TIMEOUT_MS` is therefore pushed all the way down into the HTTP client, as the time it may wait for those headers, rather than only arming an abort signal — otherwise the client's own five-minute default silently becomes the real limit and no configuration can raise it.
+
 Backends differ in where they put word timestamps. `speaches` attaches `words[]` to each segment; OpenAI returns one flat top-level `words[]` and segments without words. Both are handled — flat words are assigned to segments by midpoint containment, so every word lands in exactly one segment. A backend that returns only `text` yields a single segment spanning the recording rather than a failed job.
 
 `confidence` is derived from the segment's `avg_logprob` via `exp()`, which puts it in the 0..1 range the schema expects. It is a rough quality signal, not a calibrated probability.

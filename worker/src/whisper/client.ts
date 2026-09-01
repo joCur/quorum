@@ -1,4 +1,14 @@
+import { FormData } from "undici";
 import { JobError, errorCodeForHttpStatus } from "../errors.js";
+import {
+  createTimeoutDispatcher,
+  describeFetchFailure,
+  requestTimeoutOptions,
+  timeoutAwareFetch,
+  type Dispatcher,
+  type FetchImpl,
+  type RequestTimeoutOptions,
+} from "../http/fetch.js";
 import {
   WhisperTranscriptionResponseSchema,
   type WhisperTranscriptionResponse,
@@ -23,6 +33,11 @@ export interface OpenAiTranscriptionClientOptions {
   baseUrl: string;
   model: string;
   apiKey?: string | undefined;
+  /**
+   * Whole-request budget for one transcription. It governs both the wait for
+   * response headers — a transcription backend stays silent until the transcript
+   * is done — and the abort signal.
+   */
   timeoutMs?: number;
   /**
    * Send `vad_filter=true`, which makes the backend run Silero VAD and hand the
@@ -35,7 +50,9 @@ export interface OpenAiTranscriptionClientOptions {
    * OpenAI-compatible surface of ADR-005.
    */
   vadFilter?: boolean;
-  fetchImpl?: typeof fetch;
+  /** Substituted in tests; production derives one from `timeoutMs`. */
+  dispatcher?: Dispatcher;
+  fetchImpl?: FetchImpl;
 }
 
 /**
@@ -54,11 +71,17 @@ export interface OpenAiTranscriptionClientOptions {
  */
 export class OpenAiTranscriptionClient implements TranscriptionClient {
   readonly model: string;
+  /**
+   * The undici timeouts derived from `timeoutMs`, exposed so the configured
+   * value can be pinned without reaching into the dispatcher's internals.
+   */
+  readonly requestTimeouts: RequestTimeoutOptions;
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly timeoutMs: number;
   private readonly vadFilter: boolean;
-  private readonly fetchImpl: typeof fetch;
+  private readonly dispatcher: Dispatcher;
+  private readonly fetchImpl: FetchImpl;
 
   constructor(options: OpenAiTranscriptionClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -66,10 +89,15 @@ export class OpenAiTranscriptionClient implements TranscriptionClient {
     this.apiKey = options.apiKey;
     this.timeoutMs = options.timeoutMs ?? 30 * 60_000;
     this.vadFilter = options.vadFilter ?? true;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.requestTimeouts = requestTimeoutOptions(this.timeoutMs);
+    // One dispatcher per client, not per request: it owns the connection pool.
+    this.dispatcher = options.dispatcher ?? createTimeoutDispatcher(this.timeoutMs);
+    this.fetchImpl = options.fetchImpl ?? timeoutAwareFetch;
   }
 
   async transcribe(request: TranscriptionRequest): Promise<WhisperTranscriptionResponse> {
+    // undici's `FormData`, not the global one: the imported `fetch` recognizes
+    // only its own and would otherwise post the string "[object FormData]".
     const form = new FormData();
     form.append(
       "file",
@@ -93,6 +121,7 @@ export class OpenAiTranscriptionClient implements TranscriptionClient {
         method: "POST",
         body: form,
         signal: controller.signal,
+        dispatcher: this.dispatcher,
         ...(this.apiKey ? { headers: { authorization: `Bearer ${this.apiKey}` } } : {}),
       });
     } catch (error) {
@@ -100,7 +129,7 @@ export class OpenAiTranscriptionClient implements TranscriptionClient {
       // starting up or reloading a model, so this is always worth a retry.
       throw new JobError(
         "TRANSCRIPTION_UNAVAILABLE",
-        `transcription request to ${this.baseUrl} failed: ${error instanceof Error ? error.message : String(error)}`,
+        `transcription request to ${this.baseUrl} failed: ${describeFetchFailure(error)}`,
         { retryable: true, cause: error },
       );
     } finally {
