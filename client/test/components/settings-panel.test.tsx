@@ -15,6 +15,19 @@ vi.mock("@/features/auth/auth-provider", () => ({
   useAuth: () => ({ user: { profile: profile.current }, signOut, accessToken: "stub" }),
 }));
 
+/** The stored preferences, and what the screen did to them — the API itself is not the subject. */
+const chooseTranscriptionLanguage = vi.fn(async () => undefined);
+const transcriptionLanguage = vi.hoisted(() => ({ current: null as string | null }));
+
+vi.mock("@/features/settings/use-user-settings", () => ({
+  useUserSettings: () => ({
+    settings: { transcriptionLanguage: transcriptionLanguage.current },
+    status: "ready",
+    saving: false,
+    chooseTranscriptionLanguage,
+  }),
+}));
+
 const { SettingsRoute } = await import("@/routes/settings");
 const { ThemeProvider } = await import("@/features/theme/theme-provider");
 
@@ -33,6 +46,8 @@ describe("settings panel", () => {
 
   beforeEach(() => {
     signOut.mockClear();
+    chooseTranscriptionLanguage.mockClear();
+    transcriptionLanguage.current = null;
     profile.current = { name: "Maria Winter" };
     window.localStorage.clear();
   });
@@ -44,11 +59,12 @@ describe("settings panel", () => {
   it("names every setting, so nothing is lost with the card headings", () => {
     renderSettings();
 
-    // The uppercase row labels are the panel's structure now: four headings, one per setting,
-    // with what a user came here to change first and the account last.
+    // The uppercase row labels are the panel's structure now: one heading per setting, with what
+    // a user came here to change first and the account last.
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
       "Appearance",
       "Language",
+      "Transcription",
       "About",
       "Account",
     ]);
@@ -106,6 +122,51 @@ describe("settings panel", () => {
     // the pill's own state.
     expect(await screen.findByRole("heading", { name: "Einstellungen" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Deutsch" })).toBeChecked();
+  });
+
+  it("keeps the transcription default apart from the language of the screen", () => {
+    renderSettings();
+
+    // Two different settings with the same word in them, so the test says which is which: the
+    // pills change the interface, the select decides what new recordings are transcribed in.
+    expect(screen.getByRole("radiogroup", { name: "Interface language" })).toBeInTheDocument();
+    const language = screen.getByLabelText("Language of new recordings");
+    // Nothing chosen is its own option, not a synonym for detection: it leaves the decision to
+    // however this installation is configured.
+    expect(language).toHaveValue("");
+    expect(
+      Array.from(language.querySelectorAll("option")).map((option) => option.textContent),
+    ).toEqual([
+      "Not chosen",
+      "Detect automatically",
+      "German",
+      "English",
+      "French",
+      "Spanish",
+      "Italian",
+      "Dutch",
+      "Portuguese",
+    ]);
+  });
+
+  it("stores the language new recordings start out in", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.selectOptions(screen.getByLabelText("Language of new recordings"), "de");
+
+    expect(chooseTranscriptionLanguage).toHaveBeenCalledWith("de");
+  });
+
+  it("shows the stored default, and can give it up again", async () => {
+    const user = userEvent.setup();
+    transcriptionLanguage.current = "de";
+    renderSettings();
+
+    expect(screen.getByLabelText("Language of new recordings")).toHaveValue("de");
+
+    await user.selectOptions(screen.getByLabelText("Language of new recordings"), "");
+    expect(chooseTranscriptionLanguage).toHaveBeenCalledWith(null);
   });
 
   it("signs out, and says so while it is happening", async () => {

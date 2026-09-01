@@ -19,6 +19,13 @@ export const TranscribeJobPayloadSchema = z.object({
   tenantId: z.string().min(1),
   userId: z.string().min(1),
   sessionId: z.string().min(1),
+  /**
+   * Language to transcribe in, as far as the API side of the chain could resolve it: the
+   * meeting's own choice, or the user's default when the meeting made none. `auto` asks for
+   * detection; `null` — and an absent field, which is what a job enqueued before this existed
+   * looks like — leaves the deployment default and then autodetect to this side.
+   */
+  language: z.string().nullable().default(null),
 });
 
 export type TranscribeJobPayload = z.infer<typeof TranscribeJobPayloadSchema>;

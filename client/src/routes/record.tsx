@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
   CircleCheck,
+  Languages,
   LoaderCircle,
   Mic,
   MicOff,
@@ -33,9 +34,15 @@ import { displayCaptureSupport } from "@/features/recording/display-capture";
 import { useAudioInputs } from "@/features/recording/use-audio-inputs";
 import { useRequiredRecordingSession } from "@/features/recording/recording-context";
 import type { RecordingState } from "@/features/recording/use-recording";
+import { useUserSettings } from "@/features/settings/use-user-settings";
 import { useTemplates } from "@/features/templates/use-templates";
 import { formatDuration } from "@/lib/duration";
-import type { LimitErrorCode } from "@quorum/shared";
+import {
+  AUTODETECT_LANGUAGE,
+  TRANSCRIPTION_LANGUAGES,
+  type LimitErrorCode,
+  type TranscriptionLanguage,
+} from "@quorum/shared";
 import { cn } from "@/lib/utils";
 
 /** How long the finalized screen waits for a closing limit before it navigates on. */
@@ -60,10 +67,12 @@ export function RecordRoute() {
   const { state, start, pause, resume, stop, reset } = useRequiredRecordingSession();
   const [title, setTitle] = React.useState("");
   const templates = useTemplates();
+  const settings = useUserSettings();
   const inputs = useAudioInputs();
   // `null` means "not touched yet", which is what keeps the field following the user's default
   // while it is still loading — an explicit choice replaces it and is never overwritten again.
   const [chosenTemplate, setChosenTemplate] = React.useState<string | null>(null);
+  const [chosenLanguage, setChosenLanguage] = React.useState<TranscriptionLanguage | null>(null);
   const [mode, setMode] = React.useState<CaptureMode>(() => readRememberedCaptureMode());
   // Read once: whether this browser has screen capture at all does not change while the screen is
   // open, and calling it per render would be a permission-adjacent probe on every keystroke.
@@ -77,6 +86,18 @@ export function RecordRoute() {
 
   const defaultTemplate = templates.templates.find((view) => view.isDefault)?.template.id ?? null;
   const templateId = chosenTemplate ?? defaultTemplate ?? "";
+  // What this recording states about its language: a choice made here, otherwise the user's
+  // default, otherwise nothing.
+  //
+  // NOTHING IS NOT THE SAME AS "DETECT IT". An untouched picker has said nothing, and an
+  // installation configured for one language must still get that language rather than detection —
+  // that is the link of the chain below the user's default. Only a deliberate pick of "detect"
+  // stops the chain here. It also covers the first instants of the screen, before the stored
+  // default has loaded: a recording started right then falls to the server's copy of it.
+  const statedLanguage = chosenLanguage ?? settings.settings.transcriptionLanguage;
+  // The control itself always shows something, and detection is what a user who has chosen
+  // nothing would see happen on a stack that configures no language of its own.
+  const language = statedLanguage ?? AUTODETECT_LANGUAGE;
   // One template is no choice. Showing a select with a single option would be a control that
   // cannot do anything — the resting state stays silent until the user has templates of their own.
   const offerTemplates = templates.status === "ready" && templates.templates.length > 1;
@@ -112,14 +133,16 @@ export function RecordRoute() {
   const closing = recordedHere && (state.phase === "finalizing" || state.phase === "finalized");
   const onStartStage = !live && !closing;
 
-  // The template travels as an explicit id rather than as "send nothing", the prefilled default
-  // included: what the screen showed when the recording started is what the summary is made with.
+  // The template and the language travel as explicit values rather than as "send nothing", the
+  // prefilled defaults included: what the screen showed when the recording started is what the
+  // meeting is transcribed and summarized with.
   const beginRecording = () =>
     void start(
       title.trim() === "" ? null : title.trim(),
       templateId === "" ? null : templateId,
       inputs.deviceId,
       mode,
+      statedLanguage,
     );
 
   // The session outlives this screen now, so what is left of the last one — a finished recording,
@@ -178,6 +201,33 @@ export function RecordRoute() {
                 placeholder={t("recording.titleField.placeholder")}
                 onChange={(event) => setTitle(event.target.value)}
               />
+            </div>
+
+            {/* What the recording will be transcribed in. It states the answer rather than
+                asking the question: it opens on the user's own default, most meetings never
+                touch it, and the ones held in another language are exactly the ones that used to
+                come back decoded as gibberish. Hence one quiet line instead of a field of its
+                own — an indicator that happens to be changeable, and only before capture. */}
+            <div className="flex items-center justify-between gap-3">
+              <Label
+                htmlFor="recording-language"
+                className="flex items-center gap-2 font-normal text-muted-foreground"
+              >
+                <Languages className="size-4" aria-hidden="true" />
+                {t("recording.languageField.label")}
+              </Label>
+              <Select
+                id="recording-language"
+                className="h-10 w-auto min-w-[10rem] text-sm"
+                value={language}
+                onChange={(event) => setChosenLanguage(event.target.value as TranscriptionLanguage)}
+              >
+                {TRANSCRIPTION_LANGUAGES.map((option) => (
+                  <option key={option} value={option}>
+                    {t(`transcriptionLanguages.${option}`)}
+                  </option>
+                ))}
+              </Select>
             </div>
 
             {offerTemplates ? (

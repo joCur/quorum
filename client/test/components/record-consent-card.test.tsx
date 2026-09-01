@@ -14,6 +14,15 @@ import { renderWithProviders, stubRecordingSession, useLanguage } from "./render
  * having been on screen with the user pressing a control that says what they are confirming.
  */
 
+vi.mock("@/features/settings/use-user-settings", () => ({
+  useUserSettings: () => ({
+    settings: { transcriptionLanguage: null },
+    status: "ready",
+    saving: false,
+    chooseTranscriptionLanguage: async () => undefined,
+  }),
+}));
+
 vi.mock("@/features/templates/use-templates", () => ({
   useTemplates: () => ({
     status: "ready",
@@ -101,7 +110,7 @@ describe("the consent card on the start stage", () => {
     await user.type(screen.getByLabelText("Meeting title"), "Weekly sync");
     await user.click(screen.getByRole("button", { name: START_BUTTON }));
 
-    expect(start).toHaveBeenCalledWith("Weekly sync", null, null, "in-person");
+    expect(start).toHaveBeenCalledWith("Weekly sync", null, null, "in-person", null);
   });
 
   it("keeps the notice on screen for the next recording", () => {

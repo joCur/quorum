@@ -12,6 +12,15 @@ import { renderWithProviders, stubRecordingSession, useLanguage } from "./render
  */
 const startSpy = vi.hoisted(() => vi.fn());
 
+vi.mock("@/features/settings/use-user-settings", () => ({
+  useUserSettings: () => ({
+    settings: { transcriptionLanguage: null },
+    status: "ready",
+    saving: false,
+    chooseTranscriptionLanguage: async () => undefined,
+  }),
+}));
+
 vi.mock("@/features/templates/use-templates", () => ({
   useTemplates: () => ({
     templates: [],
@@ -138,7 +147,7 @@ describe("record screen microphone choice", () => {
       }),
     );
 
-    expect(startSpy).toHaveBeenCalledWith(null, null, HEADSET, "in-person");
+    expect(startSpy).toHaveBeenCalledWith(null, null, HEADSET, "in-person", null);
     expect(window.localStorage.getItem(STORAGE_KEY)).toBe(HEADSET);
   });
 
@@ -156,6 +165,6 @@ describe("record screen microphone choice", () => {
 
     // No id travels rather than one guessed from the list: the system default is the browser's
     // to decide, and it can change between recordings.
-    expect(startSpy).toHaveBeenCalledWith(null, null, null, "in-person");
+    expect(startSpy).toHaveBeenCalledWith(null, null, null, "in-person", null);
   });
 });

@@ -13,6 +13,7 @@ import { PgBossJobQueue, createPendingJobCounter } from "./recording/queue/pg-bo
 import { S3RecordingStorage } from "./recording/storage/s3.js";
 import { PostgresMeetingStore } from "./meetings/repository.js";
 import { PostgresSummaryTemplateStore } from "./templates/repository.js";
+import { PostgresUserSettingsStore } from "./settings/repository.js";
 import { StaticUserLimitsResolver } from "./limits.js";
 import { createServerMetrics } from "./observability/metrics.js";
 import { PostgresQueueSnapshot } from "./observability/queue-snapshot.js";
@@ -90,6 +91,13 @@ export {
 } from "./templates/repository.js";
 export type { SummaryTemplateStore, TemplateScope } from "./templates/repository.js";
 export { InMemorySummaryTemplateStore } from "./templates/memory.js";
+export { userSettingsRoutes } from "./settings/routes.js";
+export {
+  EMPTY_USER_SETTINGS,
+  InMemoryUserSettingsStore,
+  PostgresUserSettingsStore,
+} from "./settings/repository.js";
+export type { UserSettingsScope, UserSettingsStore } from "./settings/repository.js";
 export { InMemoryRecordingStorage } from "./recording/storage/memory.js";
 export {
   PgBossJobQueue,
@@ -139,6 +147,11 @@ async function main(): Promise<void> {
   // not its migration owner — see the note in `templates/repository.ts`.
   const templates = new PostgresSummaryTemplateStore(config.DATABASE_URL);
 
+  // Same arrangement for `user_settings`: the worker creates it, the API is one of its two
+  // writers. The template default and the transcription language sit in separate columns of the
+  // same row, each written by the store that owns it.
+  const settings = new PostgresUserSettingsStore(config.DATABASE_URL);
+
   // Queue depth is reported by the API rather than the worker: a crashed worker is precisely the
   // case the backlog alert has to survive, and a gauge that dies with its process cannot.
   const queueSnapshot = new PostgresQueueSnapshot(config.DATABASE_URL);
@@ -150,6 +163,7 @@ async function main(): Promise<void> {
     metrics,
     meetings,
     templates,
+    settings,
     auth: createTokenVerifiers({
       issuers: oidc.acceptedIssuers,
       audience: oidc.audience,

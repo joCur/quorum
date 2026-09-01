@@ -442,6 +442,7 @@ export function useRecording() {
       summaryTemplateId: string | null = null,
       inputDeviceId: string | null = null,
       mode: CaptureMode = "in-person",
+      language: string | null = null,
     ) => {
       modeRef.current = mode;
       patch({
@@ -570,7 +571,7 @@ export function useRecording() {
       // the sum can carry a different rate and channel count than either source.
       const recordedTrack = capture.recordStream.getAudioTracks().at(0) ?? track;
       const audioFormat = describeAudioFormat(format, recordedTrack, capture.mixer?.context);
-      await client.start({ meetingTitle, summaryTemplateId }, audioFormat);
+      await client.start({ meetingTitle, summaryTemplateId, language }, audioFormat);
 
       audioSecondsRef.current = 0;
       silentSinceRef.current = null;

@@ -95,6 +95,9 @@
     "templateField": {
       "label": "Vorlage für die Zusammenfassung"
     },
+    "languageField": {
+      "label": "Gesprochene Sprache"
+    },
     "inputField": {
       "label": "Mikrofon",
       "systemDefault": "Systemstandard",
@@ -300,6 +303,16 @@
       "de": "Deutsch"
     }
   },
+  "transcriptionLanguages": {
+    "auto": "Automatisch erkennen",
+    "de": "Deutsch",
+    "en": "Englisch",
+    "fr": "Französisch",
+    "es": "Spanisch",
+    "it": "Italienisch",
+    "nl": "Niederländisch",
+    "pt": "Portugiesisch"
+  },
   "settings": {
     "title": "Einstellungen",
     "account": {
@@ -318,6 +331,13 @@
     "language": {
       "title": "Sprache",
       "label": "Sprache der Oberfläche"
+    },
+    "transcription": {
+      "title": "Transkription",
+      "label": "Sprache neuer Aufnahmen",
+      "unset": "Nicht festgelegt",
+      "help": "Vor dem Start lässt sich für jede Aufnahme eine andere Sprache wählen.",
+      "saveFailed": "Die Einstellung konnte nicht gespeichert werden. Versuch es gleich noch einmal."
     },
     "about": {
       "title": "Über",

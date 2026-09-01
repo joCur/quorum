@@ -108,6 +108,17 @@ export const MIGRATIONS: readonly string[] = [
      PRIMARY KEY (tenant_id, user_id)
    )`,
 
+  // The language new recordings start out in. Plain text rather than a check
+  // constraint or an enum type: which tags the pickers offer is a product
+  // decision that moves faster than a migration, and a stored tag the current
+  // build no longer offers is read back as "no choice" rather than being
+  // handed to the transcription backend.
+  //
+  // Added as an ALTER because the table above already exists in deployments
+  // that predate the setting, and `CREATE TABLE IF NOT EXISTS` does not
+  // reconcile columns.
+  `ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS transcription_language text`,
+
   `CREATE TABLE IF NOT EXISTS summaries (
      id               uuid PRIMARY KEY,
      job_id           uuid NOT NULL UNIQUE,
