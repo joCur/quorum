@@ -268,7 +268,7 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"   # Admin-Konsole; API bleibt intern
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"   # admin console; the S3 API stays internal
     healthcheck:
       # Without this the one-shot bucket bootstrap would start against a MinIO that is not even
       # listening yet, and its failure blocks `api` (which waits for that bootstrap to complete
