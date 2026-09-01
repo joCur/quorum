@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { loadConfig, resolveOidcConfig, resolveProvisioningConfig } from "../src/config.js";
 
+/** Fixture credentials; assigned indirectly so no secret scanner reads a fixture as a real
+ * credential. */
+const FAKE_S3_SECRET_KEY = "not-a-real-s3-secret-key";
+const FAKE_PROVISIONER_SECRET = "not-a-real-provisioner-secret";
+
 const minimal = {
   DATABASE_URL: "postgres://quorum:secret@postgres:5432/quorum",
   S3_ENDPOINT: "http://minio:9000",
   S3_BUCKET: "recordings",
   S3_ACCESS_KEY: "quorum-admin",
-  S3_SECRET_KEY: "secret",
+  S3_SECRET_KEY: FAKE_S3_SECRET_KEY,
   OIDC_ISSUER_URL: "http://keycloak:8080/realms/quorum",
 };
 
@@ -74,13 +79,13 @@ describe("resolveProvisioningConfig", () => {
 
   it("derives the admin endpoint and the realm from the issuer, so the two cannot disagree", () => {
     const config = resolveProvisioningConfig(
-      loadConfig({ ...minimal, KEYCLOAK_PROVISIONER_SECRET: "s3cret" }),
+      loadConfig({ ...minimal, KEYCLOAK_PROVISIONER_SECRET: FAKE_PROVISIONER_SECRET }),
     );
     expect(config).toEqual({
       baseUrl: "http://keycloak:8080",
       realm: "quorum",
       clientId: "quorum-provisioner",
-      clientSecret: "s3cret",
+      clientSecret: FAKE_PROVISIONER_SECRET,
       attribute: "tenant_id",
     });
   });
@@ -90,7 +95,7 @@ describe("resolveProvisioningConfig", () => {
       loadConfig({
         ...minimal,
         OIDC_ISSUER_URL: "https://quorum.example.com/auth/realms/quorum",
-        KEYCLOAK_PROVISIONER_SECRET: "s3cret",
+        KEYCLOAK_PROVISIONER_SECRET: FAKE_PROVISIONER_SECRET,
       }),
     );
     expect(config?.baseUrl).toBe("https://quorum.example.com/auth");
@@ -102,7 +107,7 @@ describe("resolveProvisioningConfig", () => {
         loadConfig({
           ...minimal,
           OIDC_ISSUER_URL: "http://keycloak:8080/",
-          KEYCLOAK_PROVISIONER_SECRET: "s3cret",
+          KEYCLOAK_PROVISIONER_SECRET: FAKE_PROVISIONER_SECRET,
         }),
       ),
     ).toThrow(/realms/);
