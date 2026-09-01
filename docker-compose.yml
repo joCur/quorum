@@ -164,6 +164,12 @@ services:
       context: .
       dockerfile: worker/Dockerfile
     restart: unless-stopped
+    # Docker's default is ten seconds, which lands in the middle of the worker's
+    # shutdown: it lets in-flight jobs finish for twenty seconds and caps the
+    # whole release at forty-five. A SIGKILL at ten would cut that short every
+    # time, and the graceful drain would exist only on paper. See the process
+    # lifecycle section of worker/README.md for the three numbers together.
+    stop_grace_period: 60s
     environment:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
