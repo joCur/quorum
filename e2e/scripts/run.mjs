@@ -15,6 +15,10 @@
 // runs on one machine — and a development or demo stack next to them — never meet. See
 // `resolveProjectName` and `resolvePorts` for how the two interact with the reuse loop.
 //
+// Evidence: teardown deletes the stack, so a stack that never came up would take the only account
+// of why with it. A failure during startup therefore copies the containers' logs into the
+// Playwright artifact directory first — see `captureStackLogs`.
+//
 // Environment:
 //   E2E_WHISPER=mock|real   mock (default) uses the stub transcription endpoint; real starts the
 //                           CPU Whisper container with the smallest model
@@ -27,7 +31,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,6 +97,9 @@ const whisperBaseUrl =
   whisperMode === "real"
     ? `http://127.0.0.1:${ports.WHISPER_PORT}/v1`
     : `http://127.0.0.1:${mockWhisperPort}/v1`;
+// One name for the stub's model, shared by the worker and the stub: the worker checks on startup
+// that its configured model is installed, so the two have to agree.
+const mockWhisperModel = "mock-tiny";
 
 // The issuer as the browser sees it. Both Keycloak (`KC_HOSTNAME`) and the API's public issuer
 // check carry the port, so they follow this run's Keycloak port rather than the template's.
@@ -127,12 +134,18 @@ let tearingDown = false;
  * because a dead child plus a port an orphan still holds looks exactly like a healthy stack.
  */
 const backgroundDeath = deferred();
+/**
+ * Cleared once the stack is up and answering. While it is set, a failure is a failure of the
+ * stack itself, and the containers are the only witnesses — see `captureStackLogs`.
+ */
+let startingTheStack = true;
 let exitCode = 0;
 
 try {
   await Promise.race([main(), backgroundDeath.promise]);
 } catch (error) {
   console.error(`[e2e] ${error instanceof Error ? error.message : String(error)}`);
+  if (startingTheStack) captureStackLogs();
   exitCode = 1;
 } finally {
   await teardown();
@@ -164,13 +177,15 @@ async function main() {
     await waitForHttp(`${s3Endpoint}/minio/health/live`, "MinIO");
     if (whisperMode === "real") await waitForHttp(`${whisperBaseUrl}/models`, "Whisper", 300_000);
   });
+  startingTheStack = false;
 
   await step("allowing this run's app origin in Keycloak", allowClientOrigin);
 
   if (whisperMode === "real") {
-    // speaches serves only models it already has on disk, and answers 404 for anything else
-    // rather than fetching it mid-transcription. Pulling it here means the download happens once,
-    // outside any test's timeout, and is cached in the `whisper-models` volume afterwards.
+    // The worker installs its configured model on startup, so this step is not what makes the run
+    // work — it is what keeps the download out of the suite's clock. Pulling it here means a cold
+    // model volume costs time before the first test rather than inside it; the worker then finds
+    // the model present and starts consuming immediately.
     await step("downloading the Whisper model", () =>
       fetchOk(`${whisperBaseUrl}/models/${stack.WHISPER_MODEL}`, { method: "POST" }, 900_000),
     );
@@ -187,7 +202,11 @@ async function main() {
     await assertPortFree(mockWhisperPort, "the mock backend");
     background("mock-backend", process.execPath, [resolve(here, "mock-whisper.mjs")], {
       cwd: e2eDir,
-      env: { ...process.env, MOCK_WHISPER_PORT: String(mockWhisperPort) },
+      env: {
+        ...process.env,
+        MOCK_WHISPER_PORT: String(mockWhisperPort),
+        MOCK_WHISPER_MODEL: mockWhisperModel,
+      },
     });
     await waitForHttp(`http://127.0.0.1:${mockWhisperPort}/v1/models`, "the mock backend", 30_000);
   });
@@ -205,7 +224,7 @@ async function main() {
         S3_ACCESS_KEY: stack.MINIO_ROOT_USER,
         S3_SECRET_KEY: stack.MINIO_ROOT_PASSWORD,
         WHISPER_BASE_URL: whisperBaseUrl,
-        WHISPER_MODEL: whisperMode === "real" ? stack.WHISPER_MODEL : "mock-tiny",
+        WHISPER_MODEL: whisperMode === "real" ? stack.WHISPER_MODEL : mockWhisperModel,
         // Summaries always go to the stub: the stack ships no LLM, and ADR-005 makes the endpoint
         // the only thing that varies, so a real one would only add a network dependency.
         SUMMARY_BASE_URL: `http://127.0.0.1:${mockWhisperPort}/v1`,
@@ -215,6 +234,12 @@ async function main() {
         // timeout, so the worker retries fast and gives up early here.
         WORKER_RETRY_LIMIT: "2",
         WORKER_RETRY_DELAY_SECONDS: "2",
+        // Same reasoning for the startup model check. The shipped budget is sized for downloading
+        // large-v3 over a slow line; here the model is either already in the volume or served by
+        // the stub, so anything that takes longer than a minute is wedged. Failing fast turns that
+        // into a dead worker the run reports, instead of specs timing out one by one against a
+        // process whose whisper.model.* lines are invisible at this log level.
+        WHISPER_MODEL_INSTALL_TIMEOUT_MS: "60000",
       },
     });
   });
@@ -285,6 +310,97 @@ async function main() {
     cwd: repoRoot,
     env: testEnv,
   });
+}
+
+/**
+ * Writes the containers' own account of a failed startup next to this run's Playwright artifacts.
+ *
+ * WHY THIS EXISTS: teardown is `down -v`, and it runs on every exit including a failed one. A
+ * stack that does not come up is therefore deleted seconds after it fails, together with the one
+ * thing that could explain it — and on a runner there is no stack left to attach to afterwards.
+ * All anyone gets is compose's single line naming the service that gave up, which says nothing
+ * about why. So the logs are copied out first, into the directory CI already uploads on failure.
+ *
+ * Everything here is best effort by design: this runs while an error is on its way out, and a
+ * problem collecting evidence must never replace the error it was collecting evidence about.
+ */
+function captureStackLogs() {
+  try {
+    const directory = resolve(e2eDir, "test-results", projectName, "stack");
+    mkdirSync(directory, { recursive: true });
+
+    const logsOf = (service) => [
+      ...composeArgs,
+      "logs",
+      "--no-color",
+      "--timestamps",
+      ...(service === undefined ? [] : [service]),
+    ];
+    // The whole stack in one file, so the order of events across services stays readable, plus a
+    // file per service that exited badly — that one is what a reader opens first.
+    const wanted = [
+      ["containers.txt", [...composeArgs, "ps", "--all"]],
+      ["all-services.log", logsOf()],
+      ...servicesThatFailed().map((service) => [`${service}.log`, logsOf(service)]),
+    ];
+    const written = wanted
+      .filter(([name, args]) => writeCommandOutput(directory, name, args))
+      .map(([name]) => name);
+
+    if (written.length === 0) {
+      console.error("[e2e] the stack left no logs behind — it never got as far as a container");
+      return;
+    }
+    console.error(
+      `[e2e] the stack's logs are in e2e/test-results/${projectName}/stack (${written.join(", ")})`,
+    );
+  } catch (error) {
+    console.error(
+      `[e2e] could not collect the stack's logs: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/**
+ * The services whose containers exited non-zero or are unhealthy — the ones worth their own file.
+ * A one-shot service that did its job exits 0 and is correctly not named here.
+ */
+function servicesThatFailed() {
+  const output = capture("docker", [...composeArgs, "ps", "--all", "--format", "json"]);
+  if (output === null) return [];
+  const failed = new Set();
+  for (const line of output.split("\n")) {
+    if (line.trim() === "") continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    // Compose prints one object per line; older versions print a single array instead.
+    for (const container of Array.isArray(parsed) ? parsed : [parsed]) {
+      if (typeof container?.Service !== "string") continue;
+      if (container.ExitCode !== 0 || container.Health === "unhealthy") {
+        failed.add(container.Service);
+      }
+    }
+  }
+  return [...failed];
+}
+
+/** Writes a command's output (both streams — the interesting part is often on stderr). */
+function writeCommandOutput(directory, name, args) {
+  const result = spawnSync("docker", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+    // A stack that failed to start can still have produced megabytes of log, and Node's default
+    // of one megabyte would truncate it into uselessness.
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const body = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  if (body.trim() === "") return false;
+  writeFileSync(resolve(directory, name), body);
+  return true;
 }
 
 async function teardown() {

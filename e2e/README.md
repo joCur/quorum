@@ -54,6 +54,11 @@ Debugging a failure: `E2E_KEEP_STACK=1 pnpm run e2e`, then open a trace with
 — the run prints the project name and that path when it starts. In CI the HTML report is under
 `e2e/playwright-report/<project>/`.
 
+A stack that never comes up leaves no trace and no report, so that failure copies its own evidence
+out instead: `docker compose ps` and the containers' logs land in
+`e2e/test-results/<project>/stack/`, one file for the whole stack plus one per service that exited
+badly, written before teardown removes the containers. CI uploads that directory with the report.
+
 ## Isolation: a run owns everything it touches
 
 Two suite runs on one machine — two agents, two worktrees, a rerun started before the last one
@@ -105,6 +110,11 @@ trade-off, not a shortcut:
   scoped transcript row. The stub exercises all of it.
 - Real CPU Whisper spends minutes downloading and loading a model to produce that noise, which is
   most of a CI budget for no additional signal.
+
+The stub also answers the model listing the worker checks on startup, claiming the model the run
+configures. That keeps the worker's provisioning step on its ordinary path — the model is already
+there, nothing is downloaded — instead of pushing it into the fallback for backends that have no
+listing at all.
 
 `E2E_WHISPER=real` starts the CPU Whisper container with the smallest model and points the worker
 at it. That variant is what to run after touching the worker's transcription client, the response
