@@ -138,7 +138,6 @@ async function main(): Promise<void> {
     config.DATABASE_URL,
     createPendingJobCounter(config.DATABASE_URL),
   );
-  await queue.start();
 
   const meetings = new PostgresMeetingStore(config.DATABASE_URL);
   await meetings.migrate();
@@ -185,6 +184,9 @@ async function main(): Promise<void> {
     limits,
     logger: { level: config.LOG_LEVEL },
   });
+
+  // After the app, because the queue reports its connection errors through the app's logger.
+  await queue.start(app.log);
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => {
