@@ -40,6 +40,11 @@ describe("normalizing a generated title", () => {
     expect(normalizeGeneratedTitle(null)).toBeNull();
     expect(normalizeGeneratedTitle(42)).toBeNull();
   });
+
+  it("refuses punctuation on its own, which is not a name", () => {
+    expect(normalizeGeneratedTitle("—")).toBeNull();
+    expect(normalizeGeneratedTitle(".")).toBeNull();
+  });
 });
 
 describe("whether a meeting still needs a name", () => {

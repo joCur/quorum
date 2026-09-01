@@ -34,7 +34,9 @@ export function normalizeGeneratedTitle(raw: unknown): string | null {
   // A single trailing period reads as a sentence rather than as a name; "..." is the model
   // trailing off and is left alone, because cutting it would claim the title is complete.
   const trimmed = /[^.]\.$/u.test(collapsed) ? collapsed.slice(0, -1).trim() : collapsed;
-  if (trimmed.length === 0) return null;
+  // Punctuation alone is not a name. A row reading "-" is worse than one reading "Untitled",
+  // which is at least a translated word.
+  if (!/[\p{L}\p{N}]/u.test(trimmed)) return null;
   if (trimmed.length <= MAX_GENERATED_TITLE_LENGTH) return trimmed;
 
   const cut = trimmed.slice(0, MAX_GENERATED_TITLE_LENGTH);
