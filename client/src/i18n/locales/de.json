@@ -383,6 +383,12 @@
     "transcript": {
       "working": "Dein Meeting wird transkribiert — meist dauert das ein paar Minuten. Du kannst ruhig weggehen, wir machen weiter.",
       "failed": "Transkription fehlgeschlagen",
+      "retry": "Erneut versuchen",
+      "retrying": "Wird gestartet…",
+      "alreadyRunning": "Dieses Meeting wird bereits transkribiert.",
+      "nothingToRetry": "Es gibt keine fehlgeschlagene Transkription mehr, die wiederholt werden könnte.",
+      "retryPointless": "Ein weiterer Versuch würde genauso enden — hier gibt es nichts zu wiederholen.",
+      "retryUnavailable": "Die Transkription konnte gerade nicht gestartet werden. Bitte versuche es in einem Moment noch einmal.",
       "jumpTo": "Zu {{time}} springen",
       "uncertain": "Geringe Erkennungssicherheit",
       "uncertainShort": "unsicher"

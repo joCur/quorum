@@ -88,6 +88,29 @@ summary retry spends money. So the budget covers backend outages and rate limits
 the model itself got wrong is terminal on the first try, because paying four times for the same
 wrong answer helps nobody.
 
+### The user's own retry
+
+A dead-lettered transcription is no longer an operator-only problem. The meeting screen offers
+"Try again" on a failed transcription, and `POST /api/meetings/:meetingId/transcription/retry`
+puts that same job back on the `transcribe` queue with a fresh budget — the replay the redrive
+below performs, narrowed to one job and scoped to the person who owns the meeting.
+
+The action is offered for failures about the machinery — an unreachable object store, a backend
+that was down, a database blip, and the configuration codes `TRANSCRIPTION_REJECTED` and
+`TRANSCRIPTION_RESPONSE_INVALID` — and refused for the ones about the recording itself
+(`AUDIO_EMPTY`, `AUDIO_DECODE_FAILED`, `MANIFEST_NOT_FOUND`, `JOB_PAYLOAD_INVALID`). The split is
+`isRetryableJobErrorCode` in `shared/src/job.ts`, and it is deliberately more generous than the
+"Retried" column above: that column answers what to do now with nothing changed, this one answers
+what to offer a person who is saying that something has. So once a missing model is installed,
+users can recover their own meetings — the redrive below is what clears the rest, including the
+jobs of users who never come back to look.
+
+A retry is accepted only for a job that is currently `failed`, and moving the row out of that
+state is a conditional update, so no amount of clicking produces more than one run at a time.
+While it is queued or running, the meeting reports `queued`/`transcribing` rather than the state
+its previous run left behind — a reprocessing job is visible in the app even on a meeting that
+already has a transcript and a summary.
+
 ### Idempotency — which jobs are safe to replay
 
 All of them, and this is what makes redrive a safe operation rather than a risky one.

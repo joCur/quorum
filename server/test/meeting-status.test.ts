@@ -97,6 +97,68 @@ describe("meeting status derivation", () => {
     expect(derived.failure).toMatchObject({ stage: "summarize", code: "LLM_UNAVAILABLE" });
   });
 
+  it("reports a re-queued transcription even though the meeting is already summarized", () => {
+    // A retry, or an operator redrive on a finished meeting. Asking `hasSummary` first would call
+    // this `ready` for the whole run and leave the reprocessing invisible in the app.
+    const derived = deriveMeetingState(
+      state({
+        hasTranscript: true,
+        hasSummary: true,
+        transcribe: { status: "queued", progress: null, error: null },
+        summarize: { status: "succeeded", progress: null, error: null },
+      }),
+    );
+    expect(derived).toMatchObject({ status: "queued", failure: null });
+  });
+
+  it("reports a re-run transcription of a summarized meeting as transcribing", () => {
+    const derived = deriveMeetingState(
+      state({
+        hasTranscript: true,
+        hasSummary: true,
+        transcribe: { status: "running", progress: 0.2, error: null },
+        summarize: { status: "succeeded", progress: null, error: null },
+      }),
+    );
+    expect(derived).toMatchObject({ status: "transcribing", progress: 0.2 });
+  });
+
+  it("reports a re-run summary of a summarized meeting as summarizing", () => {
+    const derived = deriveMeetingState(
+      state({
+        hasTranscript: true,
+        hasSummary: true,
+        transcribe: { status: "succeeded", progress: null, error: null },
+        summarize: { status: "queued", progress: null, error: null },
+      }),
+    );
+    expect(derived).toMatchObject({ status: "summarizing", failure: null });
+  });
+
+  it("stops reporting a failure the moment the job is handed back to the queue", () => {
+    // What the retry endpoint writes: the same row, moved from `failed` to `queued`. The screen
+    // has to stop offering an action the user has already taken.
+    const derived = deriveMeetingState(
+      state({ transcribe: { status: "queued", progress: null, error: null } }),
+    );
+    expect(derived).toEqual({ status: "queued", progress: null, failure: null });
+  });
+
+  it("lets a transcription in flight outrank a summary that failed earlier", () => {
+    const derived = deriveMeetingState(
+      state({
+        hasTranscript: true,
+        transcribe: { status: "running", progress: null, error: null },
+        summarize: {
+          status: "failed",
+          progress: null,
+          error: { code: "SUMMARY_UNAVAILABLE", message: "the model did not answer" },
+        },
+      }),
+    );
+    expect(derived).toMatchObject({ status: "transcribing", failure: null });
+  });
+
   it("does not report a failure while the recording is still open", () => {
     const derived = deriveMeetingState(
       state({

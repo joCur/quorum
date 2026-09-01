@@ -36,15 +36,35 @@ export interface MeetingState {
  *    without a summary is reported as `summarizing`, covering both the queue wait and the run.
  *
  * The alternative — having the enqueuing side write a `queued` row — would put a second writer
- * on the job table for a state that is fully implied by the rows that already exist.
+ * on the job table for a state that is fully implied by the rows that already exist. The retry
+ * endpoint is the single exception, and it is one precisely because the state is *not* implied
+ * there: see `server/src/transcription/routes.ts`.
  *
- * Failures win over everything except an open recording: ADR-001's promise is that a failed
- * stage never hides what succeeded, so the caller still receives the transcript and the audio;
- * the badge simply reports the failure.
+ * WORK IN FLIGHT OUTRANKS WHAT AN EARLIER RUN LEFT BEHIND. A meeting being processed again — a
+ * user retrying a failed transcription, an operator redriving a dead-lettered job — still holds
+ * the transcript and the summary of the run before it, and asking `hasSummary` first would report
+ * it as `ready` for the whole time the new run takes; the app would say the meeting was finished
+ * while it was visibly being redone. So a `queued` or `running` job row decides the state before
+ * the stored artifacts do, and before a failure an earlier attempt recorded.
+ *
+ * Failures win over everything except an open recording and a run in flight: ADR-001's promise is
+ * that a failed stage never hides what succeeded, so the caller still receives the transcript and
+ * the audio; the badge simply reports the failure.
  */
 export function deriveMeetingState(input: MeetingStateInput): MeetingState {
   if (input.finalizedAt === null) {
     return { status: "recording", progress: null, failure: null };
+  }
+
+  if (input.transcribe?.status === "running") {
+    return { status: "transcribing", progress: input.transcribe.progress, failure: null };
+  }
+  if (input.transcribe?.status === "queued") {
+    return { status: "queued", progress: null, failure: null };
+  }
+
+  if (input.summarize?.status === "queued" || input.summarize?.status === "running") {
+    return { status: "summarizing", progress: input.summarize.progress, failure: null };
   }
 
   const transcribeFailure = failureOf(input.transcribe, "transcribe");
@@ -61,16 +81,10 @@ export function deriveMeetingState(input: MeetingStateInput): MeetingState {
     return { status: "ready", progress: null, failure: null };
   }
 
+  // The gap before the summarize row exists. Its progress is covered by the branch above, which
+  // is reached as soon as there is a row to read one from.
   if (input.hasTranscript) {
-    return {
-      status: "summarizing",
-      progress: input.summarize?.progress ?? null,
-      failure: null,
-    };
-  }
-
-  if (input.transcribe?.status === "running") {
-    return { status: "transcribing", progress: input.transcribe.progress, failure: null };
+    return { status: "summarizing", progress: null, failure: null };
   }
 
   return { status: "queued", progress: null, failure: null };

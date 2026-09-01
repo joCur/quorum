@@ -10,6 +10,15 @@ import { JOB_ERROR_CODES, type JobErrorCode } from "@quorum/shared";
  * or the job is dead-lettered immediately. That split matters: a Whisper
  * backend that is still booting must be retried, an audio file the backend
  * cannot decode never will be.
+ *
+ * A related but deliberately different question is answered per code by
+ * `isRetryableJobErrorCode` in `shared/src/job.ts`: whether a *person* asking
+ * for the job again, later, could get a different answer. The flags here decide
+ * what to do now, with nothing changed; that one decides what to offer someone
+ * who is saying something has. They agree everywhere except on the codes that
+ * describe the backend's configuration — see the note over there — and a code
+ * given a new verdict on either side wants a look at the other, and at the
+ * table in `docs/runbooks/pipeline.md` that documents this one.
  */
 export { JOB_ERROR_CODES, type JobErrorCode };
 

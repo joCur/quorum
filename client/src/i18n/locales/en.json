@@ -383,6 +383,12 @@
     "transcript": {
       "working": "Transcribing your meeting — usually a few minutes. Feel free to leave; we'll keep at it.",
       "failed": "Transcription failed",
+      "retry": "Try again",
+      "retrying": "Starting…",
+      "alreadyRunning": "This meeting is already being transcribed.",
+      "nothingToRetry": "There is no failed transcription left to run again.",
+      "retryPointless": "Another attempt would end the same way, so there is nothing to try again.",
+      "retryUnavailable": "The transcription could not be started right now. Please try again in a moment.",
       "jumpTo": "Jump to {{time}}",
       "uncertain": "Low transcription confidence",
       "uncertainShort": "uncertain"

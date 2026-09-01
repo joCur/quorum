@@ -8,8 +8,10 @@ import {
   SummaryTemplateSchema,
   TranscriptSchema,
   CHUNK_HEADER_BYTES,
+  JOB_ERROR_CODES,
   SUMMARY_SCHEMA_VERSION,
   TRANSCRIPT_SCHEMA_VERSION,
+  isRetryableJobErrorCode,
 } from "../src/index.js";
 import {
   ids,
@@ -147,6 +149,69 @@ describe("JobSchema", () => {
 
   it("rejects a non-ISO createdAt", () => {
     expect(JobSchema.safeParse({ ...validJob, createdAt: "yesterday" }).success).toBe(false);
+  });
+});
+
+/**
+ * Which failures a person may ask to have run again.
+ *
+ * The rule is what the failure is about: the recording itself never changes, so repeating a job
+ * that choked on it cannot end differently — everything around it can and does.
+ */
+describe("isRetryableJobErrorCode", () => {
+  it("refuses the failures that are about the recording or the payload", () => {
+    for (const code of [
+      "MANIFEST_NOT_FOUND",
+      "AUDIO_EMPTY",
+      "AUDIO_DECODE_FAILED",
+      "JOB_PAYLOAD_INVALID",
+      "TRANSCRIPT_INVALID",
+      "TRANSCRIPT_NOT_FOUND",
+      "TRANSCRIPT_EMPTY",
+      "SUMMARY_TEMPLATE_NOT_FOUND",
+      "SUMMARY_INVALID",
+    ]) {
+      expect(isRetryableJobErrorCode(code), code).toBe(false);
+    }
+  });
+
+  it("allows the failures that are about the machinery around it", () => {
+    for (const code of [
+      "AUDIO_FETCH_FAILED",
+      "TRANSCRIPTION_UNAVAILABLE",
+      "TRANSCRIPT_PERSIST_FAILED",
+      "SUMMARY_UNAVAILABLE",
+      "SUMMARY_PERSIST_FAILED",
+      "INTERNAL_ERROR",
+    ]) {
+      expect(isRetryableJobErrorCode(code), code).toBe(true);
+    }
+  });
+
+  it("allows the configuration failures the pipeline itself dead-letters", () => {
+    // Deliberately more generous than the per-attempt flags in `worker/src/errors.ts`: these name
+    // the backend, and a person asking again is saying the backend has been changed since.
+    for (const code of [
+      "TRANSCRIPTION_REJECTED",
+      "TRANSCRIPTION_RESPONSE_INVALID",
+      "SUMMARY_REJECTED",
+      "SUMMARY_RESPONSE_INVALID",
+    ]) {
+      expect(isRetryableJobErrorCode(code), code).toBe(true);
+    }
+  });
+
+  it("treats a code it has never heard of as not worth repeating", () => {
+    // An older client against a newer pipeline. Offering an action for a failure nobody here can
+    // explain would be a guess, and the server would refuse it anyway.
+    expect(isRetryableJobErrorCode("SOMETHING_NEW")).toBe(false);
+    expect(isRetryableJobErrorCode("")).toBe(false);
+  });
+
+  it("has an answer for every code in the contract", () => {
+    for (const code of JOB_ERROR_CODES) {
+      expect(typeof isRetryableJobErrorCode(code), code).toBe("boolean");
+    }
   });
 });
 

@@ -1,5 +1,9 @@
-import { MeetingDetailSchema, MeetingListSchema } from "@quorum/shared";
-import type { Meeting, MeetingDetail } from "@quorum/shared";
+import {
+  MeetingDetailSchema,
+  MeetingListSchema,
+  TranscriptionJobAcceptedSchema,
+} from "@quorum/shared";
+import type { Meeting, MeetingDetail, TranscriptionJobAccepted } from "@quorum/shared";
 import { apiUrl } from "@/env";
 import { reportUnauthorized } from "@/features/auth/session-expiry";
 
@@ -100,6 +104,23 @@ export async function fetchMeeting(
 
 export async function deleteMeeting(meetingId: string, options: RequestOptions): Promise<void> {
   await call(`/api/meetings/${meetingId}`, { ...options, method: "DELETE" });
+}
+
+/**
+ * Asks for a failed transcription to be run again.
+ *
+ * No request body: which job is replayed is the server's to work out from the meeting's rows,
+ * under the caller's own scope. The answer is that job as it now stands on the queue.
+ */
+export async function retryTranscription(
+  meetingId: string,
+  options: RequestOptions,
+): Promise<TranscriptionJobAccepted> {
+  const response = await call(`/api/meetings/${meetingId}/transcription/retry`, {
+    ...options,
+    method: "POST",
+  });
+  return TranscriptionJobAcceptedSchema.parse(await response.json());
 }
 
 /** URL of a meeting's audio stream. The request itself carries the access token. */

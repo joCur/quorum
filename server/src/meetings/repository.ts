@@ -71,6 +71,26 @@ export interface MeetingStore {
   /** `null` when the meeting does not exist *or* belongs to another tenant or user. */
   findMeeting(scope: MeetingScope, meetingId: string): Promise<MeetingDetailRow | null>;
   /**
+   * Hands a failed job back to the queue: `failed` → `queued`, with the error and the timings of
+   * the attempt that failed cleared, so the row describes the run that is about to happen rather
+   * than the one that did not.
+   *
+   * Returns `false` when the row is not — or no longer — failed in the caller's scope. That is
+   * the compare-and-set the retry endpoint rests on: two retries of the same job race for one
+   * row, and only the first of them finds a failure to undo.
+   */
+  requeueFailedJob(scope: MeetingScope, meetingId: string, jobId: string): Promise<boolean>;
+  /**
+   * Undoes {@link requeueFailedJob} for a job that never reached the queue, so the meeting keeps
+   * reporting the failure it actually has instead of waiting for a run nobody started.
+   */
+  restoreFailedJob(
+    scope: MeetingScope,
+    meetingId: string,
+    jobId: string,
+    error: { code: string; message: string },
+  ): Promise<void>;
+  /**
    * Removes every database row belonging to a meeting — summaries, transcripts, job rows, any
    * queued work and the meeting itself — in one transaction (ADR-001). Returns `false` when
    * there was no such meeting in the caller's scope.
@@ -366,6 +386,75 @@ export class PostgresMeetingStore implements MeetingStore {
     } catch (error) {
       if (isUndefinedTable(error)) return [null, [], []];
       throw error;
+    }
+  }
+
+  /**
+   * The one statement the API writes into the worker's `jobs` table.
+   *
+   * WHY THE EXCEPTION IS WORTH IT: everywhere else the pipeline state is derived rather than
+   * written, because every state is implied by rows that already exist (`status.ts`). A retry is
+   * the state that is not: the failed row is the newest thing anyone knows about the job, so
+   * until the worker picks the replay up, the meeting would go on reporting a failure the user
+   * has already acted on. Writing `queued` here is not a second writer for a fact the worker also
+   * owns — it is the same row, moved to the state the API just put it in, and the worker takes it
+   * from there.
+   *
+   * The scope is part of the predicate (ADR-001), so a job id from another tenant or another
+   * user's meeting matches no row rather than being checked separately and found wanting.
+   *
+   * `attempt` returns to zero because the retry budget is fresh: the queue entry is a new one and
+   * counts its own attempts. A missing `jobs` table means the worker never ran, which means there
+   * is no failed job to hand back.
+   */
+  async requeueFailedJob(scope: MeetingScope, meetingId: string, jobId: string): Promise<boolean> {
+    try {
+      const rows = await this.sql<{ id: string }[]>`
+        UPDATE jobs
+           SET status = 'queued',
+               error = NULL,
+               progress = NULL,
+               result_id = NULL,
+               attempt = 0,
+               started_at = NULL,
+               finished_at = NULL,
+               updated_at = now()
+         WHERE id = ${jobId}
+           AND meeting_id = ${meetingId}
+           AND tenant_id = ${scope.tenantId}
+           AND user_id = ${scope.userId}
+           AND status = 'failed'
+        RETURNING id
+      `;
+      return rows.length > 0;
+    } catch (error) {
+      if (isUndefinedTable(error)) return false;
+      throw error;
+    }
+  }
+
+  async restoreFailedJob(
+    scope: MeetingScope,
+    meetingId: string,
+    jobId: string,
+    error: { code: string; message: string },
+  ): Promise<void> {
+    try {
+      await this.sql`
+        UPDATE jobs
+           SET status = 'failed',
+               error = ${this.sql.json(error)},
+               finished_at = now(),
+               updated_at = now()
+         WHERE id = ${jobId}
+           AND meeting_id = ${meetingId}
+           AND tenant_id = ${scope.tenantId}
+           AND user_id = ${scope.userId}
+           AND status = 'queued'
+      `;
+    } catch (restoreError) {
+      if (isUndefinedTable(restoreError)) return;
+      throw restoreError;
     }
   }
 

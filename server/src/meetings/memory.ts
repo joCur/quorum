@@ -123,6 +123,40 @@ export class InMemoryMeetingStore implements MeetingStore {
     };
   }
 
+  /** Compare-and-set on the job row, exactly like the conditional `UPDATE` in PostgreSQL. */
+  async requeueFailedJob(scope: MeetingScope, meetingId: string, jobId: string): Promise<boolean> {
+    const job = this.findJob(scope, meetingId, jobId);
+    if (!job || job.status !== "failed") return false;
+    job.status = "queued";
+    job.error = null;
+    job.progress = null;
+    job.resultId = null;
+    job.startedAt = null;
+    job.finishedAt = null;
+    return true;
+  }
+
+  async restoreFailedJob(
+    scope: MeetingScope,
+    meetingId: string,
+    jobId: string,
+    error: { code: string; message: string },
+  ): Promise<void> {
+    const job = this.findJob(scope, meetingId, jobId);
+    if (!job || job.status !== "queued") return;
+    job.status = "failed";
+    job.error = error;
+    job.finishedAt = new Date().toISOString();
+  }
+
+  private findJob(scope: MeetingScope, meetingId: string, jobId: string): Job | undefined {
+    const meeting = this.meetings.get(meetingId);
+    if (!meeting || meeting.tenantId !== scope.tenantId || meeting.userId !== scope.userId) {
+      return undefined;
+    }
+    return (this.pipelines.get(meetingId)?.jobs ?? []).find((job) => job.id === jobId);
+  }
+
   async deleteMeeting(scope: MeetingScope, meetingId: string): Promise<boolean> {
     const meeting = this.meetings.get(meetingId);
     if (!meeting || meeting.tenantId !== scope.tenantId || meeting.userId !== scope.userId) {

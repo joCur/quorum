@@ -8,6 +8,7 @@ import { meetingRoutes } from "./meetings/routes.js";
 import type { MeetingStore } from "./meetings/repository.js";
 import { templateRoutes } from "./templates/routes.js";
 import { summaryRoutes } from "./summaries/routes.js";
+import { transcriptionRoutes } from "./transcription/routes.js";
 import type { SummaryTemplateStore } from "./templates/repository.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./recording/types.js";
@@ -184,6 +185,11 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     // instance: without one there is no scope to query under, and an unscoped meeting query is
     // exactly what ADR-001 rules out.
     await app.register(meetingRoutes, { store: meetingStore, storage: options.storage });
+
+    // Running a failed transcription again. Same scoping rule, and the same reason for living on
+    // an authenticated instance only: the job it replays is found under the caller's tenant and
+    // user rather than named by the request.
+    await app.register(transcriptionRoutes, { meetings: meetingStore, queue: options.queue });
 
     // Summary templates and the regenerate action share the same scoping rule and the same reason
     // for existing only on an authenticated instance: a template belongs to a user.

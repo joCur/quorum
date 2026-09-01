@@ -67,6 +67,60 @@ export const JOB_ERROR_CODES = [
 
 export const JobErrorCodeSchema = z.enum(JOB_ERROR_CODES);
 
+/**
+ * Codes a job may be asked to run again after — the per-code half of the split described above,
+ * for the two sides outside the pipeline that have to make it: the API, which refuses to
+ * re-enqueue a job whose failure nothing could undo, and the client, which does not offer an
+ * action that is guaranteed to be refused.
+ *
+ * THE LINE IS WHAT THE FAILURE IS ABOUT. A failure about the recording or the job's own input —
+ * a session that was never finalized, an empty recording, bytes no decoder accepts, a payload we
+ * do not understand — is permanent by nature: the input does not change, so neither does the
+ * outcome. Everything else is about the machinery around it, and machinery is exactly what
+ * changes between two attempts: object storage recovers, a database blip passes, a backend
+ * finishes loading its model, an operator installs the model it was missing.
+ *
+ * WHERE THIS IS MORE GENEROUS THAN `worker/src/errors.ts`, AND WHY. The pipeline dead-letters
+ * `TRANSCRIPTION_REJECTED` and `TRANSCRIPTION_RESPONSE_INVALID` (and their summary twins) on the
+ * first attempt, because nothing has changed between one automatic attempt and the next and
+ * repeating them immediately only spends the budget. Those codes describe the backend's
+ * configuration rather than the recording, though — the runbook's own note is that a persistent
+ * `TRANSCRIPTION_REJECTED` is almost always a model that is not installed — and a person asking
+ * again, later, is saying that something has changed since. Refusing them here would leave the
+ * most common recoverable failure in this system with no recovery but an operator redrive, which
+ * is the gap this predicate exists to close. The two questions are genuinely different, so the
+ * two answers are allowed to differ; every other code answers the same on both sides.
+ *
+ * Per code rather than per attempt, because a stored job row keeps only the code. Where the
+ * pipeline throws one code both ways — `AUDIO_FETCH_FAILED` covers an unreachable object store
+ * and a chunk the manifest promised but storage does not have — the generous answer wins: a
+ * refused retry is a dead end, while a retry that fails again costs one attempt and says what it
+ * said before.
+ */
+const RETRYABLE_JOB_ERROR_CODES: ReadonlySet<string> = new Set<JobErrorCode>([
+  "AUDIO_FETCH_FAILED",
+  "TRANSCRIPTION_UNAVAILABLE",
+  "TRANSCRIPTION_REJECTED",
+  "TRANSCRIPTION_RESPONSE_INVALID",
+  "TRANSCRIPT_PERSIST_FAILED",
+  "SUMMARY_UNAVAILABLE",
+  "SUMMARY_REJECTED",
+  "SUMMARY_RESPONSE_INVALID",
+  "SUMMARY_PERSIST_FAILED",
+  "INTERNAL_ERROR",
+]);
+
+/**
+ * True when a job that failed with this code is worth running again.
+ *
+ * Takes a plain string for the same reason `Job.error.code` is one: a code this build does not
+ * know comes from a newer pipeline, and the honest answer about a failure nobody here can explain
+ * is that repeating it is not known to help.
+ */
+export function isRetryableJobErrorCode(code: string): boolean {
+  return RETRYABLE_JOB_ERROR_CODES.has(code);
+}
+
 export const JobSchema = z.object({
   id: z.string().uuid(),
   meetingId: z.string().uuid(),
