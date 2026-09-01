@@ -155,6 +155,7 @@ async function start(
     model: config.WHISPER_MODEL,
     apiKey: config.WHISPER_API_KEY,
     timeoutMs: config.WHISPER_TIMEOUT_MS,
+    vadFilter: config.WHISPER_VAD_FILTER,
   });
 
   const chat = new OpenAiChatClient({
@@ -225,6 +226,9 @@ async function start(
       event: "worker.started",
       whisperBaseUrl: config.WHISPER_BASE_URL,
       whisperModel: config.WHISPER_MODEL,
+      // Worth one field in the startup line: it decides whether silence reaches
+      // the model, which is visible in every transcript the worker produces.
+      whisperVadFilter: config.WHISPER_VAD_FILTER,
       summaryBaseUrl: config.SUMMARY_BASE_URL,
       summaryModel: config.SUMMARY_MODEL,
       concurrency: config.WORKER_CONCURRENCY,

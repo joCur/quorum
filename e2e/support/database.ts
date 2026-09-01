@@ -44,6 +44,43 @@ export async function findTranscribeJob(sessionId: string): Promise<QueuedTransc
   };
 }
 
+export interface FailedJobRow {
+  id: string;
+  type: string;
+  code: string;
+  message: string;
+}
+
+/**
+ * The job row a failed stage left behind, with the code and the developer-facing message.
+ *
+ * A UI assertion about a failure needs the failure to have happened first, and this is the row the
+ * API derives the meeting's failed state from — so waiting for it separates "the pipeline never
+ * failed" from "the screen renders it wrong".
+ */
+export async function findFailedJob(
+  sessionId: string,
+  type: "transcribe" | "summarize",
+): Promise<FailedJobRow | null> {
+  if (!(await tableExists("jobs"))) return null;
+
+  const rows = await sql<{ id: string; type: string; error: { code: string; message: string } }[]>`
+    SELECT id, type, error
+    FROM jobs
+    WHERE session_id = ${sessionId}::uuid AND type = ${type} AND status = 'failed'
+    ORDER BY updated_at DESC
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type,
+    code: row.error?.code ?? "",
+    message: row.error?.message ?? "",
+  };
+}
+
 export interface SummaryRow {
   id: string;
   meetingId: string;

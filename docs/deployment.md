@@ -59,7 +59,7 @@ refuses to start while any of them is missing or still holds a placeholder, and 
 | `KEYCLOAK_ADMIN_PASSWORD` | The admin account. Used on every deploy, not just the first.         |
 | `KEYCLOAK_PROVISIONER_SECRET` | Service account the API uses to give a new account its workspace. |
 | `MINIO_ROOT_USER` / `_PASSWORD` | Object storage credentials, also used as the S3 access key.    |
-| `MINIO_KMS_SECRET_KEY`    | Storage encryption master key. **Back this up — see step 6.**        |
+| `MINIO_KMS_SECRET_KEY`    | Storage encryption master key. **Back this up — see step 8.**        |
 | `S3_BUCKET`               | Bucket for recordings, e.g. `recordings`.                            |
 | `SUMMARY_BASE_URL` / `_API_KEY` / `_MODEL` | The OpenAI-compatible summary backend (ADR-005).    |
 
@@ -86,6 +86,10 @@ Then lock the file down — it holds every credential in the deployment:
 ```bash
 chmod 600 .env
 ```
+
+The template's hardware profiles set the rest, and `WHISPER_MODEL` is the one among them that has
+a consequence later: it names a full model ID that has to be downloaded once after the first
+start, in step 6. Leave the profile's value as it is unless you know which model you want.
 
 ### Mail — optional, and off by default
 
@@ -284,7 +288,71 @@ a tenant of their own on first sign-in, exactly as it does for a sign-up.
 authenticates with on every deploy, so treat it as a deployment credential rather than a one-time
 one.
 
-## 6. Check it works
+## 6. Install the transcription model
+
+Whisper serves only the models it already has on disk, and the stack ships none: a fresh
+deployment starts with an empty model cache. Until the model named in `WHISPER_MODEL` is
+installed, recording and playback work but no meeting is ever transcribed — Whisper answers
+`404 Model '…' is not installed locally`, and the transcribe job dead-letters as
+`TRANSCRIPTION_REJECTED` without retrying.
+
+`WHISPER_MODEL` is a **full model ID**, not a size: `Systran/faster-whisper-small`, never `small`.
+A short name is exactly what produces the 404 above.
+
+Whisper publishes no host port, so every request below is made from inside its container, and the
+procedure is identical for the GPU file.
+
+**Which IDs are valid.** The registry lists everything the backend can fetch — several hundred
+entries, so narrow it to the family the `.env.example` profiles use:
+
+```bash
+docker compose -f docker-compose.release.yml exec whisper \
+  curl -sS "http://127.0.0.1:8000/v1/registry?task=automatic-speech-recognition" \
+  | grep -o '"id":"Systran/[^"]*"'
+```
+
+That includes `Systran/faster-whisper-tiny`, `-small`, `-medium` and `-large-v3`, which is the
+range the hardware profiles in `.env.example` cover. `large-v3` occupies several gigabytes in the
+model volume; the smaller ones a few hundred megabytes each.
+
+**Install the one you configured.** The ID contains a slash, and it goes into the path as it is:
+
+```bash
+docker compose -f docker-compose.release.yml exec whisper \
+  curl -sS -X POST "http://127.0.0.1:8000/v1/models/Systran/faster-whisper-small"
+```
+
+It answers `Model 'Systran/faster-whisper-small' downloaded` once the download has finished, which
+for the large models takes a while. Nothing else in the stack has to wait for it.
+
+**Verify it is installed.** The ID you set in `WHISPER_MODEL` has to appear here:
+
+```bash
+docker compose -f docker-compose.release.yml exec whisper \
+  curl -sS http://127.0.0.1:8000/v1/models | grep -o '"id":"[^"]*"'
+```
+
+Asking for a single model works too, and answers 404 while it is missing:
+
+```bash
+docker compose -f docker-compose.release.yml exec whisper \
+  curl -sS -o /dev/null -w '%{http_code}\n' \
+  http://127.0.0.1:8000/v1/models/Systran/faster-whisper-small
+```
+
+**This is a one-time step.** Downloaded models live in the `quorum_whisper-models` volume, so they
+survive a restart, a `docker compose down`, a container recreate and an update — only `down -v`
+destroys them, and after that they have to be installed again. Loading a model into memory is
+automatic and happens on demand, which is why the first transcription after a start can be slow
+and may produce a short burst of `TRANSCRIPTION_UNAVAILABLE` that the worker retries by itself.
+Only the download is manual.
+
+**Changing the model later** means setting `WHISPER_MODEL`, running `up -d` so the worker and
+Whisper both pick the new value up, and installing the new ID the same way. The worker and the
+container read that one variable, so a model that was never installed fails the same way as on the
+first deploy. Previously installed models stay in the volume.
+
+## 7. Check it works
 
 ```bash
 docker compose -f docker-compose.release.yml ps
@@ -356,7 +424,7 @@ whether the volume is named or bound to a path, so relocating data does not chan
 story. The full procedure, including the retention and deletion window, is in the
 [backup and restore runbook](https://github.com/joCur/quorum/blob/main/docs/runbooks/backup-restore.md).
 
-## 7. Before you call it done
+## 8. Before you call it done
 
 - **Back up the `MINIO_KMS_SECRET_KEY`**, somewhere other than this host. Without it the stored
   audio is permanently unreadable — no support path, no recovery. The procedure is in the
@@ -446,4 +514,5 @@ with it.
 dead-letter semantics per job type, and how to redrive a dead-lettered job.
 `docs/runbooks/backup-restore.md` covers losing data. For a stack that will not start, the
 preflight output is the first thing to read — it names the variable and says what is wrong with
-it.
+it. For a stack that runs but never produces a transcript, check step 6 first: a `WHISPER_MODEL`
+that is not installed fails every transcribe job and retries none of them.

@@ -26,7 +26,11 @@ export const WorkerConfigSchema = z.object({
 
   /** OpenAI-compatible base URL, including the `/v1` suffix. */
   WHISPER_BASE_URL: z.string().min(1).default("http://whisper:8000/v1"),
-  WHISPER_MODEL: z.string().min(1).default("small"),
+  /**
+   * A full model ID, not a size: the backend serves only models it has on disk
+   * under that exact ID and rejects a short name like `small` with a 404.
+   */
+  WHISPER_MODEL: z.string().min(1).default("Systran/faster-whisper-small"),
   /** Optional bearer token — self-hosted backends usually need none. */
   WHISPER_API_KEY: z.string().optional(),
   /**
@@ -34,6 +38,20 @@ export const WorkerConfigSchema = z.object({
    * language", which is what we want for mixed-language meetings.
    */
   WHISPER_LANGUAGE: z.string().optional(),
+  /**
+   * Send `vad_filter=true` with every transcription request, so the backend runs
+   * Silero VAD and transcribes only the parts that contain speech.
+   *
+   * On by default, because the failure it prevents is severe and silent: a
+   * recording with a long speechless stretch — a room left running before the
+   * meeting starts — makes every Whisper size lock onto a repeated phrase, and
+   * the loop then contaminates the rest of the transcript. The trade-off is that
+   * audio the VAD considers silence is never transcribed at all.
+   */
+  WHISPER_VAD_FILTER: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
   /** Whole-request timeout for one transcription call. */
   WHISPER_TIMEOUT_MS: z.coerce
     .number()

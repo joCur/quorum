@@ -22,7 +22,12 @@ import {
 } from "../fixtures.js";
 import { devUsers, stackEnv } from "../support/env.js";
 import { fetchToken } from "../support/keycloak.js";
-import { findSummary, findTranscribeJob, findTranscript } from "../support/database.js";
+import {
+  findFailedJob,
+  findSummary,
+  findTranscribeJob,
+  findTranscript,
+} from "../support/database.js";
 import { chunkSeqs, readManifest } from "../support/storage.js";
 
 /**
@@ -105,6 +110,14 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   expect(summary.userId).toBe(alice.userId);
   expect(summary.isActive).toBe(true);
 
+  // The request that produced it asked the backend to filter silence. This is the one place the
+  // worker's transcription request can be seen from outside the worker, and getting it wrong is
+  // invisible until a real meeting with a quiet opening comes back as a repetition loop.
+  if (stackEnv.whisperMode === "mock") {
+    const fields = await lastTranscriptionFields();
+    expect(fields.vad_filter).toBe("true");
+  }
+
   // And the user can read both. Everything above is the pipeline seen from behind it; the core
   // path only ends where the meeting screen shows what came out — a summary and a transcript, not
   // the "still working" placeholders that stand in until they exist.
@@ -117,6 +130,112 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 30_000 });
   }
 });
+
+/**
+ * Critical path, unhappy end: the pipeline fails and the screen has to say so in the user's own
+ * terms.
+ *
+ * The stub backend is told to refuse the next transcription, so a real job fails for a real
+ * reason. What is asserted is what the user is left with: a translated sentence about their
+ * recording, the developer-facing string the pipeline logged nowhere on the page, and the code
+ * available a click down for support.
+ */
+test("says a recording could not be transcribed, in the user's language", async ({
+  page,
+  signIn,
+}) => {
+  test.skip(
+    stackEnv.whisperMode !== "mock",
+    "only the stub backend can be told to refuse a transcription",
+  );
+
+  const alice = await fetchToken(devUsers.alice);
+  const protocol = watchRecordingProtocol(page);
+
+  await rejectNextTranscription();
+
+  await signIn(devUsers.alice);
+  await page.goto("/record");
+  await startRecording(page);
+
+  const sessionId = await protocol.waitForSessionId();
+  await protocol.waitForAck(2);
+  await stopRecording(page);
+  await protocol.waitForFinalized();
+
+  const manifest = await readManifest({
+    tenantId: alice.tenantId,
+    userId: alice.userId,
+    sessionId,
+  });
+  expect(manifest?.meetingId).toBeTruthy();
+
+  // The failure is a fact about the pipeline first: the job row carries the code, and the message
+  // the old panel used to print verbatim.
+  const failed = await waitForValue(
+    () => findFailedJob(sessionId, "transcribe"),
+    60_000,
+    "the failed transcribe job",
+  );
+  expect(failed.code).toBe("TRANSCRIPTION_REJECTED");
+  expect(failed.message).toContain("404");
+
+  await page.goto(`/meetings/${manifest?.meetingId}`);
+
+  // What the user reads is about their recording — and it is the only message on the panel.
+  //
+  // A negative assertion here searches the whole document, hidden nodes included, and matches
+  // substrings — so the needle has to be one that only a real leak can produce. A short digit
+  // sequence is not: the support reference on the panel is a random UUID, and about one in a
+  // hundred contains "404" somewhere in its hex. The word-boundary pattern is immune to that,
+  // because hex delimits digits with word characters ("dc51c4049f1c") while a leaked status is
+  // delimited by punctuation and spaces ("answered 404:"). The two prose needles need no such
+  // care, and are kept long enough that nothing else can produce them.
+  await expect(page.getByText("Transcription failed")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("This recording could not be transcribed.")).toBeVisible();
+  await expect(page.getByText(failed.message)).toHaveCount(0);
+  await expect(page.getByText("is not installed locally")).toHaveCount(0);
+  await expect(page.getByText(/\b404\b/)).toHaveCount(0);
+
+  // The code stays reachable for support, one click down rather than in the sentence.
+  await page.getByText("Technical details").click();
+  await expect(page.getByText("Error code: TRANSCRIPTION_REJECTED")).toBeVisible();
+  await expect(page.getByText(`Reference: ${failed.id}`)).toBeVisible();
+
+  // And the failure costs nothing that succeeded: the audio is still there to play.
+  await expect(page.getByRole("group", { name: "Playback" })).toBeVisible();
+});
+
+/**
+ * The form fields of the last transcription request the stub backend received.
+ *
+ * The stub records them by name rather than parsing multipart properly, so a missing field and a
+ * field the stub could not find look the same — which is exactly why the assertion is on the value
+ * the worker is configured to send, not on absence.
+ */
+async function lastTranscriptionFields(): Promise<Record<string, string | null>> {
+  const response = await fetch(`${stackEnv.mockBackendUrl}/control/last-transcription`);
+  if (!response.ok) {
+    throw new Error(
+      `could not read the stub backend's last request at ${stackEnv.mockBackendUrl}: ${response.status}`,
+    );
+  }
+  const body = (await response.json()) as { fields: Record<string, string | null> | null };
+  if (!body.fields) throw new Error("the stub backend saw no transcription request");
+  return body.fields;
+}
+
+/** Arms the stub backend to refuse the next transcription request it receives. */
+async function rejectNextTranscription(): Promise<void> {
+  const response = await fetch(`${stackEnv.mockBackendUrl}/control/reject-transcription`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(
+      `could not arm the stub backend at ${stackEnv.mockBackendUrl}: ${response.status}`,
+    );
+  }
+}
 
 /**
  * Critical path: the two gestures that guard capture — consent before it, and the hold that ends
