@@ -1,11 +1,13 @@
 # @quorum/worker
 
-Job worker for the processing pipeline. It consumes two job types from pg-boss:
+Job worker for the processing pipeline. It consumes three job types from pg-boss:
 
 - **`transcribe`** — enqueued by the recording endpoint on `session.end`. Turns the stored chunks back into an audio file, sends it to an OpenAI-compatible Whisper endpoint and persists the result as an immutable `Transcript` (ADR-003).
 - **`summarize`** — enqueued by the transcribe handler itself, once a transcript is persisted. Builds a prompt from a summary template, calls an OpenAI-compatible chat completions endpoint and persists a `Summary` with the resolved template snapshot (ADR-004, ADR-005).
 
-Together they are the core path of the product: recording → transcript → summary, with no step bound to a browser tab.
+- **`remux`** — enqueued by the transcribe handler once a transcription has succeeded. Repackages the recording's chunk objects, losslessly and in process, into a single seekable WebM and deletes the chunks it was made from (ADR-010).
+
+The first two are the core path of the product: recording → transcript → summary, with no step bound to a browser tab. The third is housekeeping behind it, and is deliberately the least important of the three: it writes no job row, nobody waits on it, and every way it can fail leaves the recording playing exactly as it did before.
 
 The worker is a separate process and a separate workspace from the API server: this work is long-running and CPU/GPU/network-bound, and scaling or restarting it must not touch the HTTP surface.
 
@@ -178,9 +180,19 @@ Retryable failures get `WORKER_RETRY_LIMIT` attempts with exponential backoff, w
 
 The split matters more on the summary side, where every attempt is a paid API call rather than local GPU time. The retry budget there exists for backend outages and rate limits only; anything the model itself got wrong is terminal on the first try, because paying four times for the same wrong answer helps nobody.
 
-Dead-lettered jobs land on `transcribe-dead-letter` or `summarize-dead-letter` and stay there; nothing consumes those queues, which is deliberate: they are evidence, and silently dropping them would hide a broken pipeline. Once the cause is fixed, an operator replays them with pg-boss's `redrive`, and the idempotent writes make a replay safe even for jobs that had already produced a transcript or a summary.
+Dead-lettered jobs land on `transcribe-dead-letter`, `summarize-dead-letter` or `remux-dead-letter` and stay there; nothing consumes those queues, which is deliberate: they are evidence, and silently dropping them would hide a broken pipeline. Once the cause is fixed, an operator replays them with pg-boss's `redrive`, and the idempotent writes make a replay safe even for jobs that had already produced a transcript or a summary.
 
-The failure is also recorded on the `jobs` row with its machine-readable code before it is handed back to the queue, so the API can report it through the job status endpoint without reading pg-boss internals.
+The failure is also recorded on the `jobs` row with its machine-readable code before it is handed back to the queue, so the API can report it through the job status endpoint without reading pg-boss internals — except on the remux queue, which writes no row at all. Nobody asked for a repackaging and nobody is waiting on one, so its failures belong in the log (`remux.failed`) and on the dead-letter queue rather than as an error card on somebody's meeting.
+
+## Repackaging a finished recording
+
+A recording arrives as one object per chunk, which is what makes the streaming protocol crash-safe — but concatenating those chunks reproduces a live `MediaRecorder` stream, and a live stream declares no sizes, no duration and no cue index. Players report a duration of `Infinity` and have no map from a point in time to a byte offset.
+
+The remux job fixes the container, not the audio. It copies every cluster's contents across byte for byte, so no Opus packet is touched, and rewrites only the bookkeeping: sizes declared, a duration computed from the block timestamps, and a cue index built and placed *in front of* the clusters, so a player learns the whole map from the first few kilobytes rather than by reading to the end. The result comes out a fraction of a percent larger than the chunks it replaces, and it replaces them — there is never a second durable copy of the audio.
+
+**No ffmpeg.** The remuxer is a few hundred lines against a container this product produces itself (`src/remux/webm.ts`), and keeping it in process is what keeps a native binary out of every image, every developer machine and the end-to-end runner. It handles WebM only; Ogg carries its own seek information and a Safari recording is a different container, so both are left in the shape they already play in.
+
+**The order is the design.** The artifact is written under a staging name, read back and checked — cue index present, duration present and matching what the transcription measured — and only then given the name playback serves. The manifest is pointed at it next, and the chunk objects go last. Every prefix of that sequence leaves a recording that plays exactly as it did before, so a crash can leave a stray staging object but never a gap.
 
 ## Database schema
 

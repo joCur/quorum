@@ -36,6 +36,10 @@ models/
 *.opus
 *.mp3
 *.m4a
+# One exception, and it is a small one: the remuxer is parser code, and the only thing that
+# proves it reads what a browser actually writes is a stream a browser actually wrote. Six
+# seconds, twenty-two kilobytes, and it is a fixture rather than a recording of anything.
+!worker/test/fixtures/*.webm
 
 # --- OS & Editor ---
 .DS_Store

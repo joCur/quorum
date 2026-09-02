@@ -134,13 +134,11 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
     const found = await options.store.findMeeting(scope, params.data.meetingId);
     if (!found) return reply.code(404).send(notFound());
 
-    const objects = await options.storage.listSessionObjects({
-      ...scope,
-      sessionId: found.meeting.sessionId,
-    });
-    const layout = audioLayout(objects);
+    const sessionScope = { ...scope, sessionId: found.meeting.sessionId };
+    const objects = await options.storage.listSessionObjects(sessionScope);
+    const layout = audioLayout(objects, sessionScope);
     if (layout.totalBytes === 0) {
-      // A recording that is still running, or one whose chunks are gone. Either way there is
+      // A recording that is still running, or one whose audio is gone. Either way there is
       // nothing to play yet; the meeting itself stays reachable.
       return reply.code(404).send({
         error: "audio_not_available",

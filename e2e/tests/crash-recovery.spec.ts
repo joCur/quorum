@@ -13,7 +13,15 @@ import { devUsers } from "../support/env.js";
 import { findTranscribeJob } from "../support/database.js";
 import { fetchToken } from "../support/keycloak.js";
 import { startApi, stopApi } from "../support/stack.js";
-import { chunkSeqs, readManifest } from "../support/storage.js";
+import { RecordingSocket } from "../support/recording-socket.js";
+import {
+  audioKey,
+  chunkSeqs,
+  listKeys,
+  objectSize,
+  readManifest,
+  sessionPrefix,
+} from "../support/storage.js";
 
 /**
  * Critical path: crash recovery — reconnect from `persistedSeq`, local buffer (CLAUDE.md).
@@ -168,4 +176,57 @@ test("recovers audio a crashed tab left in the local buffer", async ({ page, sig
   // Nothing is left on the device asking to be finished a second time.
   await expect(recoveryCard(page)).toBeHidden({ timeout: 30_000 });
   expect(await bufferedChunkCount(page, sessionId)).toBe(0);
+});
+
+/**
+ * The other end of the same critical path: a reconnect that arrives too late.
+ *
+ * Everything above is about a recording that is still running. This is about one that is not.
+ * A finalized recording is closed, and the pipeline then replaces its chunk objects with a
+ * single seekable file (ADR-010) — after which a resume that rebuilt `persistedSeq` from a chunk
+ * listing would read -1 and invite the client to send the whole recording again, over the top of
+ * the finished one. The refusal is what stands between a late reconnect and that, so it is
+ * asserted against the real endpoint rather than trusted to a unit test alone.
+ */
+test("refuses a reconnect to a recording that is already finished", async ({ page, signIn }) => {
+  const alice = await fetchToken(devUsers.alice);
+  const protocol = watchRecordingProtocol(page);
+
+  await signIn(devUsers.alice);
+  await page.goto("/record");
+  await startRecording(page);
+
+  const sessionId = await protocol.waitForSessionId();
+  await protocol.waitForAck(2);
+  await stopRecording(page);
+  await protocol.waitForFinalized(60_000);
+
+  const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
+  expect(await readManifest(scope)).not.toBeNull();
+
+  const socket = new RecordingSocket(alice.accessToken);
+  try {
+    await socket.open();
+    socket.send({ type: "session.resume", sessionId, at: new Date().toISOString() });
+
+    // 1008 — a policy violation, the same answer another tenant's token gets. The recording is
+    // not resumable, and the client is told so rather than being handed a blank slate.
+    const closed = await socket.closeInfo(30_000);
+    expect(closed.code).toBe(1008);
+  } finally {
+    socket.dispose();
+  }
+
+  // And the recording came through it untouched: still one unbroken sequence, or already the
+  // single object the pipeline replaces it with. Both are correct here; a session prefix holding
+  // neither, or holding a re-sent recording on top of the old one, is not.
+  const seqs = await chunkSeqs(scope);
+  const artifact = await objectSize(audioKey(scope));
+  if (artifact === null) {
+    expect(seqs).toEqual(seqs.map((_value, index) => index));
+    expect(seqs.length).toBeGreaterThan(0);
+  } else {
+    expect(artifact).toBeGreaterThan(0);
+    expect(await listKeys(`${sessionPrefix(scope)}/chunks/`)).toEqual([]);
+  }
 });

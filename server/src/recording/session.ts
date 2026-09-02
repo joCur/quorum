@@ -27,6 +27,7 @@ import type {
   JobQueue,
   MeetingRegistry,
   RecordingContext,
+  RecordingManifest,
   RecordingStorage,
   SessionRecord,
   UserPreferences,
@@ -487,6 +488,29 @@ export class RecordingSessionHandler {
       this.connection.close(CLOSE_POLICY_VIOLATION, `rejected audio format: ${check.reason}`);
       return false;
     }
+    // A recording that has been finalized is closed, and attaching to a closed recording is an
+    // error rather than a resume. This has to be asked before the chunk listing below, because
+    // the listing cannot answer it: once the pipeline has repackaged the chunks into a single
+    // seekable file (ADR-010) the chunk prefix is empty, and an empty prefix would rebuild
+    // `persistedSeq` as -1 — a finished recording looking exactly like one that stored nothing,
+    // and a client invited to send it all again over the top of the finished artifact.
+    let finalizedManifest: RecordingManifest | null;
+    try {
+      finalizedManifest = await this.deps.storage.getManifest(record);
+    } catch (error) {
+      this.fail("failed to read the finalization manifest", error);
+      return false;
+    }
+    if (finalizedManifest) {
+      this.bindSessionLog(record);
+      this.log?.info(
+        { event: "session.attach_refused", reason: "already-finalized" },
+        "refused a reconnect to a recording that is already finalized",
+      );
+      this.connection.close(CLOSE_POLICY_VIOLATION, "session is already finalized");
+      return false;
+    }
+
     let seqs: number[];
     try {
       seqs = await this.deps.storage.listChunkSeqs(record);
@@ -785,6 +809,10 @@ export class RecordingSessionHandler {
         chunkCount: session.persistedSeq + 1,
         persistedSeq: session.persistedSeq,
         chunkKeys,
+        // At finalize the recording is its chunk objects and nothing else. The pipeline fills
+        // both of these in once it has repackaged them into a seekable file (ADR-010).
+        audioKey: null,
+        durationSeconds: null,
         marks: session.record.marks,
         finalizedAt: this.timestamp(),
       });

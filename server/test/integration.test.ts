@@ -107,7 +107,7 @@ describe.skipIf(!enabled)("MinIO storage", () => {
     // Chunks plus session.json plus manifest.json.
     expect(objects.length).toBe(4);
 
-    const layout = audioLayout(objects);
+    const layout = audioLayout(objects, scope);
     expect(layout.totalBytes).toBeGreaterThan(0);
     const whole = await storage.readObject(layout.parts[0]?.key as string);
     const slice = await storage.readObject(layout.parts[0]?.key as string, { from: 1, to: 2 });

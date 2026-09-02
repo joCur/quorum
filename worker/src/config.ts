@@ -32,6 +32,12 @@ const WorkerConfigFields = z.object({
   S3_BUCKET: z.string().min(1),
   S3_ACCESS_KEY: z.string().min(1),
   S3_SECRET_KEY: z.string().min(1),
+  /**
+   * Server-side encryption sent with every write (ADR-001), matching the recording endpoint's
+   * own default. Until the remux job (ADR-010) this worker never wrote an object, which is why
+   * it did not need the setting before.
+   */
+  S3_SSE: z.string().default("AES256"),
 
   /** OpenAI-compatible base URL, including the `/v1` suffix. */
   WHISPER_BASE_URL: z.string().min(1).default("http://whisper:8000/v1"),

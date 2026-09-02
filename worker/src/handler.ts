@@ -10,6 +10,7 @@ import { audioFileDescriptor } from "./storage/manifest.js";
 import { mapResponseToTranscript } from "./transcript/map.js";
 import type { TranscribeJobPayload } from "./payload.js";
 import type { SummaryEnqueuer } from "./summary/enqueue.js";
+import type { RemuxEnqueuer } from "./remux/enqueue.js";
 
 export interface TranscribeHandlerDependencies {
   audio: AudioSource;
@@ -32,6 +33,12 @@ export interface TranscribeHandlerDependencies {
    * their own; the system template in production.
    */
   summaryTemplateId?: string | undefined;
+  /**
+   * Enqueues the job that repackages the recording into a seekable file (ADR-010). Omitted,
+   * the recording keeps its chunk objects — which is what the tests of the transcription half
+   * want, and what a deployment that has not turned this on would do.
+   */
+  remux?: RemuxEnqueuer | undefined;
   now?: () => Date;
 }
 
@@ -43,6 +50,8 @@ export interface TranscribeOutcome {
   wordCount: number;
   /** `true` when the follow-up summary job was placed on the queue. */
   summaryEnqueued: boolean;
+  /** `true` when the repackaging job was placed on the queue. */
+  remuxEnqueued: boolean;
   /**
    * Set when the meeting was deleted while the job was running. Nothing was
    * written — not the transcript, not a job row, not a follow-up summary job —
@@ -156,6 +165,8 @@ export async function runTranscribeJob(
       log,
     );
 
+    const remuxEnqueued = await enqueueRemux(payload, response.duration ?? null, deps, log);
+
     const succeeded: Job = {
       ...payload.job,
       status: "succeeded",
@@ -183,6 +194,7 @@ export async function runTranscribeJob(
       segmentCount: transcript.segments.length,
       wordCount,
       summaryEnqueued,
+      remuxEnqueued,
     };
   } catch (error) {
     if (error instanceof MeetingGoneError) {
@@ -193,6 +205,7 @@ export async function runTranscribeJob(
         segmentCount: 0,
         wordCount: 0,
         summaryEnqueued: false,
+        remuxEnqueued: false,
         abandoned: "meeting-deleted",
       };
     }
@@ -329,6 +342,47 @@ async function resolveTemplateId(
       "could not resolve the summary template; using the system template",
     );
     return fallbackTemplateId;
+  }
+}
+
+/**
+ * Hands the finished recording on to be repackaged into a seekable file (ADR-010).
+ *
+ * WHY HERE AND NOT AT FINALIZE. The chunk objects have exactly two readers: playback, which
+ * copes with either shape, and this job. Chaining the repackaging onto a *finished*
+ * transcription is what makes the replacement raceless — by the time this runs, the only other
+ * reader of the chunks is done with them. Enqueuing it when the recording was finalized would
+ * mean two jobs reaching for the same objects, one of them deleting them.
+ *
+ * WHY A FAILURE HERE IS NOT THE JOB'S FAILURE. Same argument as the summary above, and a
+ * weaker claim on top of it: the transcript is committed, and the thing that did not get queued
+ * is housekeeping nobody asked for. A recording that is never repackaged plays exactly as it
+ * always did. So the failure is a log line, and the derived job id means the next transcription
+ * of this session lands on the same job rather than a second one.
+ */
+async function enqueueRemux(
+  payload: TranscribeJobPayload,
+  durationSeconds: number | null,
+  deps: TranscribeHandlerDependencies,
+  log: WorkerLogger,
+): Promise<boolean> {
+  if (!deps.remux) return false;
+  try {
+    await deps.remux.enqueue({
+      meetingId: payload.job.meetingId,
+      tenantId: payload.tenantId,
+      userId: payload.userId,
+      sessionId: payload.sessionId,
+      expectedDurationSeconds: durationSeconds,
+      createdAt: new Date().toISOString(),
+    });
+    return true;
+  } catch (error) {
+    log.error(
+      { event: "remux.enqueue_failed", err: error },
+      "could not queue the recording for repackaging; it keeps playing from its chunk objects",
+    );
+    return false;
   }
 }
 

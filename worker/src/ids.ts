@@ -71,3 +71,15 @@ export function summaryIdForJob(jobId: string): string {
 export function summarizeJobIdFor(transcriptId: string, templateId: string): string {
   return uuidV5(`job:summarize:${transcriptId}:${templateId}`);
 }
+
+/**
+ * The id of the remux job a finished transcription hands on (ADR-010).
+ *
+ * Derived from the session, because a session has exactly one recording and that recording is
+ * repackaged exactly once. Every transcription of it — the first, a retry a user asked for, an
+ * operator's redrive — computes the same id, so the pg-boss singleton key collapses them into
+ * one queued job instead of a queue full of attempts to redo work already done.
+ */
+export function remuxJobIdFor(sessionId: string): string {
+  return uuidV5(`job:remux:${sessionId}`);
+}

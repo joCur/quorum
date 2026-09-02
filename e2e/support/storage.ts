@@ -1,4 +1,9 @@
-import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { stackEnv } from "./env.js";
 
 /**
@@ -9,6 +14,11 @@ import { stackEnv } from "./env.js";
  * one the recording endpoint and the worker both implement:
  *
  *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/chunks/<seq:010d>.bin
+ *
+ * A recording lives in that shape until the pipeline repackages it into one seekable file
+ * (ADR-010), after which the chunk prefix is empty and the audio is a single object:
+ *
+ *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/audio.webm
  */
 
 export interface SessionScope {
@@ -50,6 +60,11 @@ export async function listKeys(prefix: string): Promise<string[]> {
   return keys.sort();
 }
 
+/** The seekable file the chunks are replaced by once the pipeline has been through them. */
+export function audioKey(scope: SessionScope): string {
+  return `${sessionPrefix(scope)}/audio.webm`;
+}
+
 /** Sequence numbers of the chunk objects stored for a session, in ascending order. */
 export async function chunkSeqs(scope: SessionScope): Promise<number[]> {
   const keys = await listKeys(`${sessionPrefix(scope)}/chunks/`);
@@ -80,6 +95,10 @@ export interface RecordingManifest {
   chunkCount: number;
   persistedSeq: number;
   chunkKeys: string[];
+  /** The repackaged file, once one exists; `null` while the recording is still its chunks. */
+  audioKey: string | null;
+  /** Playing time of the repackaged file, in seconds. */
+  durationSeconds: number | null;
   /** Wall-clock pause and resume marks — where the audio-time gaps in the recording are. */
   marks: Array<{ type: "pause" | "resume"; at: string }>;
   finalizedAt: string;
@@ -87,4 +106,16 @@ export interface RecordingManifest {
 
 export function readManifest(scope: SessionScope): Promise<RecordingManifest | null> {
   return readJson<RecordingManifest>(`${sessionPrefix(scope)}/manifest.json`);
+}
+
+/** Size in bytes of a stored object, or `null` when there is nothing at that key. */
+export async function objectSize(key: string): Promise<number | null> {
+  try {
+    const response = await client.send(
+      new HeadObjectCommand({ Bucket: stackEnv.s3.bucket, Key: key }),
+    );
+    return response.ContentLength ?? null;
+  } catch {
+    return null;
+  }
 }

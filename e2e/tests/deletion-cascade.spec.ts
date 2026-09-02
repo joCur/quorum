@@ -15,7 +15,7 @@ import {
   findSummary,
   findTranscript,
 } from "../support/database.js";
-import { listKeys, sessionPrefix } from "../support/storage.js";
+import { audioKey, listKeys, objectSize, sessionPrefix } from "../support/storage.js";
 
 /**
  * Critical path: deleting a meeting completely — audio, transcripts, summaries and jobs
@@ -49,8 +49,21 @@ test("deletes a meeting and everything derived from it", async ({ page, signIn }
   await waitForValue(() => findTranscript(sessionId), 60_000, "the transcript row");
   await waitForValue(() => findSummary(sessionId), 60_000, "the summary row");
 
-  const prefix = sessionPrefix({ tenantId: alice.tenantId, userId: alice.userId, sessionId });
+  const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
+  const prefix = sessionPrefix(scope);
   expect((await listKeys(prefix)).length).toBeGreaterThan(0);
+
+  // The audio ends up as one repackaged, seekable object rather than the chunks it arrived as
+  // (ADR-010), and that object is what the cascade then has to remove. Waiting for it here is
+  // what makes the assertion below about the shape a meeting is actually deleted in, instead of
+  // whichever shape the pipeline happened to be mid-way through.
+  const artifactBytes = await waitForValue(
+    () => objectSize(audioKey(scope)),
+    60_000,
+    "the repackaged audio object",
+  );
+  expect(artifactBytes).toBeGreaterThan(0);
+  expect(await listKeys(`${prefix}/chunks/`)).toEqual([]);
 
   const meetingUrl = `${stackEnv.apiUrl}/api/meetings/${meetingId}`;
   const asAlice = { authorization: `Bearer ${alice.accessToken}` };
@@ -100,7 +113,10 @@ test("deletes a meeting and everything derived from it", async ({ page, signIn }
     "the meeting to be gone from the read API",
   );
 
-  // The cascade, checked where the data lives.
+  // The cascade, checked where the data lives. The prefix assertion covers the repackaged audio
+  // by construction, and the key is named again so a change that stopped removing it fails here
+  // with the reason rather than as a puzzling non-empty listing.
+  expect(await objectSize(audioKey(scope))).toBeNull();
   expect(await listKeys(prefix)).toEqual([]);
   expect(await countRowsForSession("transcripts", sessionId)).toBe(0);
   expect(await countRowsForSession("summaries", sessionId)).toBe(0);

@@ -6,7 +6,7 @@ import {
   SessionReadySchema,
 } from "@quorum/shared";
 import { encodeChunkFrame, parseChunkFrame } from "../src/recording/frame.js";
-import { chunkKey, manifestKey, sessionKey } from "../src/recording/keys.js";
+import { audioKey, chunkKey, manifestKey, sessionKey } from "../src/recording/keys.js";
 import {
   CLOSE_MESSAGE_TOO_BIG,
   CLOSE_POLICY_VIOLATION,
@@ -335,6 +335,61 @@ describe("reconnect", () => {
     await handler.handleBinary(chunk(sessionId, 1));
     expect(connection.last("chunk.ack")?.persistedSeq).toBe(1);
     expect(connection.closed).toBeNull();
+  });
+
+  it("refuses to attach to a recording that has already been finalized", async () => {
+    // A finalized recording is closed, and a late reconnect to one is an error, not a resume.
+    // The manifest is the only thing that says so: once the pipeline has replaced the chunk
+    // objects with a single seekable file (ADR-010) the chunk prefix is empty, and rebuilding
+    // `persistedSeq` from that listing would answer -1 — a finished recording indistinguishable
+    // from one that stored nothing, and a client invited to send it all again on top.
+    const first = createHarness();
+    const sessionId = await startSession(first);
+    await first.handler.handleBinary(chunk(sessionId, 0));
+    await first.handler.handleText(JSON.stringify({ type: "session.end", sessionId, lastSeq: 0 }));
+
+    const connection = new FakeConnection();
+    const handler = new RecordingSessionHandler(connection, {
+      storage: first.storage,
+      queue: first.queue,
+      context: { tenantId: "tenant-a", userId: "user-1" },
+      now: () => new Date("2026-08-29T10:05:00.000Z"),
+    });
+    await handler.handleText(
+      JSON.stringify({ type: "session.resume", sessionId, at: "2026-08-29T10:05:00.000Z" }),
+    );
+
+    expect(connection.closed?.code).toBe(CLOSE_POLICY_VIOLATION);
+    expect(connection.last("chunk.ack")).toBeUndefined();
+  });
+
+  it("refuses the reconnect even after the chunk objects have been replaced", async () => {
+    // The same case as above, with storage in the shape the pipeline leaves behind: one audio
+    // object, no chunks. This is the state the guard actually exists for.
+    const first = createHarness();
+    const sessionId = await startSession(first);
+    await first.handler.handleBinary(chunk(sessionId, 0));
+    await first.handler.handleText(JSON.stringify({ type: "session.end", sessionId, lastSeq: 0 }));
+
+    const scope = { tenantId: "tenant-a", userId: "user-1", sessionId };
+    first.storage.objects.delete(chunkKey(scope, 0));
+    first.storage.objects.set(audioKey(scope), new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]));
+    expect(await first.storage.listChunkSeqs({ ...scope } as never)).toEqual([]);
+
+    const connection = new FakeConnection();
+    const handler = new RecordingSessionHandler(connection, {
+      storage: first.storage,
+      queue: first.queue,
+      context: { tenantId: "tenant-a", userId: "user-1" },
+      now: () => new Date("2026-08-29T10:05:00.000Z"),
+    });
+    await handler.handleText(
+      JSON.stringify({ type: "session.resume", sessionId, at: "2026-08-29T10:05:00.000Z" }),
+    );
+
+    expect(connection.closed?.code).toBe(CLOSE_POLICY_VIOLATION);
+    // The finished recording is untouched: the refused reconnect wrote nothing over it.
+    expect(first.storage.objects.has(audioKey(scope))).toBe(true);
   });
 
   it("refuses to attach to a session of another tenant", async () => {

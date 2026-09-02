@@ -7,6 +7,15 @@ import { z } from "zod";
 export const JobTypeSchema = z.enum([
   "transcribe",
   "summarize",
+  /**
+   * Repackaging a finalized recording into a seekable file (ADR-010).
+   *
+   * The odd one out: it is housekeeping nobody asked for and nobody needs to hear about, so
+   * unlike the other two it writes no job row and never appears on a meeting. It is named here
+   * because what travels on the queue is a `Job` like any other, and a type this schema does
+   * not know would make that payload unreadable on the far side.
+   */
+  "remux",
   // Later: "diarize", "reprocess"
 ]);
 
@@ -50,6 +59,12 @@ export const JOB_ERROR_CODES = [
   "TRANSCRIPT_PERSIST_FAILED",
   /** The job payload on the queue is not a payload we understand. */
   "JOB_PAYLOAD_INVALID",
+
+  // ---- Seekable playback (ADR-010) ----
+  /** The recording could not be repackaged: the container is not the shape the remuxer reads. */
+  "REMUX_FAILED",
+  /** The repackaged file was produced but did not pass its read-back check, so it was discarded. */
+  "REMUX_VERIFICATION_FAILED",
 
   // ---- Summary pipeline (ADR-004, ADR-005) ----
   /** The transcript the summarize job refers to does not exist (any more). */

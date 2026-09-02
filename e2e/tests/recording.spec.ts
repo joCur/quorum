@@ -28,7 +28,7 @@ import {
   findTranscribeJob,
   findTranscript,
 } from "../support/database.js";
-import { chunkSeqs, readManifest } from "../support/storage.js";
+import { audioKey, chunkSeqs, objectSize, readManifest } from "../support/storage.js";
 
 /**
  * The meeting name the stub summary backend suggests (`e2e/scripts/mock-whisper.mjs`). Repeated
@@ -134,6 +134,36 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     // What the meeting says it is in is what the transcription was made in, not a global default.
     expect(transcript.language).toBe("de");
   }
+
+  // The audio the endpoint serves is seekable (ADR-010). By this point the pipeline has
+  // repackaged the recording, so what a player fetches is one object that declares its length
+  // and carries a cue index — the thing an incrementally written stream cannot have, and the
+  // reason a scrub bar had nothing to draw. Checked on the bytes that leave the API rather than
+  // on the object in the bucket, because the endpoint is what a player talks to.
+  await waitForValue(() => objectSize(audioKey(scope)), 60_000, "the repackaged audio object");
+  const audio = await page.request.get(
+    `${stackEnv.apiUrl}/api/meetings/${transcript.meetingId}/audio`,
+    { headers: { authorization: `Bearer ${alice.accessToken}` } },
+  );
+  expect(audio.status()).toBe(200);
+  expect(audio.headers()["accept-ranges"]).toBe("bytes");
+  const served = Buffer.from(await audio.body());
+  expect([...served.subarray(0, 4)]).toEqual([0x1a, 0x45, 0xdf, 0xa3]);
+  const cues = served.indexOf(Buffer.from([0x1c, 0x53, 0xbb, 0x6b]));
+  expect(cues).toBeGreaterThan(-1);
+  // And it is in front of the audio, so seeking costs a small ranged read of the head rather
+  // than a walk to the end of a long recording.
+  expect(cues).toBeLessThan(served.indexOf(Buffer.from([0x1f, 0x43, 0xb6, 0x75])));
+
+  // A seek is a range request, and it has to come back as one.
+  const seek = await page.request.get(
+    `${stackEnv.apiUrl}/api/meetings/${transcript.meetingId}/audio`,
+    {
+      headers: { authorization: `Bearer ${alice.accessToken}`, range: "bytes=100-199" },
+    },
+  );
+  expect(seek.status()).toBe(206);
+  expect(seek.headers()["content-range"]).toBe(`bytes 100-199/${served.length}`);
 
   // And the user can read both. Everything above is the pipeline seen from behind it; the core
   // path only ends where the meeting screen shows what came out — a summary and a transcript, not

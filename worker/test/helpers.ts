@@ -78,6 +78,8 @@ export function manifest(overrides: Partial<RecordingManifest> = {}): RecordingM
     chunkCount,
     persistedSeq: chunkCount - 1,
     chunkKeys: Array.from({ length: chunkCount }, (_value, seq) => chunkKey(SCOPE, seq)),
+    audioKey: null,
+    durationSeconds: null,
     marks: [],
     finalizedAt: "2026-08-29T10:30:00.000Z",
     ...overrides,

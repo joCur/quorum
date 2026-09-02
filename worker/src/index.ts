@@ -12,9 +12,10 @@ import { S3AudioSource } from "./storage/audio-source.js";
 import { OpenAiTranscriptionClient } from "./whisper/client.js";
 import { ensureWhisperModel } from "./whisper/provision.js";
 import { OpenAiChatClient } from "./summary/chat-client.js";
+import { PgBossRemuxEnqueuer } from "./remux/enqueue.js";
 import { PgBossSummaryEnqueuer } from "./summary/enqueue.js";
 import { SYSTEM_SUMMARY_TEMPLATE } from "./summary/template.js";
-import { startSummarizeWorker, startTranscribeWorker } from "./worker.js";
+import { startRemuxWorker, startSummarizeWorker, startTranscribeWorker } from "./worker.js";
 import { createWorkerMetrics } from "./observability/metrics.js";
 import { startMetricsServer } from "./observability/server.js";
 
@@ -35,7 +36,7 @@ export * from "./ids.js";
 export * from "./payload.js";
 export * from "./storage/keys.js";
 export * from "./storage/manifest.js";
-export { S3AudioSource, type AudioSource } from "./storage/audio-source.js";
+export { S3AudioSource, type AudioSource, type RemuxStorage } from "./storage/audio-source.js";
 export * from "./whisper/response.js";
 export {
   OpenAiTranscriptionClient,
@@ -63,6 +64,14 @@ export * from "./summary/prompt.js";
 export * from "./summary/parse.js";
 export * from "./summary/map.js";
 export * from "./summary/enqueue.js";
+export * from "./remux/enqueue.js";
+export * from "./remux/webm.js";
+export {
+  runRemuxJob,
+  type RemuxHandlerDependencies,
+  type RemuxMeetingCheck,
+  type RemuxOutcome,
+} from "./remux/handler.js";
 export {
   OpenAiChatClient,
   type ChatCompletionClient,
@@ -83,8 +92,10 @@ export {
 export {
   startTranscribeWorker,
   startSummarizeWorker,
+  startRemuxWorker,
   type TranscribeWorkerOptions,
   type SummarizeWorkerOptions,
+  type RemuxWorkerOptions,
   type QueuePolicy,
 } from "./worker.js";
 
@@ -149,6 +160,7 @@ async function start(
     bucket: config.S3_BUCKET,
     accessKeyId: config.S3_ACCESS_KEY,
     secretAccessKey: config.S3_SECRET_KEY,
+    serverSideEncryption: config.S3_SSE,
   });
 
   const transcription = new OpenAiTranscriptionClient({
@@ -227,7 +239,23 @@ async function start(
     // path of CLAUDE.md ("recording → transcript → summary") run end to end
     // without anyone pressing a button.
     summaries: new PgBossSummaryEnqueuer(boss),
+    // And the repackaging onto a finished transcription, which is the point in the pipeline
+    // where nothing else is reading the chunk objects any more (ADR-010).
+    remux: new PgBossRemuxEnqueuer(boss),
     summaryTemplateId: SYSTEM_SUMMARY_TEMPLATE.id,
+    concurrency: config.WORKER_CONCURRENCY,
+    metrics,
+    retryLimit: config.WORKER_RETRY_LIMIT,
+    retryDelaySeconds: config.WORKER_RETRY_DELAY_SECONDS,
+    jobExpireSeconds: config.WORKER_JOB_EXPIRE_SECONDS,
+  });
+
+  await startRemuxWorker({
+    boss,
+    audio,
+    storage: audio,
+    repository,
+    logger,
     concurrency: config.WORKER_CONCURRENCY,
     metrics,
     retryLimit: config.WORKER_RETRY_LIMIT,
@@ -262,7 +290,7 @@ async function start(
       summaryConcurrency: config.SUMMARY_CONCURRENCY,
       metricsPort: metricsServer.port,
     },
-    "worker is consuming transcribe and summarize jobs",
+    "worker is consuming transcribe, summarize and remux jobs",
   );
 }
 

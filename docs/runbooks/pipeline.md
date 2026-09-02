@@ -135,6 +135,31 @@ that already has a transcript and a summary. A `queued` or `running` row is beli
 hours; past that it is treated as the leftover of a worker that died mid-job, so a stuck row
 cannot tell a finished meeting for ever that it is still being worked on.
 
+### `remux`
+
+Consumed from the `remux` queue; failures land on `remux-dead-letter`.
+
+| Code                        | Retried | Why                                              |
+| --------------------------- | ------- | ------------------------------------------------ |
+| `AUDIO_FETCH_FAILED`        | yes     | Object storage refused a read, a write or a delete |
+| `REMUX_VERIFICATION_FAILED` | mixed   | Retried when the read-back failed, terminal when the artifact was wrong |
+| `INTERNAL_ERROR`            | yes     | Unclassified                                     |
+| `REMUX_FAILED`              | no      | The container is not one the remuxer reads       |
+
+This queue is the odd one out, and in a way that matters when one of its jobs dead-letters:
+**nothing is broken for the user.** It repackages a finished recording into a single seekable
+file and then deletes the chunk objects it was made from — but it writes the artifact under a
+staging name, reads it back, and only then gives it the name playback serves and deletes anything.
+Every way of failing therefore leaves the recording exactly as it was, playing from its chunk
+objects the way it always did. What is lost is a scrub bar with a length on it, not audio.
+
+It also writes no job row, for the same reason: nobody asked for this and nobody is waiting on it,
+so a failure belongs in the log and on the dead-letter queue rather than as an error on someone's
+meeting. Look for `event: remux.failed`.
+
+A dead letter here is safe to leave until convenient, and safe to redrive whenever: the job
+begins by asking whether the recording has already been repackaged and stops there if it has.
+
 ### Idempotency — which jobs are safe to replay
 
 All of them, and this is what makes redrive a safe operation rather than a risky one.
@@ -146,6 +171,9 @@ All of them, and this is what makes redrive a safe operation rather than a risky
   that as a pg-boss singleton key, so a replayed transcribe job cannot buy a second model call.
   A user-requested regenerate deliberately mints a fresh id — that is the one case where a second
   call is the point.
+- **`remux`** derives its job id from the session, so every transcription of that session — the
+  first, a user's retry, an operator's redrive — asks for the same job rather than a new one. The
+  handler is a no-op on a recording that already carries its artifact, so a replay costs one read.
 - **Chunk writes** during recording are idempotent on the sequence number, which is what lets a
   reconnecting client re-send everything after `persistedSeq`.
 - **A deleted meeting** is not a failure. A job that was already running when the meeting was
@@ -156,7 +184,8 @@ All of them, and this is what makes redrive a safe operation rather than a risky
 
 ## Redriving the dead-letter queue
 
-Dead-lettered jobs sit on `transcribe-dead-letter` / `summarize-dead-letter`. Nothing consumes
+Dead-lettered jobs sit on `transcribe-dead-letter` / `summarize-dead-letter` /
+`remux-dead-letter`. Nothing consumes
 those queues: they exist to be inspected and, once the cause is fixed, replayed.
 
 **1. See what is there.** From a `psql` on the stack database:
@@ -261,7 +290,7 @@ forever and looks identical to a dead worker:
 SELECT DISTINCT name FROM pgboss.job WHERE state = 'created';
 ```
 
-Expect only `transcribe` and `summarize`.
+Expect only `transcribe`, `summarize` and `remux`.
 
 **4. Restart the worker.** `docker compose restart worker`. Jobs are idempotent, so nothing is lost
 by doing this, and a graceful stop lets running attempts finish.

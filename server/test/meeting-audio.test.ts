@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { audioLayout, resolveRange, slicesForRange } from "../src/meetings/audio.js";
-import { chunkKey, manifestKey, sessionKey } from "../src/recording/keys.js";
+import { audioKey, chunkKey, manifestKey, sessionKey } from "../src/recording/keys.js";
 import type { StoredObject } from "../src/recording/types.js";
 
 const SCOPE = { tenantId: "tenant-acme", userId: "user-1", sessionId: "session-1" };
@@ -16,7 +16,7 @@ const OBJECTS: StoredObject[] = [
 
 describe("audio layout", () => {
   it("orders chunks by sequence number and ignores the metadata objects", () => {
-    const layout = audioLayout(OBJECTS);
+    const layout = audioLayout(OBJECTS, SCOPE);
     expect(layout.totalBytes).toBe(35);
     expect(layout.parts).toEqual([
       { key: chunkKey(SCOPE, 0), size: 10, offset: 0 },
@@ -25,8 +25,40 @@ describe("audio layout", () => {
     ]);
   });
 
+  it("serves the repackaged file alone once it exists", () => {
+    // A recording exists in two shapes over its life (ADR-010), and playback has to make the
+    // difference invisible. The artifact's presence is the whole signal: the pipeline gives it
+    // this name only after reading it back, so a listing that has it is a listing that passed.
+    const layout = audioLayout([...OBJECTS, { key: audioKey(SCOPE), size: 33 }], SCOPE);
+    expect(layout).toEqual({
+      parts: [{ key: audioKey(SCOPE), size: 33, offset: 0 }],
+      totalBytes: 33,
+    });
+  });
+
+  it("ignores a staged artifact that has not been checked yet", () => {
+    // Mid-job the staged bytes are in the bucket and may be anything. Serving them would be the
+    // one failure mode "verify, then delete" exists to rule out.
+    const layout = audioLayout(
+      [...OBJECTS, { key: `${audioKey(SCOPE)}.staging`, size: 33 }],
+      SCOPE,
+    );
+    expect(layout.totalBytes).toBe(35);
+    expect(layout.parts.map((part) => part.key)).toEqual([
+      chunkKey(SCOPE, 0),
+      chunkKey(SCOPE, 1),
+      chunkKey(SCOPE, 2),
+    ]);
+  });
+
+  it("does not mistake another session's artifact for this one's", () => {
+    const other = { ...SCOPE, sessionId: "session-2" };
+    const layout = audioLayout([...OBJECTS, { key: audioKey(other), size: 999 }], SCOPE);
+    expect(layout.totalBytes).toBe(35);
+  });
+
   it("reports an empty layout when nothing is stored", () => {
-    expect(audioLayout([{ key: sessionKey(SCOPE), size: 300 }])).toEqual({
+    expect(audioLayout([{ key: sessionKey(SCOPE), size: 300 }], SCOPE)).toEqual({
       parts: [],
       totalBytes: 0,
     });
@@ -74,7 +106,7 @@ describe("range resolution", () => {
 });
 
 describe("range slicing", () => {
-  const layout = audioLayout(OBJECTS);
+  const layout = audioLayout(OBJECTS, SCOPE);
 
   it("takes whole objects when the range covers them completely", () => {
     expect(slicesForRange(layout, { from: 0, to: 34 })).toEqual([

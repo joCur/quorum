@@ -18,6 +18,16 @@ export const RecordingManifestSchema = z.object({
   chunkCount: z.number().int().nonnegative(),
   persistedSeq: z.number().int(),
   chunkKeys: z.array(z.string()),
+  /**
+   * The seekable file the chunks were repackaged into, once that has happened (ADR-010).
+   *
+   * `null` — and an absent field, which is what every manifest written before this existed
+   * looks like — means the recording is still its chunk objects. Defaulted rather than
+   * required for exactly that reason: an older recording is not a malformed one.
+   */
+  audioKey: z.string().nullable().default(null),
+  /** Playing time of the repackaged file, in seconds; `null` until it has been produced. */
+  durationSeconds: z.number().nonnegative().nullable().default(null),
   marks: z.array(z.object({ type: z.enum(["pause", "resume"]), at: z.string() })).default([]),
   finalizedAt: z.string(),
 });

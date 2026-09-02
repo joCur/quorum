@@ -11,6 +11,7 @@ import { AUDIENCE, INTERNAL_ISSUER, ISSUER, createTestKeyPair, signAccessToken }
 import type { TestKeyPair } from "./keys.js";
 import { FakeConnection, WEBM_HEADER, WEBM_OPUS, idSequence } from "./helpers.js";
 import { encodeChunkFrame } from "../src/recording/frame.js";
+import { audioKey } from "../src/recording/keys.js";
 
 const keys: TestKeyPair = await createTestKeyPair();
 
@@ -99,6 +100,13 @@ afterEach(async () => {
   await app.close();
 });
 
+/** The session behind a meeting, read out of the store the way the route reads it. */
+async function sessionOf(id: string): Promise<string> {
+  const found = await store.findMeeting(ACME, id);
+  if (!found) throw new Error("meeting is missing");
+  return found.meeting.sessionId;
+}
+
 describe("audio playback", () => {
   it("streams the chunks back as one continuous recording", async () => {
     const response = await app.inject({
@@ -143,6 +151,36 @@ describe("audio playback", () => {
     });
     expect(response.statusCode).toBe(416);
     expect(response.headers["content-range"]).toBe(`bytes */${EXPECTED_AUDIO.length}`);
+  });
+
+  it("serves the repackaged recording once the pipeline has replaced the chunks", async () => {
+    // The shape a recording ends up in (ADR-010), staged by hand here: one audio object, no
+    // chunks. Playback has to be indifferent to which of the two it finds.
+    const scope = { ...ACME, sessionId: await sessionOf(meetingId) };
+    const artifact = Buffer.from([...WEBM_HEADER, 1, 2, 3, 4, 5, 6, 7, 8]);
+    for (const key of [...storage.objects.keys()]) {
+      if (key.includes("/chunks/")) storage.objects.delete(key);
+    }
+    storage.objects.set(audioKey(scope), new Uint8Array(artifact));
+
+    const whole = await app.inject({
+      method: "GET",
+      url: `/api/meetings/${meetingId}/audio`,
+      headers: { authorization: `Bearer ${await token(ACME)}` },
+    });
+    expect(whole.statusCode).toBe(200);
+    expect(whole.headers["content-type"]).toBe("audio/webm");
+    expect(whole.rawPayload).toEqual(artifact);
+
+    // And a seek into it: the ranged read a real player makes once the file has a cue index.
+    const ranged = await app.inject({
+      method: "GET",
+      url: `/api/meetings/${meetingId}/audio`,
+      headers: { authorization: `Bearer ${await token(ACME)}`, range: "bytes=6-9" },
+    });
+    expect(ranged.statusCode).toBe(206);
+    expect(ranged.headers["content-range"]).toBe(`bytes 6-9/${artifact.length}`);
+    expect(ranged.rawPayload).toEqual(artifact.subarray(6, 10));
   });
 
   it("requires an access token", async () => {
