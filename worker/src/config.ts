@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_DURATION_TOLERANCE } from "@quorum/shared";
 
 /**
  * The largest delay `setTimeout` can hold. Node keeps it in a signed 32-bit
@@ -99,6 +100,25 @@ const WorkerConfigFields = z.object({
     .enum(["true", "false"])
     .default("true")
     .transform((value) => value === "true"),
+  /*
+   * When a recording's asserted duration counts as understated.
+   *
+   * The transcription result is the first honest measurement of how long a recording was; these
+   * two numbers say how far the client's own claim may fall short of it before the job flags the
+   * gap for operators. Both terms apply and the larger one wins, so short recordings are judged by
+   * the absolute allowance and long ones by the relative one. The reasoning behind the defaults
+   * lives with them in `shared/src/duration.ts`; they are configurable because the benign drift
+   * depends on the recorder and the container, which a deployment may change before we do.
+   */
+  DURATION_TOLERANCE_SECONDS: z.coerce
+    .number()
+    .nonnegative()
+    .default(DEFAULT_DURATION_TOLERANCE.absoluteSeconds),
+  DURATION_TOLERANCE_RATIO: z.coerce
+    .number()
+    .min(0)
+    .max(1)
+    .default(DEFAULT_DURATION_TOLERANCE.relative),
   /**
    * Whole-request timeout for one transcription call: it bounds the wait for
    * response headers, the read of the body, and the abort signal alike.

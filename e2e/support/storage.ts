@@ -98,10 +98,12 @@ export interface RecordingManifest {
   chunkKeys: string[];
   /** The repackaged file, once one exists; `null` while the recording is still its chunks. */
   audioKey: string | null;
-  /** Playing time of the repackaged file, in seconds. */
-  durationSeconds: number | null;
+  /** Playing time the repackaged file declares, in seconds. */
+  artifactDurationSeconds: number | null;
   /** Wall-clock pause and resume marks — where the audio-time gaps in the recording are. */
   marks: Array<{ type: "pause" | "resume"; at: string }>;
+  /** Seconds of audio the client asserted, which the pipeline reconciles against the real audio. */
+  recordedSeconds: number | null;
   finalizedAt: string;
 }
 

@@ -93,6 +93,7 @@ Server (`quorum-server`):
 | `quota.read_failed`              | warn  | Quota usage could not be read; the session was allowed to start   |
 | `quota.usage_write_failed`       | warn  | Session usage could not be stored; the quota may lag behind       |
 | `quota.usage_measure_failed`     | warn  | Stored audio could not be measured; this connection's estimate was used |
+| `session.metadata.write_failed`  | warn  | Session metadata could not be stored; a reconnect may assert less audio |
 | `summary.regenerate_queued`      | info  | A user asked for a new summary of an existing transcript          |
 
 The `limit.*` events are logged at `info`, not `warn`: a limit doing its job is normal operation,
@@ -108,6 +109,9 @@ Worker (`quorum-worker`):
 | `job.started`               | info  | An attempt began                                                 |
 | `audio.assembled`           | info  | Chunks were fetched and joined                                   |
 | `transcription.completed`   | info  | The Whisper backend answered                                     |
+| `duration.reconciled`       | info  | The asserted recording duration matches the audio that was decoded |
+| `duration.understated`      | warn  | The asserted duration is well short of the audio; the true one is billed |
+| `duration.unmeasured`       | warn  | A duration was asserted but the audio produced none to check it against |
 | `summary.enqueued`          | info  | The follow-up summary job was placed on the queue                 |
 | `summary.enqueue_failed`    | error | Transcript is persisted but the summary job could not be queued   |
 | `summary.title.applied`     | info  | Whether the meeting took the name the summary suggested for it    |

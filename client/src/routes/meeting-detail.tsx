@@ -3,7 +3,12 @@ import { ArrowLeft, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { isRetryableJobErrorCode, type MeetingDetail } from "@quorum/shared";
+import {
+  hasCorrections,
+  isRetryableJobErrorCode,
+  type MeetingDetail,
+  type SegmentOverlay,
+} from "@quorum/shared";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -50,6 +55,8 @@ export function MeetingDetailRoute() {
       onDelete={meeting.remove}
       onReload={meeting.reload}
       onRename={meeting.rename}
+      onCorrect={meeting.correct}
+      onResetSegment={meeting.reset}
     />
   );
 }
@@ -60,12 +67,16 @@ function MeetingDetailScreen({
   onDelete,
   onReload,
   onRename,
+  onCorrect,
+  onResetSegment,
 }: {
   detail: MeetingDetail;
   deleting: boolean;
   onDelete: () => Promise<void>;
   onReload: () => void;
   onRename: (title: string) => Promise<void>;
+  onCorrect: (segmentId: string, overlay: SegmentOverlay) => Promise<void>;
+  onResetSegment: (segmentId: string) => Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -184,6 +195,8 @@ function MeetingDetailScreen({
             currentTime={currentTime}
             onSeek={seek}
             onReload={onReload}
+            onCorrect={onCorrect}
+            onResetSegment={onResetSegment}
           />
         </section>
 
@@ -290,11 +303,15 @@ function TranscriptPanel({
   currentTime,
   onSeek,
   onReload,
+  onCorrect,
+  onResetSegment,
 }: {
   detail: MeetingDetail;
   currentTime: number;
   onSeek: (seconds: number) => void;
   onReload: () => void;
+  onCorrect: (segmentId: string, overlay: SegmentOverlay) => Promise<void>;
+  onResetSegment: (segmentId: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const failure = detail.meeting.failure;
@@ -321,7 +338,13 @@ function TranscriptPanel({
           }
         />
       ) : detail.transcript ? (
-        <TranscriptView transcript={detail.transcript} currentTime={currentTime} onSeek={onSeek} />
+        <TranscriptView
+          transcript={detail.transcript}
+          currentTime={currentTime}
+          onSeek={onSeek}
+          onCorrect={onCorrect}
+          onReset={onResetSegment}
+        />
       ) : (
         <WaitingPanel message={t("meeting.transcript.working")} />
       )}
@@ -393,6 +416,19 @@ function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: (
       {summary || detail.transcript ? (
         <div className="flex flex-col gap-2.5 px-0.5 py-1">
           {summary ? <SummaryAttribution summary={summary} templateName={templateName} /> : null}
+          {/*
+            Every summary is written from the transcript the machine produced — the pipeline never
+            reads the corrections (ADR-011) — so a corrected transcript means the summary describes
+            wording that is no longer on screen. The note says that and nothing more: the summary is
+            not wrong, and the person who made the correction is the one who can judge whether it
+            matters. It follows the existence of a correction rather than its time, because a new
+            summary reads the original wording exactly like the old one did.
+          */}
+          {summary && detail.transcript && hasCorrections(detail.transcript) ? (
+            <p className="text-[13px] text-muted-foreground">
+              {t("meeting.summary.fromOriginalWording")}
+            </p>
+          ) : null}
           {detail.transcript ? (
             <RegenerateSummary
               templates={templates.templates}

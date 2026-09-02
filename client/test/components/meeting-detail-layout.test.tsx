@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
@@ -126,15 +126,20 @@ const template: SummaryTemplateView = {
   isDefault: true,
 };
 
+/** The meeting the screen is given; a test that needs a different one assigns it in place. */
+let currentDetail: MeetingDetail = detail();
+
 vi.mock("@/features/meetings/use-meeting", () => ({
   useMeeting: (): MeetingDetailState => ({
-    detail: detail(),
+    detail: currentDetail,
     status: "ready",
     errorCode: null,
     deleting: false,
     reload: vi.fn(),
     remove: vi.fn(),
     rename: vi.fn(),
+    correct: vi.fn(),
+    reset: vi.fn(),
   }),
 }));
 
@@ -182,6 +187,10 @@ function renderDetail() {
 describe("meeting detail layout", () => {
   beforeAll(async () => {
     await useLanguage("en");
+  });
+
+  beforeEach(() => {
+    currentDetail = detail();
   });
 
   it("puts the transcript and the summary on the page together", () => {
@@ -260,5 +269,85 @@ describe("meeting detail layout", () => {
     expect(attribution.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+  });
+});
+
+/**
+ * What the summary says about a corrected transcript (ADR-011).
+ *
+ * The summary pipeline never reads the corrections — every summary is written from the machine's
+ * own wording — so the note follows whether the transcript carries a correction at all, not when
+ * it was made. The last two cases are the ones a timestamp comparison got wrong.
+ */
+describe("a summary of a corrected transcript", () => {
+  beforeAll(async () => {
+    await useLanguage("en");
+  });
+
+  /** The same meeting, with one segment corrected. */
+  function withCorrection(): MeetingDetail {
+    const base = detail();
+    const transcript = base.transcript as NonNullable<MeetingDetail["transcript"]>;
+    return {
+      ...base,
+      transcript: {
+        ...transcript,
+        segments: transcript.segments.map((segment) => ({
+          ...segment,
+          editedText: "The home page is done.",
+        })),
+      },
+    };
+  }
+
+  const NOTE = "This summary is based on the original wording, before your corrections.";
+
+  it("says nothing while the transcript stands as it was transcribed", () => {
+    currentDetail = detail();
+    renderDetail();
+
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
+  });
+
+  it("says what the summary was written from once a passage is corrected", () => {
+    currentDetail = withCorrection();
+    renderDetail();
+
+    expect(screen.getByText(NOTE)).toBeInTheDocument();
+  });
+
+  it("keeps saying it for a summary written after the correction", () => {
+    // A regenerated summary read the original wording exactly like its predecessor did, so a
+    // fresh `createdAt` must not make the note disappear.
+    const corrected = withCorrection();
+    const summary = corrected.summaries[0];
+    if (!summary) throw new Error("the fixture has no summary");
+    currentDetail = {
+      ...corrected,
+      summaries: [{ ...summary, createdAt: new Date().toISOString() }],
+    };
+    renderDetail();
+
+    expect(screen.getByText(NOTE)).toBeInTheDocument();
+  });
+
+  it("keeps saying it while any correction is left", () => {
+    // Resetting one of several corrections leaves the transcript reading differently from the
+    // summary's source, so the note stays.
+    const corrected = withCorrection();
+    const transcript = corrected.transcript as NonNullable<MeetingDetail["transcript"]>;
+    currentDetail = {
+      ...corrected,
+      transcript: {
+        ...transcript,
+        segments: [
+          { ...transcript.segments[0]!, editedText: null },
+          { ...transcript.segments[0]!, id: "33333333-0000-4000-8000-000000000002" },
+        ],
+      },
+    };
+    renderDetail();
+
+    expect(screen.getByText(NOTE)).toBeInTheDocument();
   });
 });

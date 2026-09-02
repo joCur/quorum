@@ -1,4 +1,10 @@
-import { transcriptionLanguageRequest, type Job } from "@quorum/shared";
+import {
+  reconcileRecordedDuration,
+  transcriptionLanguageRequest,
+  type DurationReconciliation,
+  type DurationTolerance,
+  type Job,
+} from "@quorum/shared";
 import type { AudioSource } from "./storage/audio-source.js";
 import type { TranscriptionClient } from "./whisper/client.js";
 import type { TranscriptRepository } from "./db/repository.js";
@@ -8,6 +14,7 @@ import { transcriptIdForJob } from "./ids.js";
 import { logMeetingGone } from "./logger.js";
 import { audioFileDescriptor } from "./storage/manifest.js";
 import { mapResponseToTranscript } from "./transcript/map.js";
+import { audioDurationSeconds } from "./transcript/duration.js";
 import type { TranscribeJobPayload } from "./payload.js";
 import type { SummaryEnqueuer } from "./summary/enqueue.js";
 import type { RemuxEnqueuer } from "./remux/enqueue.js";
@@ -39,6 +46,11 @@ export interface TranscribeHandlerDependencies {
    * want, and what a deployment that has not turned this on would do.
    */
   remux?: RemuxEnqueuer | undefined;
+  /**
+   * How far the client's asserted recording duration may fall short of the audio's real length
+   * before the job flags it. Omitted, the shared defaults apply.
+   */
+  durationTolerance?: DurationTolerance | undefined;
   now?: () => Date;
 }
 
@@ -135,6 +147,16 @@ export async function runTranscribeJob(
       "transcription backend answered",
     );
 
+    // The decoded length of the audio, and what the client claimed while it was recording. This
+    // is the only point in the pipeline where both numbers exist at once.
+    const trueSeconds = audioDurationSeconds(response);
+    const reconciliation = reconcileRecordedDuration({
+      assertedSeconds: manifest.recordedSeconds,
+      trueSeconds,
+      ...(deps.durationTolerance ? { tolerance: deps.durationTolerance } : {}),
+    });
+    logReconciliation(log, reconciliation);
+
     const transcript = mapResponseToTranscript({
       response,
       jobId: payload.job.id,
@@ -148,7 +170,12 @@ export async function runTranscribeJob(
       ...(language ? { fallbackLanguage: language } : {}),
     });
 
-    const saved = await deps.repository.saveTranscript(transcript, scope, payload.job.id);
+    const saved = await deps.repository.saveTranscript(
+      transcript,
+      scope,
+      payload.job.id,
+      trueSeconds,
+    );
     const wordCount = transcript.segments.reduce(
       (sum, segment) => sum + (segment.words?.length ?? 0),
       0,
@@ -165,7 +192,9 @@ export async function runTranscribeJob(
       log,
     );
 
-    const remuxEnqueued = await enqueueRemux(payload, response.duration ?? null, deps, log);
+    // `trueSeconds` rather than the raw response field: it already falls back to the last
+    // segment's end for a backend that reports no duration, and this is the same question.
+    const remuxEnqueued = await enqueueRemux(payload, trueSeconds, deps, log);
 
     const succeeded: Job = {
       ...payload.job,
@@ -384,6 +413,53 @@ async function enqueueRemux(
     );
     return false;
   }
+}
+
+/**
+ * Reports the duration reconciliation as structured data.
+ *
+ * This is the whole consequence of a discrepancy for now: the reconciled duration is what the
+ * quota charges (the meeting index reads it from the transcript row), and a client whose numbers
+ * do not describe its own audio is flagged for operators rather than refused.
+ *
+ * TWO WARNINGS, NOT ONE, because there are two ways to get away with it:
+ *
+ * - `duration.understated` — both numbers exist and the assertion is well short of the audio.
+ * - `duration.unmeasured` — the client asserted a duration but nothing measured the audio, so
+ *   there is nothing to check the assertion against. Silent-by-construction audio that a backend
+ *   reports no duration for would otherwise be the quiet way past the first event, and a quota
+ *   that falls back to the assertion is precisely then taking the client's word for it.
+ *
+ * Everything else is `duration.reconciled` at info, including the case where neither side has a
+ * number — nothing was claimed, so nothing is unchecked.
+ */
+function logReconciliation(log: WorkerLogger, reconciliation: DurationReconciliation): void {
+  const fields = {
+    outcome: reconciliation.outcome,
+    assertedSeconds: reconciliation.assertedSeconds,
+    trueSeconds: reconciliation.trueSeconds,
+    shortfallSeconds: reconciliation.shortfallSeconds,
+    toleratedSeconds: reconciliation.toleratedSeconds,
+    billableSeconds: reconciliation.billableSeconds,
+  };
+  if (reconciliation.outcome === "understated") {
+    log.warn(
+      { event: "duration.understated", ...fields },
+      "the recorded duration the client asserted is well short of the audio it produced",
+    );
+    return;
+  }
+  if (reconciliation.outcome === "unknown" && reconciliation.assertedSeconds !== null) {
+    log.warn(
+      { event: "duration.unmeasured", ...fields },
+      "the audio produced no duration to check the client's asserted recording time against",
+    );
+    return;
+  }
+  log.info(
+    { event: "duration.reconciled", ...fields },
+    "recorded duration reconciled against the transcribed audio",
+  );
 }
 
 /** Keeps a malformed timestamp from failing schema validation late in the run. */

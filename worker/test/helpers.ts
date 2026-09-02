@@ -79,8 +79,9 @@ export function manifest(overrides: Partial<RecordingManifest> = {}): RecordingM
     persistedSeq: chunkCount - 1,
     chunkKeys: Array.from({ length: chunkCount }, (_value, seq) => chunkKey(SCOPE, seq)),
     audioKey: null,
-    durationSeconds: null,
+    artifactDurationSeconds: null,
     marks: [],
+    recordedSeconds: null,
     finalizedAt: "2026-08-29T10:30:00.000Z",
     ...overrides,
   };
@@ -218,10 +219,14 @@ export class InMemoryRepository implements TranscriptRepository {
     this.migrated = true;
   }
 
+  /** Decoded audio length stored alongside each transcript, keyed by transcript id. */
+  readonly durations = new Map<string, number | null>();
+
   async saveTranscript(
     transcript: Transcript,
     scope: JobScope,
     jobId: string,
+    durationSeconds: number | null = null,
   ): Promise<SaveTranscriptResult> {
     this.onBeforeSaveTranscript?.();
     // The real repository checks and inserts in one transaction; here the
@@ -237,6 +242,7 @@ export class InMemoryRepository implements TranscriptRepository {
       }
     }
     this.transcripts.set(transcript.id, { transcript, scope });
+    this.durations.set(transcript.id, durationSeconds);
     this.byJob.set(jobId, transcript.id);
     return { transcriptId: transcript.id, created: true };
   }

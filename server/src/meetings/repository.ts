@@ -1,12 +1,15 @@
 import postgres from "postgres";
 import {
   normalizeUserTitle,
+  withCorrections,
   JobSchema,
   SummarySchema,
   TranscriptSchema,
   type AudioFormat,
   type Job,
   type Meeting,
+  type SegmentCorrection,
+  type SegmentOverlay,
   type Summary,
   type Transcript,
 } from "@quorum/shared";
@@ -19,6 +22,9 @@ const MIGRATION_LOCK_KEY = 6_120_931_043;
 
 /** PostgreSQL `undefined_table` — the worker has not applied its schema yet. */
 const UNDEFINED_TABLE = "42P01";
+
+/** PostgreSQL `undefined_column` — the worker's schema predates a column read here. */
+const UNDEFINED_COLUMN = "42703";
 
 /** Tenant and user a request runs under (ADR-001). Never read from the request body. */
 export interface MeetingScope {
@@ -46,10 +52,32 @@ export interface ListMeetingsOptions {
 
 export interface MeetingDetailRow {
   meeting: Meeting;
+  /** The active transcript with the stored corrections already merged in (ADR-011 §3). */
   transcript: Transcript | null;
   summaries: Summary[];
   jobs: Job[];
 }
+
+/** Which segment of which transcript a correction is about. */
+export interface SegmentRef {
+  meetingId: string;
+  transcriptId: string;
+  segmentId: string;
+}
+
+/**
+ * What a correction write actually did.
+ *
+ * The route answers from this rather than from the request it was handed: a write that did not
+ * land must not be reported as one that did. `transcript-replaced` is the reprocessing race — the
+ * transcript the correction was aimed at stopped being the active one between the read that
+ * resolved it and the write, and the correction would have been stored against a document nothing
+ * displays any more.
+ */
+export type CorrectionOutcome =
+  | { kind: "stored"; correction: SegmentCorrection }
+  | { kind: "cleared" }
+  | { kind: "transcript-replaced" };
 
 /**
  * Persistence port for meetings. The routes depend only on this, so they can be exercised
@@ -81,6 +109,29 @@ export interface MeetingStore {
   /** `null` when the meeting does not exist *or* belongs to another tenant or user. */
   findMeeting(scope: MeetingScope, meetingId: string): Promise<MeetingDetailRow | null>;
   /**
+   * Stores what the user says a segment should read (ADR-011).
+   *
+   * ONE CORRECTION PER SEGMENT, LAST WRITER WINS. The row is keyed by tenant, transcript and
+   * segment; `user_id` records who wrote it last, and is an author, never part of the key. A
+   * segment reads one way for everyone who can see the meeting, so two people correcting the same
+   * passage is a conflict resolved by order of arrival — not two overlays the reader would have to
+   * choose between.
+   *
+   * The overlay handed in is already normalized: whether a piece of typing counts as a correction
+   * at all is decided once, in `@quorum/shared`, so both stores and the client agree. Returns what
+   * the write actually did, which is what the caller answers with.
+   */
+  setSegmentCorrection(
+    scope: MeetingScope,
+    ref: SegmentRef,
+    overlay: SegmentOverlay,
+  ): Promise<CorrectionOutcome>;
+  /**
+   * Removes a segment's correction, which is how the original comes back: there is no second copy
+   * to restore, because the machine output was never overwritten. Idempotent.
+   */
+  clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<CorrectionOutcome>;
+  /**
    * Hands a job back to the queue: its row goes to `queued` with the last attempt's error and
    * timings cleared, and `target.enqueue` puts it on the queue — as one atomic step.
    *
@@ -89,9 +140,9 @@ export interface MeetingStore {
    */
   requeueFailedJob(scope: MeetingScope, target: RequeueTarget): Promise<RequeueOutcome>;
   /**
-   * Removes every database row belonging to a meeting — summaries, transcripts, job rows, any
-   * queued work and the meeting itself — in one transaction (ADR-001). Returns `false` when
-   * there was no such meeting in the caller's scope.
+   * Removes every database row belonging to a meeting — summaries, transcripts, the user's
+   * corrections, job rows, any queued work and the meeting itself — in one transaction
+   * (ADR-001). Returns `false` when there was no such meeting in the caller's scope.
    */
   deleteMeeting(scope: MeetingScope, meetingId: string): Promise<boolean>;
   close(): Promise<void>;
@@ -256,21 +307,60 @@ export class PostgresMeetingStore implements MeetingStore {
    * Usage is summed from the meetings themselves, so it is exactly as durable as the meetings
    * are: nothing to reconcile after a restart, and a deleted meeting stops counting the moment
    * the ADR-001 cascade removes its row.
+   *
+   * RECORDED TIME IS BILLED FROM THE AUDIO, NOT FROM THE CLAIM. `recorded_seconds` is the client's
+   * assertion, taken from the chunk offsets it sent, and a client is free to understate it. Once
+   * the transcription of a meeting has run, its `duration_seconds` is the decoded length of the
+   * audio, and that is the number this sum charges for — the same rule
+   * `billableRecordedSeconds` states for the in-memory store. Until then the assertion still
+   * counts: a quota that waited for the pipeline would be bypassed by never letting it finish.
+   *
+   * The join reads the worker's table, as the rest of this class already does, and falls back to
+   * the assertion alone when that table or its column is not there yet — a server that started
+   * before the worker ever migrated still enforces a quota.
+   *
+   * A MEASUREMENT IS NEVER GIVEN BACK. The lateral prefers the active transcript but accepts the
+   * newest measured row of the meeting, so re-transcribing with a backend that reports no
+   * duration cannot revert a meeting to the client's assertion. Once the audio has been measured,
+   * that measurement is what the meeting costs.
    */
   async readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage> {
-    const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
-      SELECT COALESCE(SUM(audio_bytes), 0)::text AS storage_bytes,
-             COALESCE(SUM(recorded_seconds) FILTER (WHERE created_at >= ${monthStart}), 0)::text
-               AS month_seconds
-        FROM meetings
-       WHERE tenant_id = ${scope.tenantId}
-         AND user_id = ${scope.userId}
-    `;
-    const row = rows[0];
-    return {
-      storageBytes: Number(row?.storage_bytes ?? 0),
-      monthRecordedSeconds: Number(row?.month_seconds ?? 0),
-    };
+    try {
+      const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
+        SELECT COALESCE(SUM(m.audio_bytes), 0)::text AS storage_bytes,
+               COALESCE(
+                 SUM(
+                   CASE WHEN t.duration_seconds > 0 THEN t.duration_seconds
+                        ELSE m.recorded_seconds END
+                 ) FILTER (WHERE m.created_at >= ${monthStart}),
+                 0
+               )::text AS month_seconds
+          FROM meetings m
+          LEFT JOIN LATERAL (
+                SELECT duration_seconds
+                  FROM transcripts
+                 WHERE meeting_id = m.id
+                   AND tenant_id = m.tenant_id
+                   AND duration_seconds > 0
+                 ORDER BY is_active DESC, created_at DESC
+                 LIMIT 1
+               ) t ON true
+         WHERE m.tenant_id = ${scope.tenantId}
+           AND m.user_id = ${scope.userId}
+      `;
+      return toAccountUsage(rows[0]);
+    } catch (error) {
+      if (!isMissingPipelineColumn(error)) throw error;
+      const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
+        SELECT COALESCE(SUM(audio_bytes), 0)::text AS storage_bytes,
+               COALESCE(SUM(recorded_seconds) FILTER (WHERE created_at >= ${monthStart}), 0)::text
+                 AS month_seconds
+          FROM meetings
+         WHERE tenant_id = ${scope.tenantId}
+           AND user_id = ${scope.userId}
+      `;
+      return toAccountUsage(rows[0]);
+    }
   }
 
   async listMeetings(scope: MeetingScope, options: ListMeetingsOptions = {}): Promise<Meeting[]> {
@@ -311,8 +401,131 @@ export class PostgresMeetingStore implements MeetingStore {
     if (!row) return null;
 
     const facts = await this.loadPipelineFacts(scope, [row.id]);
-    const [transcript, summaries, jobs] = await this.loadArtifacts(scope, row.id);
-    return { meeting: toMeeting(row, facts), transcript, summaries, jobs };
+    const [stored, summaries, jobs] = await this.loadArtifacts(scope, row.id);
+
+    // The corrections are read against the transcript they were made on, so a meeting that was
+    // reprocessed since shows the new transcript uncorrected rather than wearing edits made to
+    // wording that is no longer there (ADR-011 §4).
+    const corrections = stored === null ? [] : await this.loadCorrections(scope, stored.id);
+    return {
+      meeting: toMeeting(row, facts),
+      transcript: stored === null ? null : withCorrections(stored, corrections),
+      summaries,
+      jobs,
+    };
+  }
+
+  /**
+   * Every correction stored against one transcript.
+   *
+   * Scoped by tenant, not by user: a correction is a property of the segment, not of the person
+   * who typed it, so everyone who can read the meeting reads the same words.
+   */
+  private async loadCorrections(
+    scope: MeetingScope,
+    transcriptId: string,
+  ): Promise<SegmentCorrection[]> {
+    const rows = await this.sql<CorrectionRow[]>`
+      SELECT segment_id, edited_text, edited_speaker_id, updated_at
+        FROM transcript_corrections
+       WHERE tenant_id = ${scope.tenantId}
+         AND transcript_id = ${transcriptId}
+    `;
+    return rows.map(toCorrection);
+  }
+
+  async setSegmentCorrection(
+    scope: MeetingScope,
+    ref: SegmentRef,
+    overlay: SegmentOverlay,
+  ): Promise<CorrectionOutcome> {
+    return this.sql.begin(async (sql) => {
+      if (!(await stillActive(sql, scope, ref))) return { kind: "transcript-replaced" };
+
+      // Last writer wins, and `user_id` is updated with the row: it records who corrected the
+      // segment, and is deliberately not part of the key or the predicate. Two people correcting
+      // one passage is one passage with one correction, not two overlays a reader has to pick
+      // between.
+      const rows = await sql<CorrectionRow[]>`
+        INSERT INTO transcript_corrections (
+          tenant_id, user_id, meeting_id, transcript_id, segment_id, edited_text, edited_speaker_id
+        ) VALUES (
+          ${scope.tenantId}, ${scope.userId}, ${ref.meetingId}, ${ref.transcriptId},
+          ${ref.segmentId}, ${overlay.editedText}, ${overlay.editedSpeakerId}
+        )
+        ON CONFLICT (tenant_id, transcript_id, segment_id) DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          edited_text = EXCLUDED.edited_text,
+          edited_speaker_id = EXCLUDED.edited_speaker_id,
+          updated_at = now()
+        RETURNING segment_id, edited_text, edited_speaker_id, updated_at
+      `;
+      const row = rows[0];
+      // Unreachable: the insert either inserts or updates, and both paths return the row. Reported
+      // as the race rather than assumed away, so a future predicate on the upsert cannot turn a
+      // silent no-op into a 200 that describes a write nobody made.
+      if (!row) return { kind: "transcript-replaced" };
+      return { kind: "stored", correction: toCorrection(row) };
+    });
+  }
+
+  async clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<CorrectionOutcome> {
+    return this.sql.begin(async (sql) => {
+      if (!(await stillActive(sql, scope, ref))) return { kind: "transcript-replaced" };
+      await sql`
+        DELETE FROM transcript_corrections
+         WHERE tenant_id = ${scope.tenantId}
+           AND transcript_id = ${ref.transcriptId}
+           AND segment_id = ${ref.segmentId}
+      `;
+      return { kind: "cleared" };
+    });
+  }
+
+  /**
+   * Language and duration of the active transcript of each meeting.
+   *
+   * THE DURATION SHOWN IS THE DURATION BILLED. `duration_seconds` is the length the transcription
+   * backend decoded, and it is the number the quota charges for, so it is also the number the
+   * meeting list reports. Deriving the displayed value from the segments instead would put a
+   * second, smaller answer on the screen for every recording that ends in silence — the segments
+   * stop at the last speech, the audio does not — and a meeting that reads "12 minutes" while it
+   * costs four hours of allowance is a support case, not a rounding difference.
+   *
+   * The segment maximum stays as the fallback for transcript rows written before the column
+   * existed, and the whole statement falls back to it when the column is not there at all.
+   */
+  private async loadTranscriptFacts(
+    scope: MeetingScope,
+    meetingIds: string[],
+  ): Promise<{ meeting_id: string; language: string; duration_seconds: string | null }[]> {
+    const sql = this.sql;
+    // Built per statement rather than shared: a query fragment belongs to the statement it is
+    // interpolated into, and the fallback is a second statement.
+    const segmentMaximum = (): postgres.PendingQuery<postgres.Row[]> =>
+      sql`(SELECT max((segment->>'end')::double precision)
+             FROM jsonb_array_elements(transcript->'segments') segment)`;
+    try {
+      return await sql<{ meeting_id: string; language: string; duration_seconds: string | null }[]>`
+        SELECT meeting_id,
+               language,
+               COALESCE(duration_seconds, ${segmentMaximum()}) AS duration_seconds
+          FROM transcripts
+         WHERE tenant_id = ${scope.tenantId}
+           AND is_active
+           AND meeting_id IN ${sql(meetingIds)}
+      `;
+    } catch (error) {
+      // Only the column can be missing here; a missing table is the outer catch's business.
+      if (isUndefinedTable(error) || !isMissingPipelineColumn(error)) throw error;
+      return await sql<{ meeting_id: string; language: string; duration_seconds: string | null }[]>`
+        SELECT meeting_id, language, ${segmentMaximum()} AS duration_seconds
+          FROM transcripts
+         WHERE tenant_id = ${scope.tenantId}
+           AND is_active
+           AND meeting_id IN ${sql(meetingIds)}
+      `;
+    }
   }
 
   /**
@@ -335,18 +548,7 @@ export class PostgresMeetingStore implements MeetingStore {
 
     try {
       const sql = this.sql;
-      const transcriptRows = await sql<
-        { meeting_id: string; language: string; duration_seconds: string | null }[]
-      >`
-        SELECT meeting_id,
-               language,
-               (SELECT max((segment->>'end')::double precision)
-                  FROM jsonb_array_elements(transcript->'segments') segment) AS duration_seconds
-          FROM transcripts
-         WHERE tenant_id = ${scope.tenantId}
-           AND is_active
-           AND meeting_id IN ${sql(meetingIds)}
-      `;
+      const transcriptRows = await this.loadTranscriptFacts(scope, meetingIds);
       const summaryRows = await sql<{ meeting_id: string }[]>`
         SELECT DISTINCT meeting_id
           FROM summaries
@@ -555,8 +757,11 @@ export class PostgresMeetingStore implements MeetingStore {
       if (owned.length === 0) return false;
 
       // Summaries reference transcripts, so they go first even though no foreign key enforces it
-      // yet — the order is the one a constraint would demand.
-      for (const table of ["summaries", "transcripts", "jobs"] as const) {
+      // yet — the order is the one a constraint would demand. The user's corrections reference
+      // transcript segments and go before the transcript for the same reason: they are the user's
+      // own words about this meeting, and a deletion that left them behind would not be one
+      // (ADR-001, ADR-011 §7).
+      for (const table of ["summaries", "transcript_corrections", "transcripts", "jobs"] as const) {
         if (!(await tableExists(sql, "public", table))) continue;
         await sql`
           DELETE FROM ${sql(table)}
@@ -598,6 +803,51 @@ export class PostgresMeetingStore implements MeetingStore {
   async close(): Promise<void> {
     await this.sql.end({ timeout: 5 });
   }
+}
+
+interface CorrectionRow {
+  segment_id: string;
+  edited_text: string | null;
+  edited_speaker_id: string | null;
+  updated_at: Date;
+}
+
+function toCorrection(row: CorrectionRow): SegmentCorrection {
+  return {
+    segmentId: row.segment_id,
+    editedText: row.edited_text,
+    editedSpeakerId: row.edited_speaker_id,
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+/**
+ * Is this still the transcript the meeting displays?
+ *
+ * The route resolves the active transcript by reading the meeting, and the write happens in a
+ * later statement. Reprocessing deactivates a transcript and activates its successor in between
+ * those two, and a correction stored against the old one would be accepted, answered with 200 and
+ * then be invisible on the next load — the worst shape a write can have.
+ *
+ * `FOR SHARE` rather than a plain read: it holds the row against the worker's `is_active` update
+ * until this transaction commits, which is what turns the check from "was true a moment ago" into
+ * "is true for the write that follows it". The lock is held for the microseconds of one upsert, on
+ * one row, and the reprocessing job is the only writer that can ever wait on it.
+ */
+async function stillActive(
+  sql: postgres.TransactionSql,
+  scope: MeetingScope,
+  ref: SegmentRef,
+): Promise<boolean> {
+  const rows = await sql<{ id: string }[]>`
+    SELECT id FROM transcripts
+     WHERE id = ${ref.transcriptId}
+       AND tenant_id = ${scope.tenantId}
+       AND meeting_id = ${ref.meetingId}
+       AND is_active
+     FOR SHARE
+  `;
+  return rows.length > 0;
 }
 
 /** Existence check that is safe inside a transaction, unlike letting the statement fail. */
@@ -709,4 +959,19 @@ export function escapeLike(value: string): string {
 
 function isUndefinedTable(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === UNDEFINED_TABLE;
+}
+
+/** The worker's transcripts table, or the duration column on it, is not there yet. */
+function isMissingPipelineColumn(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === UNDEFINED_TABLE || code === UNDEFINED_COLUMN;
+}
+
+function toAccountUsage(
+  row: { storage_bytes: string; month_seconds: string } | undefined,
+): AccountUsage {
+  return {
+    storageBytes: Number(row?.storage_bytes ?? 0),
+    monthRecordedSeconds: Number(row?.month_seconds ?? 0),
+  };
 }

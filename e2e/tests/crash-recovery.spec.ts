@@ -83,6 +83,11 @@ test("survives the server dying mid-recording", async ({ page, signIn }) => {
 
   const manifest = await readManifest(scope);
   expect(manifest?.persistedSeq).toBe(chunkCount - 1);
+
+  // The asserted recording duration survived the outage with the audio. A session rebuilt from
+  // storage that counted from zero would finalize with a near-zero assertion here, and the
+  // pipeline would read this honest recording as a client that understated its duration.
+  expect(manifest?.recordedSeconds).toBeGreaterThan(0);
 });
 
 /**
@@ -153,6 +158,9 @@ test("recovers audio a crashed tab left in the local buffer", async ({ page, sig
   expect(manifest?.tenantId).toBe(alice.tenantId);
   expect(manifest?.userId).toBe(alice.userId);
   expect(manifest?.persistedSeq).toBe(chunkCount - 1);
+  // The session that finalizes here is one the server rebuilt from storage, and the audio time
+  // it asserts has to describe the whole recording rather than restart at the recovery.
+  expect(manifest?.recordedSeconds).toBeGreaterThan(0);
 
   // And it is a meeting like any other: one transcribe job, from the one session.
   const job = await waitForValue(

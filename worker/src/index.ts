@@ -45,6 +45,7 @@ export {
   type TranscriptionRequest,
 } from "./whisper/client.js";
 export * from "./transcript/map.js";
+export * from "./transcript/duration.js";
 export { MIGRATIONS } from "./db/schema.js";
 export {
   PostgresRepository,
@@ -244,6 +245,10 @@ async function start(
     // where nothing else is reading the chunk objects any more (ADR-010).
     remux: new PgBossRemuxEnqueuer(boss, repository),
     summaryTemplateId: SYSTEM_SUMMARY_TEMPLATE.id,
+    durationTolerance: {
+      absoluteSeconds: config.DURATION_TOLERANCE_SECONDS,
+      relative: config.DURATION_TOLERANCE_RATIO,
+    },
     concurrency: config.WORKER_CONCURRENCY,
     metrics,
     retryLimit: config.WORKER_RETRY_LIMIT,

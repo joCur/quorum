@@ -102,6 +102,12 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   expect(transcript.meetingId).toBe(manifest?.meetingId);
   expect(transcript.isActive).toBe(true);
 
+  // Recorded duration is derived from the audio, not taken on the client's word: the manifest
+  // carries what the recorder asserted, and the transcript row carries the length the backend
+  // decoded — the number the quota charges for.
+  expect(typeof manifest?.recordedSeconds).toBe("number");
+  expect(transcript.durationSeconds).toBeGreaterThan(0);
+
   // Exactly one active transcript for the meeting — no duplicate from a retried job.
   await waitFor(
     async () => (await findTranscript(sessionId))?.id === transcript.id,

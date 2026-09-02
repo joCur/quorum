@@ -1,7 +1,11 @@
 import {
+  billableRecordedSeconds,
   normalizeUserTitle,
+  withCorrections,
   type Job,
   type Meeting,
+  type SegmentCorrection,
+  type SegmentOverlay,
   type Summary,
   type Transcript,
 } from "@quorum/shared";
@@ -14,9 +18,11 @@ import {
   type MeetingDetailRow,
   type MeetingRecord,
   type MeetingScope,
+  type CorrectionOutcome,
   type MeetingStore,
   type RequeueOutcome,
   type RequeueTarget,
+  type SegmentRef,
 } from "./repository.js";
 
 interface StoredMeeting extends MeetingRecord {
@@ -25,9 +31,35 @@ interface StoredMeeting extends MeetingRecord {
   recordedSeconds: number;
 }
 
+/**
+ * One stored overlay. `author` is who wrote it last and is deliberately not part of the key: the
+ * key is the tenant, the transcript and the segment, exactly as in the SQL table.
+ */
+interface StoredCorrection {
+  tenantId: string;
+  author: string;
+  meetingId: string;
+  transcriptId: string;
+  correction: SegmentCorrection;
+}
+
+function correctionKey(scope: MeetingScope, ref: SegmentRef): string {
+  return `${scope.tenantId}/${ref.transcriptId}/${ref.segmentId}`;
+}
+
 /** Pipeline artifacts a test attaches to a meeting to exercise the derived status. */
 export interface StoredPipeline {
   transcript?: Transcript;
+  /**
+   * Decoded length of the audio, standing in for the transcript row's `duration_seconds`.
+   *
+   * Its own value rather than something read out of the transcript, because that is what the SQL
+   * store holds: the backend measures the file, while the segments only say when it stopped
+   * hearing speech. With the silence filter on, a recording that ends in quiet has a last segment
+   * well before the end of its audio, and billing the two apart is exactly the drift this store
+   * must not invent. Omitted means the pipeline reported no duration.
+   */
+  transcriptDurationSeconds?: number | null;
   summaries?: Summary[];
   jobs?: Job[];
 }
@@ -41,6 +73,22 @@ export interface StoredPipeline {
 export class InMemoryMeetingStore implements MeetingStore {
   private readonly meetings = new Map<string, StoredMeeting>();
   private readonly pipelines = new Map<string, StoredPipeline>();
+  /** Last decoded duration the pipeline reported per meeting; the transcript row's column. */
+  private readonly measuredDurations = new Map<string, number>();
+  private readonly corrections = new Map<string, StoredCorrection>();
+
+  /**
+   * The clock the correction timestamps come from.
+   *
+   * Injectable because "the transcript was corrected after the summary was written" is a
+   * comparison between two instants, and a test that has to wait a real second to produce them is
+   * a test that will one day fail on a fast machine instead.
+   */
+  constructor(private readonly clock: () => Date = () => new Date()) {}
+
+  private now(): string {
+    return this.clock().toISOString();
+  }
 
   async migrate(): Promise<void> {
     // Nothing to apply.
@@ -87,13 +135,21 @@ export class InMemoryMeetingStore implements MeetingStore {
     }
   }
 
+  /**
+   * Mirrors the SQL implementation, reconciliation included: a meeting that has been transcribed
+   * is charged for the duration of its audio, one that has not for what the client asserted.
+   */
   async readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage> {
     let storageBytes = 0;
     let monthRecordedSeconds = 0;
     for (const meeting of this.meetings.values()) {
       if (meeting.tenantId !== scope.tenantId || meeting.userId !== scope.userId) continue;
       storageBytes += meeting.audioBytes;
-      if (meeting.createdAt >= monthStart) monthRecordedSeconds += meeting.recordedSeconds;
+      if (meeting.createdAt < monthStart) continue;
+      monthRecordedSeconds += billableRecordedSeconds({
+        assertedSeconds: meeting.recordedSeconds,
+        reconciledSeconds: this.measuredDuration(meeting.meetingId),
+      });
     }
     return { storageBytes, monthRecordedSeconds };
   }
@@ -114,6 +170,26 @@ export class InMemoryMeetingStore implements MeetingStore {
   /** Test seam: attaches transcript, summaries and job rows to an existing meeting. */
   setPipeline(meetingId: string, pipeline: StoredPipeline): void {
     this.pipelines.set(meetingId, pipeline);
+    // The SQL store keeps every transcript row it ever wrote, so a measurement survives a later
+    // one that has none. Remembering it here keeps a re-transcription from silently handing the
+    // quota back to the client's assertion.
+    const measured = pipeline.transcriptDurationSeconds;
+    if (typeof measured === "number" && measured > 0) {
+      this.measuredDurations.set(meetingId, measured);
+    }
+  }
+
+  /**
+   * The decoded duration the pipeline measured for a meeting, or `null`.
+   *
+   * Falls back to the last segment's end when nothing measured it, exactly as the SQL store's
+   * `COALESCE` does for transcript rows written before the column existed.
+   */
+  private measuredDuration(meetingId: string): number | null {
+    const measured = this.measuredDurations.get(meetingId);
+    if (measured !== undefined) return measured;
+    const transcript = this.pipelines.get(meetingId)?.transcript ?? null;
+    return transcript ? transcriptDuration(transcript) : null;
   }
 
   async listMeetings(scope: MeetingScope, options: ListMeetingsOptions = {}): Promise<Meeting[]> {
@@ -140,12 +216,62 @@ export class InMemoryMeetingStore implements MeetingStore {
       return null;
     }
     const pipeline = this.pipelines.get(meetingId) ?? {};
+    const stored = pipeline.transcript ?? null;
+    const corrections = stored === null ? [] : this.correctionsFor(scope, stored.id);
     return {
       meeting: this.toMeeting(meeting),
-      transcript: pipeline.transcript ?? null,
+      transcript: stored === null ? null : withCorrections(stored, corrections),
       summaries: pipeline.summaries ?? [],
       jobs: pipeline.jobs ?? [],
     };
+  }
+
+  /**
+   * One correction per segment, last writer wins, `author` recording who wrote it — the same
+   * semantics as the SQL upsert, down to the key. Two stores that disagree about what one call
+   * does are two behaviors, and the tests would only ever exercise the one here.
+   */
+  async setSegmentCorrection(
+    scope: MeetingScope,
+    ref: SegmentRef,
+    overlay: SegmentOverlay,
+  ): Promise<CorrectionOutcome> {
+    if (!this.stillActive(scope, ref)) return { kind: "transcript-replaced" };
+    const correction: SegmentCorrection = {
+      segmentId: ref.segmentId,
+      editedText: overlay.editedText,
+      editedSpeakerId: overlay.editedSpeakerId,
+      updatedAt: this.now(),
+    };
+    this.corrections.set(correctionKey(scope, ref), {
+      tenantId: scope.tenantId,
+      author: scope.userId,
+      meetingId: ref.meetingId,
+      transcriptId: ref.transcriptId,
+      correction,
+    });
+    return { kind: "stored", correction };
+  }
+
+  async clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<CorrectionOutcome> {
+    if (!this.stillActive(scope, ref)) return { kind: "transcript-replaced" };
+    this.corrections.delete(correctionKey(scope, ref));
+    return { kind: "cleared" };
+  }
+
+  /** The SQL store's `FOR SHARE` check, with nothing to lock: is this still the active transcript? */
+  private stillActive(scope: MeetingScope, ref: SegmentRef): boolean {
+    const meeting = this.meetings.get(ref.meetingId);
+    if (!meeting || meeting.tenantId !== scope.tenantId) return false;
+    const transcript = this.pipelines.get(ref.meetingId)?.transcript;
+    return transcript?.id === ref.transcriptId && transcript.isActive;
+  }
+
+  /** Scoped by tenant, not by user: a correction belongs to the segment, not to its author. */
+  private correctionsFor(scope: MeetingScope, transcriptId: string): SegmentCorrection[] {
+    return [...this.corrections.values()]
+      .filter((entry) => entry.tenantId === scope.tenantId && entry.transcriptId === transcriptId)
+      .map((entry) => entry.correction);
   }
 
   /**
@@ -208,12 +334,18 @@ export class InMemoryMeetingStore implements MeetingStore {
     }
     this.meetings.delete(meetingId);
     this.pipelines.delete(meetingId);
+    this.measuredDurations.delete(meetingId);
+    for (const [key, entry] of this.corrections) {
+      if (entry.tenantId === scope.tenantId && entry.meetingId === meetingId) {
+        this.corrections.delete(key);
+      }
+    }
     return true;
   }
 
   /** Test seam: what is left in the store, for asserting that a cascade left nothing behind. */
   get size(): number {
-    return this.meetings.size + this.pipelines.size;
+    return this.meetings.size + this.pipelines.size + this.corrections.size;
   }
 
   async close(): Promise<void> {
@@ -239,7 +371,8 @@ export class InMemoryMeetingStore implements MeetingStore {
       audioFormat: meeting.audioFormat,
       createdAt: meeting.createdAt,
       finalizedAt: meeting.finalizedAt,
-      durationSeconds: transcript ? transcriptDuration(transcript) : null,
+      // One truth for what a meeting lasted: the list shows the number the quota charges for.
+      durationSeconds: transcript ? this.measuredDuration(meeting.meetingId) : null,
       language: transcript?.language ?? null,
       progress: state.progress,
       hasAudio: meeting.finalizedAt !== null,

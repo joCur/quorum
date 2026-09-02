@@ -163,7 +163,7 @@ export async function runRemuxJob(
     await deps.storage.writeManifest(scope, {
       ...manifest,
       audioKey: final,
-      durationSeconds: remuxed.durationSeconds,
+      artifactDurationSeconds: remuxed.durationSeconds,
     });
 
     const chunkKeys = resolveChunkKeys(manifest, scope);

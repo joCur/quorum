@@ -154,7 +154,7 @@ function baseManifest(overrides: Partial<RecordingManifest> = {}): RecordingMani
     persistedSeq: CHUNK_COUNT - 1,
     chunkKeys: Array.from({ length: CHUNK_COUNT }, (_value, seq) => chunkKey(SCOPE, seq)),
     audioKey: null,
-    durationSeconds: null,
+    artifactDurationSeconds: null,
     marks: [],
     finalizedAt: "2026-08-29T10:30:00.000Z",
     ...overrides,
@@ -235,7 +235,7 @@ describe("the remux job", () => {
     await runRemuxJob(payload(), 0, deps(store));
     const manifest = await store.loadManifest();
     expect(manifest.audioKey).toBe(audioKey(SCOPE));
-    expect(manifest.durationSeconds).toBeGreaterThan(5);
+    expect(manifest.artifactDurationSeconds).toBeGreaterThan(5);
     // The chunk list stays as written. It is the record of what the recorder delivered, and the
     // artifact is what replaced it — rewriting history would lose the first fact to state the
     // second.
