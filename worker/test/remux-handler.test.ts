@@ -43,6 +43,16 @@ class FakeStore implements AudioSource, RemuxStorage {
   readonly objects = new Map<string, Uint8Array>();
   /** Keys whose next write must fail, to stage a crash at a chosen point. */
   failWriteOf: string | null = null;
+  /** Raised instead of returning the audio, standing in for chunks deleted mid-read. */
+  failLoadAudio: Error | null = null;
+  /** Awaited before a read, so a test can park one run partway through. */
+  beforeRead: ((key: string) => Promise<void>) | null = null;
+  /**
+   * Serves the manifest written *after* construction from the second read on, so a run can pass
+   * its opening check and then find the world changed underneath it.
+   */
+  manifestOverrideAfterFirstRead = false;
+  private manifestReads = 0;
   /** Bytes to hand back for a read-back check instead of what was written. */
   corruptReadOf: string | null = null;
   /**
@@ -63,6 +73,10 @@ class FakeStore implements AudioSource, RemuxStorage {
   }
 
   async loadManifest(): Promise<RecordingManifest> {
+    this.manifestReads += 1;
+    if (this.manifestOverrideAfterFirstRead && this.manifestReads > 1) {
+      return RecordingManifestSchema.parse(baseManifest({ audioKey: audioKey(SCOPE) }));
+    }
     const bytes = this.objects.get(manifestKey(SCOPE));
     if (!bytes) throw new JobError("MANIFEST_NOT_FOUND", "no manifest", { retryable: false });
     return RecordingManifestSchema.parse(JSON.parse(new TextDecoder().decode(bytes)));
@@ -73,6 +87,7 @@ class FakeStore implements AudioSource, RemuxStorage {
   }
 
   async loadAudio(manifest: RecordingManifest): Promise<Uint8Array> {
+    if (this.failLoadAudio) throw this.failLoadAudio;
     if (manifest.audioKey !== null) {
       const stored = this.objects.get(manifest.audioKey);
       if (!stored) {
@@ -87,7 +102,12 @@ class FakeStore implements AudioSource, RemuxStorage {
     return concat(parts as Uint8Array[]);
   }
 
+  async listKeys(prefix: string): Promise<string[]> {
+    return [...this.objects.keys()].filter((key) => key.startsWith(prefix));
+  }
+
   async readObject(key: string): Promise<Uint8Array | null> {
+    if (this.beforeRead) await this.beforeRead(key);
     if (this.corruptReadOf === key) return new Uint8Array(3);
     const stored = this.objects.get(key) ?? null;
     if (stored === null || this.truncateReadOf !== key) return stored;
@@ -156,16 +176,28 @@ function payload(overrides: Partial<RemuxJobPayload> = {}): RemuxJobPayload {
   };
 }
 
+let runIds = 0;
+
 function deps(
   store: FakeStore,
-  options: { meetingExists?: boolean; logger?: RemuxHandlerDependencies["logger"] } = {},
+  options: {
+    meetingExists?: boolean;
+    logger?: RemuxHandlerDependencies["logger"];
+    runId?: string;
+  } = {},
 ): RemuxHandlerDependencies {
   return {
     audio: store,
     storage: store,
     repository: { meetingExists: async () => options.meetingExists ?? true },
     logger: options.logger ?? silentLogger,
+    newRunId: () => options.runId ?? `run-${(runIds += 1)}`,
   };
+}
+
+/** The staging key a run with this id owns. */
+function staging(runId: string): string {
+  return stagingAudioKey(SCOPE, runId);
 }
 
 describe("the remux job", () => {
@@ -188,7 +220,7 @@ describe("the remux job", () => {
     // The single-copy promise of ADR-010, asserted where it is kept: nothing under the session
     // prefix is a chunk any more, and the staged copy is gone too.
     expect(store.keys.filter((key) => key.includes("/chunks/"))).toEqual([]);
-    expect(store.objects.has(stagingAudioKey(SCOPE))).toBe(false);
+    expect(store.objects.has(staging("run-fixed"))).toBe(false);
   });
 
   it("does not grow what the recording costs to store", async () => {
@@ -211,17 +243,19 @@ describe("the remux job", () => {
   });
 
   it("names the artifact only after reading it back", async () => {
-    await runRemuxJob(payload(), 0, deps(store));
+    await runRemuxJob(payload(), 0, deps(store, { runId: "run-fixed" }));
     // The bytes that got the final name are the bytes that passed the check: a server-side copy
     // of the staged object, not a second write of what was in memory.
-    expect(store.copies).toEqual([{ from: stagingAudioKey(SCOPE), to: audioKey(SCOPE) }]);
+    expect(store.copies).toEqual([{ from: staging("run-fixed"), to: audioKey(SCOPE) }]);
   });
 
   it("leaves the recording exactly as it was when the read-back fails", async () => {
-    store.corruptReadOf = stagingAudioKey(SCOPE);
+    store.corruptReadOf = staging("run-fixed");
     const before = store.keys.filter((key) => key.includes("/chunks/"));
 
-    await expect(runRemuxJob(payload(), 0, deps(store))).rejects.toMatchObject({
+    await expect(
+      runRemuxJob(payload(), 0, deps(store, { runId: "run-fixed" })),
+    ).rejects.toMatchObject({
       code: "REMUX_VERIFICATION_FAILED",
     });
 
@@ -231,9 +265,11 @@ describe("the remux job", () => {
   });
 
   it("leaves the recording exactly as it was when the artifact cannot be written", async () => {
-    store.failWriteOf = stagingAudioKey(SCOPE);
+    store.failWriteOf = staging("run-fixed");
 
-    await expect(runRemuxJob(payload(), 0, deps(store))).rejects.toBeInstanceOf(Error);
+    await expect(
+      runRemuxJob(payload(), 0, deps(store, { runId: "run-fixed" })),
+    ).rejects.toBeInstanceOf(Error);
 
     expect(store.keys.filter((key) => key.includes("/chunks/"))).toHaveLength(CHUNK_COUNT);
     expect(store.objects.has(audioKey(SCOPE))).toBe(false);
@@ -259,9 +295,11 @@ describe("the remux job", () => {
     // The check that stands in for the one above: a parse that quietly lost a stretch of the
     // recording produces a file of plausible size that still opens cleanly, and only the cluster
     // count read back out of storage gives it away.
-    store.truncateReadOf = stagingAudioKey(SCOPE);
+    store.truncateReadOf = staging("run-fixed");
 
-    await expect(runRemuxJob(payload(), 0, deps(store))).rejects.toMatchObject({
+    await expect(
+      runRemuxJob(payload(), 0, deps(store, { runId: "run-fixed" })),
+    ).rejects.toMatchObject({
       code: "REMUX_VERIFICATION_FAILED",
     });
 
@@ -304,6 +342,28 @@ describe("the remux job on a recording it should leave alone", () => {
     expect(store.copies).toEqual([]);
   });
 
+  it("sweeps up chunks an earlier run died before deleting", async () => {
+    // The crash between pointing the manifest at the artifact and removing the chunks. Nothing
+    // else ever comes back for those objects, so the recording would be stored twice for good —
+    // and the invariant playback and the tests rely on, that an artifact means an empty chunk
+    // prefix, would be quietly false.
+    const store = new FakeStore(
+      baseManifest({ audioKey: audioKey(SCOPE) }),
+      chunksOf(RECORDING, CHUNK_COUNT),
+    );
+    store.objects.set(audioKey(SCOPE), new Uint8Array([1, 2, 3]));
+    store.objects.set(staging("run-orphan"), new Uint8Array([4, 5]));
+
+    const outcome = await runRemuxJob(payload(), 0, deps(store));
+
+    expect(outcome.skipped).toBe("already-remuxed");
+    expect(outcome.chunksDeleted).toBe(CHUNK_COUNT + 1);
+    expect(store.keys.filter((key) => key.includes("/chunks/"))).toEqual([]);
+    expect(store.keys.filter((key) => key.includes(".staging"))).toEqual([]);
+    // And the artifact itself is untouched: the sweep only ever removes what it replaced.
+    expect(store.objects.has(audioKey(SCOPE))).toBe(true);
+  });
+
   it("leaves a container it does not repackage in the shape it plays in", async () => {
     const store = new FakeStore(
       baseManifest({
@@ -318,17 +378,48 @@ describe("the remux job on a recording it should leave alone", () => {
     expect(store.keys.filter((key) => key.includes("/chunks/"))).toHaveLength(CHUNK_COUNT);
   });
 
+  it("clears everything it wrote when the meeting is deleted after the artifact lands", async () => {
+    // Critical path 3, in the window the cascade cannot see. The cascade lists the session
+    // prefix and then deletes what it listed; a job that publishes its artifact and rewrites the
+    // manifest after that listing leaves both behind, under a meeting that no longer exists —
+    // audio a user asked to be destroyed, kept forever. The check before the copy cannot catch
+    // it, because at that point the meeting was still there.
+    const store = new FakeStore(baseManifest(), chunksOf(RECORDING, CHUNK_COUNT));
+    const { logger, events } = capturingLogger();
+    let looks = 0;
+    const vanishesAfterTheCopy: RemuxHandlerDependencies = {
+      ...deps(store, { logger, runId: "run-fixed" }),
+      repository: {
+        // There for the check before the copy, gone for the one after it.
+        meetingExists: async () => (looks += 1) === 1,
+      },
+    };
+
+    const outcome = await runRemuxJob(payload(), 0, vanishesAfterTheCopy);
+
+    expect(looks).toBe(2);
+    expect(outcome.abandoned).toBe("meeting-deleted");
+    // Not one object left under the prefix — not the artifact, not the manifest it wrote, not
+    // the staged copy.
+    expect(store.keys).toEqual([]);
+    expect(events.some((event) => event.event === "job.abandoned")).toBe(true);
+  });
+
   it("abandons the run and cleans up when the meeting was deleted mid-job", async () => {
     const store = new FakeStore(baseManifest(), chunksOf(RECORDING, CHUNK_COUNT));
     const { logger, events } = capturingLogger();
 
-    const outcome = await runRemuxJob(payload(), 0, deps(store, { meetingExists: false, logger }));
+    const outcome = await runRemuxJob(
+      payload(),
+      0,
+      deps(store, { meetingExists: false, logger, runId: "run-fixed" }),
+    );
 
     // Nothing may come back from the dead: no artifact, no manifest pointing at one, and not
     // even the staged object the job had already written.
     expect(outcome.abandoned).toBe("meeting-deleted");
     expect(store.objects.has(audioKey(SCOPE))).toBe(false);
-    expect(store.objects.has(stagingAudioKey(SCOPE))).toBe(false);
+    expect(store.objects.has(staging("run-fixed"))).toBe(false);
     expect(events.some((event) => event.event === "job.abandoned")).toBe(true);
   });
 });
@@ -347,3 +438,120 @@ function concat(parts: readonly Uint8Array[]): Uint8Array {
   }
   return out;
 }
+
+/**
+ * Two runs of the same repackaging, at the same time.
+ *
+ * This is not a hypothetical. The queues are created with pg-boss's `standard` policy, and every
+ * unique index that backs a singleton key is predicated on one of the other policies — so two
+ * sends of the same key become two live jobs, and a transcription that runs twice (a user's
+ * retry, an operator's redrive) is exactly how that happens. The handler is what has to hold,
+ * and what it has to hold to is: one artifact, no gap, and no job dead-lettered over a recording
+ * that is in perfect shape.
+ */
+describe("two runs against the same recording", () => {
+  let store: FakeStore;
+
+  beforeEach(() => {
+    store = new FakeStore(baseManifest(), chunksOf(RECORDING, CHUNK_COUNT));
+  });
+
+  it("ends with one good artifact however the two interleave", async () => {
+    // Deliberately not asserting which of them wins, or that only one does. Two runs that both
+    // get past the commit point publish the same bytes — the remuxer is a pure function of the
+    // same input — and that is a correct outcome, not a tolerated one. What must hold in every
+    // interleaving is this: neither run fails, and the recording ends up as one playable file.
+    const outcomes = await Promise.all([
+      runRemuxJob(payload(), 0, deps(store, { runId: "run-a" })),
+      runRemuxJob(payload(), 0, deps(store, { runId: "run-b" })),
+    ]);
+
+    expect(outcomes.every((outcome) => outcome.abandoned === undefined)).toBe(true);
+    const artifact = store.objects.get(audioKey(SCOPE));
+    expect(artifact).toBeDefined();
+    expect(inspectWebm(artifact as Uint8Array).hasCues).toBe(true);
+    expect(inspectWebm(artifact as Uint8Array).clusterCount).toBe(6);
+    expect((await store.loadManifest()).audioKey).toBe(audioKey(SCOPE));
+  });
+
+  it("stops at the commit point when the other run got there first", async () => {
+    // The guard that makes the copy the commit point: this run is held just before publishing,
+    // the other one finishes completely in the meantime, and this one has to notice on its
+    // re-read of the manifest rather than copy over a published artifact.
+    // Park the loser on its verification read — the step between staging the file and re-reading
+    // the manifest to see whether it is still the first — and let a winner finish around it.
+    let arrived: (() => void) | null = null;
+    const atVerify = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    let release: (() => void) | null = null;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    store.beforeRead = async (key) => {
+      if (key !== staging("run-b")) return;
+      store.beforeRead = null;
+      (arrived as unknown as () => void)();
+      await held;
+    };
+
+    const loser = runRemuxJob(payload(), 0, deps(store, { runId: "run-b" }));
+    await atVerify;
+    const winner = await runRemuxJob(payload(), 0, deps(store, { runId: "run-a" }));
+    (release as unknown as () => void)();
+
+    expect(winner.chunksDeleted).toBe(CHUNK_COUNT);
+    expect(await loser).toMatchObject({ skipped: "lost-race" });
+    // And it published nothing: the only copy that ran was the winner's.
+    expect(store.copies).toEqual([{ from: staging("run-a"), to: audioKey(SCOPE) }]);
+    // Nor did it leave its staged file behind.
+    expect(store.objects.has(staging("run-b"))).toBe(false);
+  });
+
+  it("leaves nothing behind: no chunks, and neither run's staged copy", async () => {
+    await Promise.all([
+      runRemuxJob(payload(), 0, deps(store, { runId: "run-a" })),
+      runRemuxJob(payload(), 0, deps(store, { runId: "run-b" })),
+    ]);
+
+    expect(store.keys.filter((key) => key.includes("/chunks/"))).toEqual([]);
+    expect(store.keys.filter((key) => key.includes(".staging"))).toEqual([]);
+  });
+
+  it("does not fail the loser when the winner deletes the chunks mid-read", async () => {
+    // The interleaving that used to dead-letter a healthy recording: the second run has read the
+    // manifest and is partway through the chunk objects when the first run removes them. The
+    // read fails with "a chunk the manifest promised is missing" — a genuine fault on its own,
+    // and nothing at all when the reason is that the work is already done.
+    const winner = new FakeStore(baseManifest(), chunksOf(RECORDING, CHUNK_COUNT));
+    winner.objects.set(audioKey(SCOPE), new Uint8Array([1]));
+    const loser = store;
+    loser.failLoadAudio = new JobError("AUDIO_FETCH_FAILED", "chunk is gone", {
+      retryable: false,
+    });
+    // The manifest the loser re-reads after the failure is the winner's, with the artifact named.
+    loser.objects.set(
+      manifestKey(SCOPE),
+      new TextEncoder().encode(JSON.stringify(baseManifest({ audioKey: audioKey(SCOPE) }))),
+    );
+    // ...but only from the second read on, so the run gets past its opening check.
+    loser.manifestOverrideAfterFirstRead = true;
+    loser.objects.set(manifestKey(SCOPE), new TextEncoder().encode(JSON.stringify(baseManifest())));
+
+    const outcome = await runRemuxJob(payload(), 0, deps(loser, { runId: "run-b" }));
+
+    expect(outcome.skipped).toBe("lost-race");
+  });
+
+  it("still fails when the chunks are gone and nothing repackaged them", async () => {
+    // The same symptom with no winner behind it is a real fault and has to stay one, or the
+    // clause above would swallow every missing-chunk failure there is.
+    store.failLoadAudio = new JobError("AUDIO_FETCH_FAILED", "chunk is gone", {
+      retryable: false,
+    });
+
+    await expect(runRemuxJob(payload(), 0, deps(store))).rejects.toMatchObject({
+      code: "AUDIO_FETCH_FAILED",
+    });
+  });
+});

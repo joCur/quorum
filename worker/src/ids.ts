@@ -77,8 +77,9 @@ export function summarizeJobIdFor(transcriptId: string, templateId: string): str
  *
  * Derived from the session, because a session has exactly one recording and that recording is
  * repackaged exactly once. Every transcription of it — the first, a retry a user asked for, an
- * operator's redrive — computes the same id, so the pg-boss singleton key collapses them into
- * one queued job instead of a queue full of attempts to redo work already done.
+ * operator's redrive — computes the same id, which makes a duplicate recognisable in the queue
+ * and keeps a redrive pointed at the same job. It does not make the queue refuse the duplicate:
+ * see the note in the remux enqueuer for why that is the handler's job and not this id's.
  */
 export function remuxJobIdFor(sessionId: string): string {
   return uuidV5(`job:remux:${sessionId}`);

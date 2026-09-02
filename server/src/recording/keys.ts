@@ -44,20 +44,14 @@ export function manifestKey(scope: KeyScope): string {
  *
  * It replaces the chunk objects rather than joining them: once this key exists, the recording
  * is one object, and the chunk prefix is empty.
+ *
+ * The pipeline stages the file under a longer name and only copies it to this one after reading
+ * it back, so an object carrying exactly this key is one that has already been checked. That is
+ * what lets playback decide from a listing alone — and why it must match the key exactly rather
+ * than by prefix.
  */
 export function audioKey(scope: KeyScope): string {
   return `${sessionPrefix(scope)}/audio.webm`;
-}
-
-/**
- * Where the repackaged file is written before it has been read back and checked.
- *
- * The two names are what makes "verify, then delete" observable from outside: playback and the
- * worker key off `audioKey` alone, so a half-written or unverified artifact can never be served
- * — it does not carry that name until it has passed.
- */
-export function stagingAudioKey(scope: KeyScope): string {
-  return `${sessionPrefix(scope)}/audio.webm.staging`;
 }
 
 export function seqFromChunkKey(key: string): number | null {

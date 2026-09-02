@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { PgBoss } from "pg-boss";
 import { loadConfig, type WorkerConfig } from "./config.js";
 import { createLogger, logQueueError, type WorkerLogger } from "./logger.js";
@@ -241,7 +242,7 @@ async function start(
     summaries: new PgBossSummaryEnqueuer(boss),
     // And the repackaging onto a finished transcription, which is the point in the pipeline
     // where nothing else is reading the chunk objects any more (ADR-010).
-    remux: new PgBossRemuxEnqueuer(boss),
+    remux: new PgBossRemuxEnqueuer(boss, repository),
     summaryTemplateId: SYSTEM_SUMMARY_TEMPLATE.id,
     concurrency: config.WORKER_CONCURRENCY,
     metrics,
@@ -256,6 +257,7 @@ async function start(
     storage: audio,
     repository,
     logger,
+    newRunId: () => randomUUID(),
     concurrency: config.WORKER_CONCURRENCY,
     metrics,
     retryLimit: config.WORKER_RETRY_LIMIT,

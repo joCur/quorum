@@ -18,6 +18,11 @@ export interface RemuxEnqueuer {
   enqueue(input: EnqueueRemuxInput): Promise<void>;
 }
 
+/** The one question this enqueuer asks the database directly. */
+export interface QueueInspector {
+  hasLiveQueueEntry(queue: string, jobId: string): Promise<boolean>;
+}
+
 /** The payload a given session produces — pure, so the tests can assert on it. */
 export function remuxJobPayload(input: EnqueueRemuxInput): RemuxJobPayload {
   const job = JobSchema.parse({
@@ -44,21 +49,34 @@ export function remuxJobPayload(input: EnqueueRemuxInput): RemuxJobPayload {
 /**
  * Hands a finished recording on to be repackaged (ADR-010).
  *
- * The job id is derived from the session and used as the pg-boss singleton key, so the several
- * ways a session can be transcribed more than once — a replay after a crash, a retry a user
- * asked for, an operator redriving a dead letter — cannot pile up several attempts at the same
- * repackaging. The handler is a no-op on an already-repackaged recording in any case; this only
- * keeps the queue from filling with jobs whose whole content is discovering that.
+ * THE SINGLETON KEY DOES NOT DEDUPLICATE ANYTHING HERE, and it is worth being explicit about
+ * that because the name suggests otherwise. Every unique index pg-boss creates for singleton
+ * keys is predicated on a queue policy of `short`, `singleton`, `stately`, `exclusive` or
+ * `key_strict_fifo`; these queues are created with `standard`, so two sends of the same key
+ * become two live jobs. The key is passed anyway — it costs nothing, it is the right key, and it
+ * would start working the day a policy changes — but nothing may be built on top of it.
+ *
+ * What makes a session's repackaging happen once is therefore the handler, not the queue. It is
+ * written to be correct with a second copy of itself running against the same objects, and a run
+ * that finds the work already done says so and stops. The derived id is still the right id: it
+ * makes duplicates recognisable in the queue and keeps a redrive pointed at the same job.
  */
 export class PgBossRemuxEnqueuer implements RemuxEnqueuer {
   private readonly boss: PgBoss;
+  private readonly queue: QueueInspector | undefined;
 
-  constructor(boss: PgBoss) {
+  constructor(boss: PgBoss, queue?: QueueInspector) {
     this.boss = boss;
+    this.queue = queue;
   }
 
   async enqueue(input: EnqueueRemuxInput): Promise<void> {
     const payload = remuxJobPayload(input);
+    // Advisory, not a lock: two callers can both look and both send. It exists to keep the
+    // ordinary case — a transcription that runs again while the first repackaging is still
+    // queued — from putting a second job on the queue whose whole content would be reading the
+    // recording to discover there is nothing to do.
+    if (await this.queue?.hasLiveQueueEntry(REMUX_QUEUE, payload.job.id)) return;
     await this.boss.send(REMUX_QUEUE, payload, { singletonKey: payload.job.id });
   }
 }

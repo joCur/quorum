@@ -53,12 +53,17 @@ export function audioKey(scope: KeyScope): string {
 }
 
 /**
- * Where the repackaged file is written before it has been read back and checked.
+ * Where one run writes the repackaged file before it has been read back and checked.
  *
- * The two names are what makes "verify, then delete" observable from outside: playback and the
- * worker key off `audioKey` alone, so a half-written or unverified artifact can never be served
- * — it does not carry that name until it has passed.
+ * Two things are going on in this name. The staging suffix is what makes "verify, then delete"
+ * observable from outside: playback and the worker key off `audioKey` alone, so a half-written or
+ * unverified artifact can never be served — it does not carry that name until it has passed.
+ *
+ * The run id is what keeps two jobs out of each other's way. The queue can hand out the same
+ * repackaging twice (see the note in the remux enqueuer), and a shared staging name would let one
+ * run delete the object the other is about to read back. Each run therefore owns its staging
+ * object and removes it whatever happens, so the two never touch the same key.
  */
-export function stagingAudioKey(scope: KeyScope): string {
-  return `${sessionPrefix(scope)}/audio.webm.staging`;
+export function stagingAudioKey(scope: KeyScope, runId: string): string {
+  return `${sessionPrefix(scope)}/audio.webm.staging.${runId}`;
 }

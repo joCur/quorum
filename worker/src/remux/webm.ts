@@ -36,6 +36,7 @@ const ID = {
   tracks: 0x1654ae6b,
   trackEntry: 0xae,
   trackNumber: 0xd7,
+  trackType: 0x83,
   cues: 0x1c53bb6b,
   cuePoint: 0xbb,
   cueTime: 0xb3,
@@ -58,6 +59,11 @@ const ID = {
  */
 const SEGMENT_LEVEL_IDS = new Set<number>([
   ID.cluster,
+  // The two levels *above* a cluster end one just as surely as a sibling does, and leaving them
+  // out is how a second recording appended to the same object got eaten as cluster payload: the
+  // walk read the new EBML header as a child element and carried on through the audio behind it.
+  ID.ebml,
+  ID.segment,
   ID.cues,
   ID.info,
   ID.tracks,
@@ -89,6 +95,14 @@ export interface RemuxResult {
   durationSeconds: number;
   /** Clusters carried over — unchanged, since none are merged or split. */
   clusterCount: number;
+  /**
+   * Clusters counted in the *source* by a scan that shares no code with the parser.
+   *
+   * This is the number the stored artifact is held to. Comparing the artifact against the
+   * parser's own count would be the parser confirming itself: one that dropped clusters reports
+   * the reduced figure and the check passes.
+   */
+  sourceClusterMarks: number;
   /** Entries in the generated index. */
   cueCount: number;
 }
@@ -137,7 +151,12 @@ class Reader {
       if (byte !== 0xff) unknown = false;
     }
     this.pos += width;
-    return { value: unknown ? null : value };
+    if (unknown) return { value: null };
+    // An eight-byte size can name more bytes than a double can count. Past that point the
+    // arithmetic silently rounds, so a length that large is refused rather than approximated —
+    // no recording is anywhere near it, and a value that is means the bytes are not a size.
+    if (!Number.isSafeInteger(value)) return null;
+    return { value };
   }
 }
 
@@ -235,11 +254,13 @@ interface Parsed {
   ebmlHeader: Uint8Array;
   infoChildren: Uint8Array[];
   tracks: Uint8Array;
-  trackNumber: number;
+  tracksSummary: TrackSummary;
   timestampScale: number;
   clusters: ParsedCluster[];
   /** End of the last block, in timestamp units. */
   durationTicks: number;
+  /** How the walk ended — the check that stands between a partial read and a deletion. */
+  tail: Tail;
 }
 
 function parse(input: Uint8Array): Parsed {
@@ -265,31 +286,56 @@ function parse(input: Uint8Array): Parsed {
 
   let infoChildren: Uint8Array[] | null = null;
   let tracks: Uint8Array | null = null;
-  let trackNumber = 1;
+  let tracksSummary: TrackSummary = { number: 1, types: [] };
   let timestampScale = DEFAULT_TIMESTAMP_SCALE;
   const clusters: ParsedCluster[] = [];
   let durationTicks = 0;
+  /** Where the walk gave up, if it did. Left at the start of the element it could not read. */
+  let stoppedAt: number | null = null;
 
   while (reader.pos < segmentEnd) {
     const start = reader.pos;
     const id = reader.readId();
-    if (id === null) break;
+    if (id === null) {
+      stoppedAt = start;
+      break;
+    }
+    // A second EBML header inside the Segment is not an element of this recording; it is where
+    // the next one begins. Stopping on the id rather than skipping the header is what lets the
+    // tail be recognised for what it is instead of being reported as damage further along.
+    if (id === ID.ebml) {
+      stoppedAt = start;
+      break;
+    }
     const size = reader.readSize();
-    if (size === null) break;
+    if (size === null) {
+      stoppedAt = start;
+      break;
+    }
     const bodyFrom = reader.pos;
 
     if (id === ID.cluster) {
       const cluster = parseCluster(input, bodyFrom, size.value, segmentEnd);
-      if (cluster === null) break;
+      // A cluster with no timestamp in it is not a cluster this parser understands. Stopping
+      // here used to mean silently keeping everything before it; now it is reported, and the
+      // caller refuses rather than repackaging the first half of a recording.
+      if (cluster === null) {
+        stoppedAt = start;
+        break;
+      }
       clusters.push(cluster.cluster);
       durationTicks = Math.max(durationTicks, cluster.endTicks);
       reader.pos = cluster.cluster.childrenTo;
       continue;
     }
 
-    // Every other element declares its length; one that does not, or one that runs past
-    // the buffer, means the stream was cut off and there is nothing further to read.
-    if (size.value === null || bodyFrom + size.value > segmentEnd) break;
+    // Every other element declares its length. One that does not, or one that runs past the
+    // buffer, is where this walk ends; whether that is a cut-off recording or a broken one is
+    // decided by `classifyTail`, not here.
+    if (size.value === null || bodyFrom + size.value > segmentEnd) {
+      stoppedAt = start;
+      break;
+    }
     const bodyTo = bodyFrom + size.value;
 
     if (id === ID.info) {
@@ -298,7 +344,7 @@ function parse(input: Uint8Array): Parsed {
       timestampScale = result.timestampScale;
     } else if (id === ID.tracks) {
       tracks = input.subarray(start, bodyTo);
-      trackNumber = firstTrackNumber(input, bodyFrom, bodyTo) ?? 1;
+      tracksSummary = summarizeTracks(input, bodyFrom, bodyTo);
     }
     reader.pos = bodyTo;
   }
@@ -307,7 +353,16 @@ function parse(input: Uint8Array): Parsed {
   if (tracks === null) throw new RemuxError("the Segment carries no Tracks element");
   if (clusters.length === 0) throw new RemuxError("the Segment carries no Cluster");
 
-  return { ebmlHeader, infoChildren, tracks, trackNumber, timestampScale, clusters, durationTicks };
+  return {
+    ebmlHeader,
+    infoChildren,
+    tracks,
+    tracksSummary,
+    timestampScale,
+    clusters,
+    durationTicks,
+    tail: classifyTail(input, stoppedAt ?? Math.max(reader.pos, segmentEnd)),
+  };
 }
 
 /**
@@ -360,9 +415,11 @@ function parseCluster(
   }
 
   if (timestamp === null) return null;
-  // The last block's own playing time is not written down anywhere, so it is taken to be
-  // the same as the gap before it — exact whenever the encoder uses a constant frame size,
-  // which Opus from a `MediaRecorder` does.
+  // The last block's own playing time is not written down anywhere, so it is taken to be the
+  // same as the gap before it — exact whenever the encoder uses a constant frame size, which
+  // Opus from a `MediaRecorder` does. Where several blocks share a timestamp the gap is measured
+  // between the distinct values, so the extrapolation is a frame out at worst: cosmetic on a
+  // scrub bar, and nothing downstream reads it as a precise length.
   const trailing = Math.max(lastBlockTicks - previousBlockTicks, 0);
   return {
     cluster: { timestamp, childrenFrom: bodyFrom, childrenTo },
@@ -432,15 +489,27 @@ function parseInfo(
   return { children, timestampScale };
 }
 
-function firstTrackNumber(input: Uint8Array, from: number, to: number): number | null {
+/** Matroska track types; only audio belongs in a recording this pipeline made. */
+const TRACK_TYPE_AUDIO = 2;
+
+interface TrackSummary {
+  /** Track number of the first track, which is the one the cue index points at. */
+  number: number;
+  /** Track types found, so a stream carrying anything but audio can be refused. */
+  types: number[];
+}
+
+function summarizeTracks(input: Uint8Array, from: number, to: number): TrackSummary {
+  const summary: TrackSummary = { number: 1, types: [] };
+  let first = true;
   const reader = new Reader(input, from, to);
   while (!reader.done) {
     const id = reader.readId();
-    if (id === null) return null;
+    if (id === null) break;
     const size = reader.readSize();
-    if (size === null || size.value === null) return null;
+    if (size === null || size.value === null) break;
     const bodyTo = reader.pos + size.value;
-    if (bodyTo > to) return null;
+    if (bodyTo > to) break;
     if (id === ID.trackEntry) {
       const inner = new Reader(input, reader.pos, bodyTo);
       while (!inner.done) {
@@ -448,14 +517,109 @@ function firstTrackNumber(input: Uint8Array, from: number, to: number): number |
         if (innerId === null) break;
         const innerSize = inner.readSize();
         if (innerSize === null || innerSize.value === null) break;
-        if (innerId === ID.trackNumber) return readUint(input, inner.pos, innerSize.value);
+        if (innerId === ID.trackNumber && first) {
+          summary.number = readUint(input, inner.pos, innerSize.value);
+        } else if (innerId === ID.trackType) {
+          summary.types.push(readUint(input, inner.pos, innerSize.value));
+        }
         inner.pos += innerSize.value;
       }
-      return null;
+      first = false;
     }
     reader.pos = bodyTo;
   }
-  return null;
+  return summary;
+}
+
+/**
+ * What the parser found where it stopped.
+ *
+ * The distinction this draws is the one the whole "verify, then delete" order depends on. A walk
+ * that ends because the input ended has read the whole recording. A walk that ends anywhere else
+ * has read *part* of one — and repackaging part of a recording and then deleting the rest is the
+ * one outcome this job must never produce. So only two of these are allowed to continue.
+ */
+type Tail =
+  /** The walk consumed the input. */
+  | { kind: "complete" }
+  /**
+   * The input ends inside an element whose header is intact and whose body is cut short. This is
+   * what a crash between two chunk writes leaves behind, and everything before it is real audio.
+   */
+  | { kind: "truncated"; at: number }
+  /** A second EBML header: two recordings concatenated into one object. */
+  | { kind: "second-segment"; at: number }
+  /** Anything else — a corrupt element, a stop the parser cannot account for. */
+  | { kind: "unreadable"; at: number };
+
+function classifyTail(input: Uint8Array, pos: number): Tail {
+  const remaining = input.byteLength - pos;
+  if (remaining <= 0) return { kind: "complete" };
+
+  const reader = new Reader(input, pos, input.byteLength);
+  const idStart = reader.pos;
+  const id = reader.readId();
+  if (id === ID.ebml) return { kind: "second-segment", at: pos };
+  if (id === null) {
+    // `readId` says no for two different reasons, and they mean opposite things. Too few bytes
+    // left for the width the first byte announces is a stream that stops mid-header — the same
+    // cut-off recording as a truncated body, one step earlier. A first byte that is not the start
+    // of any id at all is damage.
+    return widthOf(input[idStart]) > remaining ? { kind: "truncated", at: pos } : mid(pos);
+  }
+
+  const sizeStart = reader.pos;
+  const size = reader.readSize();
+  if (size === null) {
+    return widthOf(input[sizeStart]) > input.byteLength - sizeStart
+      ? { kind: "truncated", at: pos }
+      : mid(pos);
+  }
+  // An unknown-size element here is a cluster the walk gave up on, not a truncation.
+  if (size.value === null) return mid(pos);
+  if (reader.pos + size.value > input.byteLength) return { kind: "truncated", at: pos };
+  return mid(pos);
+}
+
+function mid(pos: number): Tail {
+  return { kind: "unreadable", at: pos };
+}
+
+/** Byte width a VINT starting with this byte announces, or 9 when it announces none. */
+function widthOf(first: number | undefined): number {
+  if (first === undefined) return 9;
+  if (first === 0) return 9;
+  let width = 1;
+  for (let mask = 0x80; mask > 0 && (first & mask) === 0; mask >>= 1) width += 1;
+  return width;
+}
+
+/**
+ * Counts clusters by scanning for the cluster id, without using the parser above.
+ *
+ * The point is that it shares no code with the walk it checks. A parser that lost half a
+ * recording reports the count it arrived at, and a verification that compared the artifact
+ * against *that* would agree with itself no matter what was dropped. This gives the artifact a
+ * number to be held to that the parser had no part in producing.
+ *
+ * The scan can over-count: the four-byte pattern can occur inside an Opus payload by chance. It
+ * is used only to compare a source against an artifact whose cluster contents are copies of that
+ * source's, so any accidental match inside the audio appears identically in both — which is what
+ * makes the comparison sound even though the individual number is a lower bound at best.
+ */
+export function scanClusterMarks(input: Uint8Array): number {
+  let found = 0;
+  for (let i = 0; i + 3 < input.byteLength; i += 1) {
+    if (
+      input[i] === 0x1f &&
+      input[i + 1] === 0x43 &&
+      input[i + 2] === 0xb6 &&
+      input[i + 3] === 0x75
+    ) {
+      found += 1;
+    }
+  }
+  return found;
 }
 
 /**
@@ -469,6 +633,36 @@ function firstTrackNumber(input: Uint8Array, from: number, to: number): number |
  */
 export function remuxWebm(input: Uint8Array): RemuxResult {
   const parsed = parse(input);
+
+  // Before anything else: did the walk actually read the whole recording? Everything downstream
+  // of this function ends in the chunk objects being deleted, so a partial read must stop here
+  // rather than become a short file that looks perfectly valid.
+  switch (parsed.tail.kind) {
+    case "complete":
+    case "truncated":
+      break;
+    case "second-segment":
+      // Two recordings in one object — a recorder that was restarted mid-session appends a fresh
+      // EBML header rather than continuing the stream. Everything after that header is real
+      // audio, and this remuxer would silently swallow it as cluster payload. Merging the two
+      // timelines is a different job from repackaging one; until something does it, saying so is
+      // the only answer that does not lose a recording.
+      throw new RemuxError(
+        `the stream carries a second EBML header at byte ${parsed.tail.at}: it is two recordings, not one`,
+      );
+    case "unreadable":
+      throw new RemuxError(
+        `the stream could not be read past byte ${parsed.tail.at}, leaving ${input.byteLength - parsed.tail.at} bytes unaccounted for`,
+      );
+  }
+
+  // Audio only. A track this pipeline never produces is a stream this remuxer was never written
+  // against, and a video-bearing recording would also be large enough for the whole-file buffering
+  // below to matter.
+  const foreign = parsed.tracksSummary.types.filter((type) => type !== TRACK_TYPE_AUDIO);
+  if (foreign.length > 0) {
+    throw new RemuxError(`the stream carries a non-audio track (type ${foreign[0] as number})`);
+  }
 
   // Info, with the Duration this pass computed.
   const durationTicks = parsed.durationTicks;
@@ -546,7 +740,7 @@ export function remuxWebm(input: Uint8Array): RemuxResult {
   const cuesBody = new Writer();
   for (const index of cueClusters) {
     const positions = new Writer();
-    positions.raw(uintElement(ID.cueTrack, parsed.trackNumber, 8));
+    positions.raw(uintElement(ID.cueTrack, parsed.tracksSummary.number, 8));
     positions.raw(uintElement(ID.cueClusterPosition, clusterPositions[index] as number, 8));
     const positionsBody = positions.concat();
 
@@ -597,6 +791,7 @@ export function remuxWebm(input: Uint8Array): RemuxResult {
     bytes: out.concat(),
     durationSeconds: (durationTicks * parsed.timestampScale) / 1_000_000_000,
     clusterCount: parsed.clusters.length,
+    sourceClusterMarks: scanClusterMarks(input),
     cueCount: cueClusters.length,
   };
 }

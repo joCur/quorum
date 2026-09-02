@@ -2,6 +2,7 @@ import {
   CopyObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
   type S3ClientConfig,
@@ -46,6 +47,8 @@ export interface AudioSource {
 export interface RemuxStorage {
   /** Bytes at a key, or `null` when nothing is stored there. */
   readObject(key: string): Promise<Uint8Array | null>;
+  /** Every key under a prefix. Used to sweep up after a run that did not finish. */
+  listKeys(prefix: string): Promise<string[]>;
   writeObject(key: string, body: Uint8Array, contentType: string): Promise<void>;
   /** Server-side copy, so the bytes that were verified are the bytes that get the final name. */
   copyObject(fromKey: string, toKey: string): Promise<void>;
@@ -179,6 +182,25 @@ export class S3AudioSource implements AudioSource, RemuxStorage {
 
   async readObject(key: string): Promise<Uint8Array | null> {
     return this.getBytes(key);
+  }
+
+  async listKeys(prefix: string): Promise<string[]> {
+    const keys: string[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+        }),
+      );
+      for (const object of page.Contents ?? []) {
+        if (object.Key !== undefined) keys.push(object.Key);
+      }
+      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return keys;
   }
 
   async writeObject(key: string, body: Uint8Array, contentType: string): Promise<void> {

@@ -109,6 +109,75 @@ export function readManifest(scope: SessionScope): Promise<RecordingManifest | n
   return readJson<RecordingManifest>(`${sessionPrefix(scope)}/manifest.json`);
 }
 
+/**
+ * Asserts that the recording reached durable storage whole — in whichever of the two shapes it is
+ * currently in.
+ *
+ * A finalized recording is its chunk objects until the pipeline repackages it into one seekable
+ * file (ADR-010), and there is no telling from outside which side of that a given assertion lands
+ * on: on a fast machine the transcription and the repackaging both finish between the
+ * `session.finalized` frame and the next line of a test. Counting chunk objects is therefore not
+ * a stable question, and a test that asked it would fail for a reason unrelated to what it tests.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO is compare the manifest to itself. `chunkCount` and
+ * `persistedSeq` are written from one another by the server, so holding one against the other
+ * proves nothing; and in the repackaged shape the manifest is the very thing a bad remux would
+ * have rewritten. So the count is taken from the manifest and then checked against something the
+ * manifest had no part in producing: the chunk objects themselves while they are there, and
+ * afterwards the artifact's own clusters, counted out of the bytes in the bucket.
+ *
+ * Returns the number of chunks the recording was made of.
+ */
+export async function expectRecordingIntact(
+  scope: SessionScope,
+  options: { atLeast?: number } = {},
+): Promise<number> {
+  const manifest = await readManifest(scope);
+  expect(manifest, "the finalization manifest").not.toBeNull();
+  const chunkCount = manifest?.chunkCount ?? 0;
+  if (options.atLeast !== undefined) expect(chunkCount).toBeGreaterThanOrEqual(options.atLeast);
+
+  const seqs = await chunkSeqs(scope);
+  const expected = Array.from({ length: chunkCount }, (_value, index) => index);
+  if (seqs.length === chunkCount && seqs.length > 0) {
+    // Still the shape it was recorded in: every sequence number the manifest claims, exactly once.
+    expect(seqs).toEqual(expected);
+    return chunkCount;
+  }
+
+  // Either repackaged, or caught mid-sweep with some chunks already gone. Both are answered the
+  // same way and by the artifact, not by counting what is left: a partial listing is a moment in
+  // a deletion, not a missing recording.
+  const artifact = await readObject(audioKey(scope));
+  expect(artifact, `the repackaged audio object for session ${scope.sessionId}`).not.toBeNull();
+  const bytes = artifact as Uint8Array;
+  expect(bytes.byteLength).toBeGreaterThan(0);
+
+  // The independent half. A remux that dropped half the recording would still produce a valid
+  // file of plausible size, and the manifest it wrote would agree with it — so the artifact is
+  // held to the one number neither it nor the manifest could fake: `MediaRecorder` opens a
+  // cluster per delivered blob, so the clusters in the file track the chunks that were sent.
+  // Counted with a byte scan here rather than with the worker's parser, on purpose.
+  const clusters = countClusters(bytes);
+  expect(clusters, "clusters in the repackaged file").toBeGreaterThanOrEqual(chunkCount - 2);
+  // And it declares a length, which is the whole point of the exercise.
+  expect(hasCueIndex(bytes), "a cue index in the repackaged file").toBe(true);
+  return chunkCount;
+}
+
+/** Reads a stored object, or `null` when there is nothing at that key. */
+export async function readObject(key: string): Promise<Uint8Array | null> {
+  try {
+    const response = await client.send(
+      new GetObjectCommand({ Bucket: stackEnv.s3.bucket, Key: key }),
+    );
+    const body = await response.Body?.transformToByteArray();
+    return body === undefined ? null : new Uint8Array(body);
+  } catch {
+    return null;
+  }
+}
+
 /** Size in bytes of a stored object, or `null` when there is nothing at that key. */
 export async function objectSize(key: string): Promise<number | null> {
   try {
@@ -121,43 +190,25 @@ export async function objectSize(key: string): Promise<number | null> {
   }
 }
 
-/**
- * Asserts that every chunk the client sent reached durable storage, gap-free — in whichever of
- * the two shapes the recording is currently in.
- *
- * A finalized recording is its chunk objects until the pipeline repackages it into one seekable
- * file (ADR-010), and there is no telling from outside which side of that a given assertion
- * lands on: on a fast machine the transcription and the repackaging can both finish between the
- * `session.finalized` frame and the next line of a test. Counting chunk objects is therefore not
- * a stable way to ask the question, and a test that did it would fail for a reason that has
- * nothing to do with what it is testing.
- *
- * The manifest is the stable record — it says what the recorder delivered and survives the
- * repackaging untouched — so the count comes from there, and the objects are then checked
- * against whichever shape is actually present. Returns the number of chunks the recording was
- * made of.
- */
-export async function expectRecordingIntact(
-  scope: SessionScope,
-  options: { atLeast?: number } = {},
-): Promise<number> {
-  const manifest = await readManifest(scope);
-  expect(manifest, "the finalization manifest").not.toBeNull();
-  const chunkCount = manifest?.chunkCount ?? 0;
-  expect(chunkCount).toBe((manifest?.persistedSeq ?? -1) + 1);
-  if (options.atLeast !== undefined) expect(chunkCount).toBeGreaterThanOrEqual(options.atLeast);
+/** Matroska cluster ids in a file, found by scanning rather than by parsing. */
+function countClusters(bytes: Uint8Array): number {
+  return occurrences(bytes, [0x1f, 0x43, 0xb6, 0x75]);
+}
 
-  const seqs = await chunkSeqs(scope);
-  if (seqs.length > 0) {
-    // Still the shape it was recorded in: every sequence number from 0 upwards, exactly once.
-    expect(seqs).toEqual(Array.from({ length: chunkCount }, (_value, index) => index));
-    return chunkCount;
+/** Whether the file carries a Cues element — what a player seeks by. */
+function hasCueIndex(bytes: Uint8Array): boolean {
+  return occurrences(bytes, [0x1c, 0x53, 0xbb, 0x6b]) > 0;
+}
+
+function occurrences(haystack: Uint8Array, needle: readonly number[]): number {
+  let found = 0;
+  let at = 0;
+  const buffer = Buffer.from(haystack);
+  const pattern = Buffer.from(needle);
+  for (;;) {
+    const next = buffer.indexOf(pattern, at);
+    if (next === -1) return found;
+    found += 1;
+    at = next + pattern.byteLength;
   }
-
-  // Repackaged: one audio object carrying the whole recording, and nothing left in the chunk
-  // prefix. An empty prefix with no artifact behind it would be audio that simply went missing.
-  const size = await objectSize(audioKey(scope));
-  expect(size, "the repackaged audio object").not.toBeNull();
-  expect(size).toBeGreaterThan(0);
-  return chunkCount;
 }

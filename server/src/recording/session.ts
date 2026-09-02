@@ -496,8 +496,13 @@ export class RecordingSessionHandler {
     // and a client invited to send it all again over the top of the finished artifact.
     let finalizedManifest: RecordingManifest | null;
     try {
-      finalizedManifest = await this.deps.storage.getManifest(record);
+      finalizedManifest = await this.readManifestForAttach(record);
     } catch (error) {
+      // Fail closed, and transiently. Closed, because the question this read answers is whether
+      // resuming would write over a finished recording, and an unanswered question is not a yes.
+      // Transiently, because `fail` closes the socket in the way the client retries with backoff
+      // — the same answer the chunk listing below has always given for the same outage, so a
+      // storage blip costs a reconnect and nothing more.
       this.fail("failed to read the finalization manifest", error);
       return false;
     }
@@ -984,6 +989,27 @@ export class RecordingSessionHandler {
       sessionId: session.record.sessionId,
       persistedSeq: session.persistedSeq,
     });
+  }
+
+  /**
+   * Reads the manifest, giving a brief storage hiccup a second and third chance.
+   *
+   * This read is new on a path that used to touch object storage twice; a blip that would once
+   * have gone unnoticed should not now cost the client a reconnect in the middle of recovering
+   * from a crash. Two quick retries is the whole of it — a backend that is genuinely down is the
+   * reconnect's problem, not this loop's.
+   */
+  private async readManifestForAttach(record: SessionRecord): Promise<RecordingManifest | null> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.deps.storage.getManifest(record);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      }
+    }
+    throw lastError;
   }
 
   private fail(message: string, error: unknown): void {
