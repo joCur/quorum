@@ -251,8 +251,6 @@ export class RecordingClient {
     this.setConnection("closed");
   }
 
-  // ---- connection handling ------------------------------------------------
-
   private pendingStart: (NewSession & { audioFormat: AudioFormat }) | null = null;
   private endRequested = false;
 
@@ -363,8 +361,6 @@ export class RecordingClient {
     // has drained.
     if (this.endRequested) this.end();
   }
-
-  // ---- protocol -----------------------------------------------------------
 
   private onMessage(data: unknown): void {
     if (typeof data !== "string") return;

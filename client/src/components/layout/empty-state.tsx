@@ -2,10 +2,6 @@ import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { IconTile } from "@/components/layout/icon-tile";
 
-/**
- * Empty state per the component inventory: icon tile, headline, one warm
- * sentence, optional actions. Tile and text rise in staggered on mount.
- */
 export function EmptyState({
   icon,
   accent = "honey",

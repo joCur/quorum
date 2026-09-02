@@ -73,7 +73,6 @@ export interface RecordingError {
   detail?: string | undefined;
 }
 
-/** Maps a display-capture failure onto the error the screen explains. */
 function displayErrorKind(reason: DisplayCaptureFailure): RecordingError["kind"] {
   if (reason === "no-audio") return "display-no-audio";
   if (reason === "unsupported") return "display-unsupported";

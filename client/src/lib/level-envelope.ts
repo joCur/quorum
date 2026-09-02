@@ -42,7 +42,6 @@ export function followEnvelope(
   return previous + (target - previous) * alpha;
 }
 
-/** Converts an RMS reading to the 0..1 range the UI works in. */
 export function normalizeRms(rms: number): number {
   // Square root curve: ordinary speech then uses most of the range instead of
   // hugging the bottom of the scale.
