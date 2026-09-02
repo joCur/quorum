@@ -432,7 +432,8 @@
         "cancel": "Verwerfen",
         "marker": "Korrigiert",
         "reset": "Ursprünglichen Wortlaut wiederherstellen",
-        "failed": "Diese Korrektur konnte nicht gespeichert werden."
+        "failed": "Diese Korrektur konnte nicht gespeichert werden.",
+        "tooLong": "Eine korrigierte Passage darf höchstens {{max}} Zeichen lang sein."
       }
     },
     "summary": {
@@ -447,7 +448,7 @@
       "regenerating": "Wird geschrieben…",
       "previousVersion": "Vorherige Fassung — sie wird ersetzt, sobald die neue fertig ist.",
       "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben.",
-      "correctedSince": "Das Transkript wurde korrigiert, nachdem diese Zusammenfassung geschrieben wurde."
+      "fromOriginalWording": "Diese Zusammenfassung beruht auf dem ursprünglichen Wortlaut, vor deinen Korrekturen."
     }
   }
 }

@@ -4,8 +4,8 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
+  hasCorrections,
   isRetryableJobErrorCode,
-  isSummaryStale,
   type MeetingDetail,
   type SegmentOverlay,
 } from "@quorum/shared";
@@ -417,14 +417,16 @@ function SummaryPanel({ detail, onReload }: { detail: MeetingDetail; onReload: (
         <div className="flex flex-col gap-2.5 px-0.5 py-1">
           {summary ? <SummaryAttribution summary={summary} templateName={templateName} /> : null}
           {/*
-            A correction made after this summary was written means the summary describes a
-            transcript that has since moved on. It is a note, not a warning: the summary is not
-            wrong, it is merely older than the words it was made from, and the person who made the
-            correction is the one best placed to decide whether that matters (ADR-010).
+            Every summary is written from the transcript the machine produced — the pipeline never
+            reads the corrections (ADR-011) — so a corrected transcript means the summary describes
+            wording that is no longer on screen. The note says that and nothing more: the summary is
+            not wrong, and the person who made the correction is the one who can judge whether it
+            matters. It follows the existence of a correction rather than its time, because a new
+            summary reads the original wording exactly like the old one did.
           */}
-          {summary && isSummaryStale(summary.createdAt, detail.transcriptCorrectedAt) ? (
+          {summary && detail.transcript && hasCorrections(detail.transcript) ? (
             <p className="text-[13px] text-muted-foreground">
-              {t("meeting.summary.correctedSince")}
+              {t("meeting.summary.fromOriginalWording")}
             </p>
           ) : null}
           {detail.transcript ? (

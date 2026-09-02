@@ -137,7 +137,6 @@ export function useMeeting(meetingId: string): MeetingDetailState {
               segment.id === segmentId ? answer.segment : segment,
             ),
           },
-          transcriptCorrectedAt: answer.transcriptCorrectedAt,
         };
       });
     },

@@ -1,7 +1,12 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { TRANSCRIPT_SCHEMA_VERSION, type Segment, type Transcript } from "@quorum/shared";
+import {
+  MAX_SEGMENT_TEXT_LENGTH,
+  TRANSCRIPT_SCHEMA_VERSION,
+  type Segment,
+  type Transcript,
+} from "@quorum/shared";
 import { TranscriptView } from "@/components/meetings/transcript-view";
 import { renderWithProviders, useLanguage } from "./render";
 
@@ -149,6 +154,21 @@ describe("correcting a transcript segment", () => {
 
     expect(onCorrect).not.toHaveBeenCalled();
     expect(screen.getByText(SPOKEN)).toBeInTheDocument();
+  });
+
+  it("stops at the length the server accepts, and names it", async () => {
+    renderTranscript(transcript([segment()]));
+    await userEvent.click(screen.getByRole("button", { name: EDIT }));
+
+    const field = screen.getByRole("textbox", { name: "Corrected text" });
+    await userEvent.clear(field);
+    // Pasted rather than typed: that is where a cap can eat text unnoticed.
+    await userEvent.paste("x".repeat(MAX_SEGMENT_TEXT_LENGTH + 50));
+
+    expect(field).toHaveValue("x".repeat(MAX_SEGMENT_TEXT_LENGTH));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      `at most ${String(MAX_SEGMENT_TEXT_LENGTH)} characters`,
+    );
   });
 
   it("keeps the typed correction on screen when the save fails, and says so", async () => {

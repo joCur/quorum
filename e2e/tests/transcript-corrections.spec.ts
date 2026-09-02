@@ -4,6 +4,7 @@ import {
   startRecording,
   stopRecording,
   test,
+  waitFor,
   waitForValue,
   watchRecordingProtocol,
 } from "../fixtures.js";
@@ -11,6 +12,7 @@ import { devUsers, stackEnv } from "../support/env.js";
 import { fetchToken } from "../support/keycloak.js";
 import {
   countCorrections,
+  findSummaries,
   findSummary,
   findTranscript,
   storedSegmentText,
@@ -38,7 +40,10 @@ import {
 const SPOKEN = "This is a mock transcription produced by the end-to-end suite.";
 const CORRECTED = "This is a transcription the user corrected by hand.";
 
-test("corrects a transcript segment, keeps the original, and dates the summary", async ({
+/** What the summary says while the transcript carries any correction (ADR-011). */
+const SUMMARY_NOTE = "This summary is based on the original wording, before your corrections.";
+
+test("corrects a transcript segment, keeps the original, and marks the summary", async ({
   page,
   signIn,
 }) => {
@@ -64,15 +69,15 @@ test("corrects a transcript segment, keeps the original, and dates the summary",
   const meetingId = protocol.meetingId as string;
   expect(meetingId).toBeTruthy();
 
-  // A summary as well as a transcript: the staleness note is a comparison against the summary's
-  // own creation time, so there has to be one before the correction is made.
+  // A summary as well as a transcript: the note about the wording a summary was written from
+  // needs a summary on screen to sit under.
   const transcript = await waitForValue(() => findTranscript(sessionId), 60_000, "the transcript");
   await waitForValue(() => findSummary(sessionId), 60_000, "the summary row");
 
   await page.goto(`/meetings/${meetingId}`);
   await expect(page.getByText(SPOKEN)).toBeVisible({ timeout: 30_000 });
   // Matched exactly: `getByText` is a case-insensitive substring match, and both the corrected
-  // passage and the staleness note contain the word. Only the marker is spelled exactly this way.
+  // passage contains the word. Only the marker is spelled exactly this way.
   await expect(page.getByText("Corrected", { exact: true })).toHaveCount(0);
 
   // Diarization does not exist yet, so this transcript knows no speakers and the editor offers no
@@ -122,10 +127,22 @@ test("corrects a transcript segment, keeps the original, and dates the summary",
   expect(await countCorrections(meetingId)).toBe(1);
   expect(await storedSegmentText(sessionId)).toBe(SPOKEN);
 
-  // The summary was written before the correction, and now says so.
-  await expect(
-    page.getByText("The transcript was corrected after this summary was written."),
-  ).toBeVisible();
+  // The summary was written from the machine's wording, and now says so.
+  await expect(page.getByText(SUMMARY_NOTE)).toBeVisible();
+
+  // A summary written *after* the correction still read the original wording, because the pipeline
+  // never sees the overlay — so regenerating must not clear the note. This is the case a
+  // comparison of timestamps got wrong, and the reason the note follows existence instead.
+  const summariesBefore = (await findSummaries(sessionId)).length;
+  await page.getByRole("button", { name: "Regenerate" }).click();
+  await waitFor(
+    async () => (await findSummaries(sessionId)).length > summariesBefore,
+    120_000,
+    "a regenerated summary",
+  );
+  await page.reload();
+  await expect(page.getByText(CORRECTED)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(SUMMARY_NOTE)).toBeVisible();
 
   // The way back. The original is not restored from a copy — there is nothing to restore, because
   // it was never overwritten; the row simply goes.
@@ -138,10 +155,8 @@ test("corrects a transcript segment, keeps the original, and dates the summary",
   await expect(page.getByText("Corrected", { exact: true })).toHaveCount(0);
   expect(await countCorrections(meetingId)).toBe(0);
 
-  // And with the last correction gone the summary is no longer behind anything.
-  await expect(
-    page.getByText("The transcript was corrected after this summary was written."),
-  ).toHaveCount(0);
+  // And with the last correction gone the transcript reads exactly as the summary's source did.
+  await expect(page.getByText(SUMMARY_NOTE)).toHaveCount(0);
 
   expect(transcript.meetingId).toBe(meetingId);
 });

@@ -1,7 +1,12 @@
 import * as React from "react";
 import { Check, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { Segment, SegmentOverlay, Transcript } from "@quorum/shared";
+import {
+  MAX_SEGMENT_TEXT_LENGTH,
+  type Segment,
+  type SegmentOverlay,
+  type Transcript,
+} from "@quorum/shared";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -16,6 +21,11 @@ import { Textarea } from "@/components/ui/textarea";
  * Enter saves and Escape restores, like every other inline editor here; Shift+Enter is a line
  * break, because a corrected passage is prose and occasionally needs one. A failed save keeps the
  * editor open with the typed text — the one thing a correction must never do is swallow it.
+ *
+ * The server's length cap is enforced here as well, and named when it bites. Letting a paste run
+ * past it and answering with a generic "could not be saved" would tell the user nothing they could
+ * act on; the field stops accepting characters at the limit, and pasting more says what the limit
+ * is instead of silently dropping the tail.
  */
 export function SegmentEditor({
   transcript,
@@ -34,13 +44,15 @@ export function SegmentEditor({
   const [saving, setSaving] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
 
+  const [truncated, setTruncated] = React.useState(false);
+
   const save = async (): Promise<void> => {
     if (saving) return;
     setSaving(true);
     setFailed(false);
     try {
       // Both fields go every time: the overlay is stored as sent, so leaving one out would read
-      // as "and no override of that kind" (ADR-010 §5).
+      // as "and no override of that kind" (ADR-011 §5).
       await onSave({ editedText: text, editedSpeakerId: speakerId });
     } catch {
       setFailed(true);
@@ -55,8 +67,14 @@ export function SegmentEditor({
         autoFocus
         value={text}
         disabled={saving}
+        maxLength={MAX_SEGMENT_TEXT_LENGTH}
         aria-label={t("meeting.transcript.correction.label")}
-        onChange={(event) => setText(event.target.value)}
+        onChange={(event) => {
+          // `maxLength` already stops typing at the cap; a paste is where a user can lose text
+          // without noticing, so the overflow is what the message below reports.
+          setTruncated(event.target.value.length >= MAX_SEGMENT_TEXT_LENGTH);
+          setText(event.target.value.slice(0, MAX_SEGMENT_TEXT_LENGTH));
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
@@ -112,6 +130,12 @@ export function SegmentEditor({
           {t("meeting.transcript.correction.cancel")}
         </button>
       </div>
+
+      {truncated ? (
+        <p role="alert" className="text-sm text-destructive">
+          {t("meeting.transcript.correction.tooLong", { max: MAX_SEGMENT_TEXT_LENGTH })}
+        </p>
+      ) : null}
 
       {failed ? (
         <p role="alert" className="text-sm text-destructive">

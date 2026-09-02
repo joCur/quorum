@@ -273,39 +273,81 @@ describe("meeting detail layout", () => {
 });
 
 /**
- * The summary against a transcript that has been corrected since (ADR-010).
+ * What the summary says about a corrected transcript (ADR-011).
  *
- * The note is the whole feature here: no re-summarizing, no warning banner, just the summary
- * saying it describes wording that has since changed.
+ * The summary pipeline never reads the corrections — every summary is written from the machine's
+ * own wording — so the note follows whether the transcript carries a correction at all, not when
+ * it was made. The last two cases are the ones a timestamp comparison got wrong.
  */
-describe("a summary older than the corrections", () => {
+describe("a summary of a corrected transcript", () => {
   beforeAll(async () => {
     await useLanguage("en");
   });
+
+  /** The same meeting, with one segment corrected. */
+  function withCorrection(): MeetingDetail {
+    const base = detail();
+    const transcript = base.transcript as NonNullable<MeetingDetail["transcript"]>;
+    return {
+      ...base,
+      transcript: {
+        ...transcript,
+        segments: transcript.segments.map((segment) => ({
+          ...segment,
+          editedText: "The home page is done.",
+        })),
+      },
+    };
+  }
+
+  const NOTE = "This summary is based on the original wording, before your corrections.";
 
   it("says nothing while the transcript stands as it was transcribed", () => {
     currentDetail = detail();
     renderDetail();
 
-    expect(screen.queryByText(/corrected after this summary/)).not.toBeInTheDocument();
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument();
   });
 
-  it("notes a correction made after the summary was written", () => {
-    currentDetail = { ...detail(), transcriptCorrectedAt: new Date().toISOString() };
+  it("says what the summary was written from once a passage is corrected", () => {
+    currentDetail = withCorrection();
     renderDetail();
 
-    expect(
-      screen.getByText("The transcript was corrected after this summary was written."),
-    ).toBeInTheDocument();
+    expect(screen.getByText(NOTE)).toBeInTheDocument();
   });
 
-  it("stays quiet about a correction the summary already knew about", () => {
+  it("keeps saying it for a summary written after the correction", () => {
+    // A regenerated summary read the original wording exactly like its predecessor did, so a
+    // fresh `createdAt` must not make the note disappear.
+    const corrected = withCorrection();
+    const summary = corrected.summaries[0];
+    if (!summary) throw new Error("the fixture has no summary");
     currentDetail = {
-      ...detail(),
-      transcriptCorrectedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      ...corrected,
+      summaries: [{ ...summary, createdAt: new Date().toISOString() }],
     };
     renderDetail();
 
-    expect(screen.queryByText(/corrected after this summary/)).not.toBeInTheDocument();
+    expect(screen.getByText(NOTE)).toBeInTheDocument();
+  });
+
+  it("keeps saying it while any correction is left", () => {
+    // Resetting one of several corrections leaves the transcript reading differently from the
+    // summary's source, so the note stays.
+    const corrected = withCorrection();
+    const transcript = corrected.transcript as NonNullable<MeetingDetail["transcript"]>;
+    currentDetail = {
+      ...corrected,
+      transcript: {
+        ...transcript,
+        segments: [
+          { ...transcript.segments[0]!, editedText: null },
+          { ...transcript.segments[0]!, id: "33333333-0000-4000-8000-000000000002" },
+        ],
+      },
+    };
+    renderDetail();
+
+    expect(screen.getByText(NOTE)).toBeInTheDocument();
   });
 });
