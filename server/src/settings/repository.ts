@@ -39,7 +39,6 @@ export interface UserSettingsScope {
   readonly userId: string;
 }
 
-/** Everything a user has chosen, with the untouched defaults filled in. */
 export const EMPTY_USER_SETTINGS: UserSettings = { transcriptionLanguage: null, vocabulary: [] };
 
 interface SettingsRow {
@@ -63,7 +62,7 @@ export class UserSettingsUnavailableError extends Error {
 }
 
 export interface UserSettingsStore {
-  /** What this user has chosen. A user who has chosen nothing reads as all defaults. */
+  /** A user who has chosen nothing reads as all defaults. */
   findSettings(scope: UserSettingsScope): Promise<UserSettings>;
   /** Stores the named fields and leaves the rest alone; returns the settings as they now stand. */
   updateSettings(scope: UserSettingsScope, update: UserSettingsUpdate): Promise<UserSettings>;

@@ -58,7 +58,6 @@ export interface MeetingDetailRow {
   jobs: Job[];
 }
 
-/** Which segment of which transcript a correction is about. */
 export interface SegmentRef {
   meetingId: string;
   transcriptId: string;
@@ -191,7 +190,6 @@ interface MeetingRow {
   finalized_at: Date | null;
 }
 
-/** Pipeline facts gathered for a batch of meetings. */
 interface PipelineFacts {
   transcripts: Map<string, { language: string; durationSeconds: number | null }>;
   summarized: Set<string>;

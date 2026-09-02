@@ -51,7 +51,6 @@ export class ProvisioningError extends Error {
 export interface KeycloakTenantProvisionerOptions {
   /** Base URL of the Keycloak server, without the realm path — inside compose, the internal one. */
   readonly baseUrl: string;
-  /** Realm the users live in. */
   readonly realm: string;
   /** Confidential client with the `manage-users` realm-management role. */
   readonly clientId: string;

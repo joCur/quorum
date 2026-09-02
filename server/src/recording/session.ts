@@ -205,13 +205,11 @@ export class RecordingSessionHandler {
     );
   }
 
-  /** Binds session and meeting id onto every subsequent line from this connection. */
   private bindSessionLog(record: SessionRecord): void {
     const base = this.deps.logger;
     this.log = base?.child?.({ sessionId: record.sessionId, meetingId: record.meetingId }) ?? base;
   }
 
-  /** Supplies the tenant/user scope once authentication has resolved it. */
   setContext(context: RecordingContext): void {
     this.context = context;
   }

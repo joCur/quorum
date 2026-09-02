@@ -28,14 +28,6 @@ export interface BuildServerOptions {
    */
   meetings?: MeetingStore;
   /**
-   * Enables authentication. When present, the auth plugin is registered and the whole instance
-   * becomes default-deny: every route needs a valid Keycloak access token unless it declares
-   * `config: { public: true }`. The WebSocket upgrade goes through the same hook.
-   *
-   * Omitting it builds an unauthenticated instance — only for tests and for the header-based
-   * development path, which then has to supply an explicit `contextProvider`.
-   */
-  /**
    * Summary template store behind the template API and the regenerate action (ADR-004).
    *
    * Omitting it leaves those two endpoints off the instance entirely — the same rule `meetings`
@@ -52,6 +44,14 @@ export interface BuildServerOptions {
    * per-meeting choice alone — which is the chain minus one link, not a broken one.
    */
   settings?: UserSettingsStore;
+  /**
+   * Enables authentication. When present, the auth plugin is registered and the whole instance
+   * becomes default-deny: every route needs a valid Keycloak access token unless it declares
+   * `config: { public: true }`. The WebSocket upgrade goes through the same hook.
+   *
+   * Omitting it builds an unauthenticated instance — only for tests and for the header-based
+   * development path, which then has to supply an explicit `contextProvider`.
+   */
   auth?: { verifyAccessToken: TokenVerifier; verifyIdentity?: IdentityVerifier };
   /**
    * Gives a self-registered account its tenant on first use (see `auth/provisioning.ts`).
@@ -85,7 +85,6 @@ export interface BuildServerOptions {
   logger?: boolean | { level: string };
 }
 
-/** Builds the Fastify application: auth foundation plus the WebSocket recording endpoint. */
 export async function buildServer(options: BuildServerOptions): Promise<FastifyInstance> {
   const app = Fastify({
     logger:

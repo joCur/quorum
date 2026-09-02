@@ -29,7 +29,6 @@ export interface RecordingPluginOptions {
   meetings?: MeetingRegistry | undefined;
   /** The user's defaults; the source of the user-level link of the transcription language chain. */
   settings?: UserPreferences | undefined;
-  /** Route the WebSocket endpoint is mounted on. */
   path?: string;
   /**
    * Exempts the upgrade from the auth plugin's default-deny hook, so the context provider alone
