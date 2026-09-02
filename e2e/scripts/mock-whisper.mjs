@@ -146,7 +146,6 @@ function summary(prompt) {
   return { title: STUB_SUMMARY_TITLE, sections };
 }
 
-/** The raw bytes of a request, for the multipart body the transcription endpoint receives. */
 function readRawBody(request) {
   return new Promise((resolve) => {
     const chunks = [];

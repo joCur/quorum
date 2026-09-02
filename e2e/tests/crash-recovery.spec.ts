@@ -51,7 +51,6 @@ test("survives the server dying mid-recording", async ({ page, signIn }) => {
   // the server was holding in memory.
   await stopApi();
 
-  // The user is told, and told what is safe: the banner names the buffered duration.
   const banner = page.getByRole("status").filter({ hasText: /buffered/ });
   await expect(banner).toBeVisible({ timeout: 30_000 });
   await expect(banner).toContainText(/\d+s buffered/);
@@ -140,7 +139,6 @@ test("recovers audio a crashed tab left in the local buffer", async ({ page, sig
 
   await startApi();
 
-  // Back in the app, the device still knows about the recording nobody finished.
   await page.goto("/meetings");
   await expect(recoveryCard(page)).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Upload and finish" })).toBeVisible();
@@ -162,7 +160,6 @@ test("recovers audio a crashed tab left in the local buffer", async ({ page, sig
   // it asserts has to describe the whole recording rather than restart at the recovery.
   expect(manifest?.recordedSeconds).toBeGreaterThan(0);
 
-  // And it is a meeting like any other: one transcribe job, from the one session.
   const job = await waitForValue(
     () => findTranscribeJob(sessionId),
     30_000,

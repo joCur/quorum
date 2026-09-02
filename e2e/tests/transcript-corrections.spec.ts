@@ -77,8 +77,8 @@ test("corrects a transcript segment, keeps the original, and marks the summary",
 
   await page.goto(`/meetings/${meetingId}`);
   await expect(page.getByText(SPOKEN)).toBeVisible({ timeout: 30_000 });
-  // Matched exactly: `getByText` is a case-insensitive substring match, and both the corrected
-  // passage contains the word. Only the marker is spelled exactly this way.
+  // Matched exactly: `getByText` is a case-insensitive substring match, and the corrected passage
+  // contains the word too. Only the marker is spelled exactly this way.
   await expect(page.getByText("Corrected", { exact: true })).toHaveCount(0);
 
   // Diarization does not exist yet, so this transcript knows no speakers and the editor offers no
@@ -101,7 +101,6 @@ test("corrects a transcript segment, keeps the original, and marks the summary",
   });
   expect(intruder.status()).toBe(404);
 
-  // The correction itself, made the way a user makes it.
   await page
     .getByRole("button", { name: /^Correct the passage at/ })
     .first()
@@ -162,7 +161,6 @@ test("corrects a transcript segment, keeps the original, and marks the summary",
   expect(transcript.meetingId).toBe(meetingId);
 });
 
-/** The segment the correction endpoints are addressed with, read from the API's own answer. */
 async function firstSegmentId(page: Page, meetingId: string, accessToken: string): Promise<string> {
   const response = await page.request.get(`${stackEnv.apiUrl}/api/meetings/${meetingId}`, {
     headers: { authorization: `Bearer ${accessToken}` },

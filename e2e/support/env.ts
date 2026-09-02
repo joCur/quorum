@@ -1,6 +1,4 @@
 /**
- * Everything the tests need to reach the running stack.
- *
  * The orchestrator (`scripts/run.mjs`) exports these before starting Playwright. Running a single
  * spec by hand against a stack that is already up needs no re-declaring either: the credentials
  * come from `.stack.env`, and the ports from the file that run wrote for its compose project, so
@@ -33,7 +31,6 @@ function readStackPorts(): Record<string, string> {
   return JSON.parse(readFileSync(path, "utf8")) as Record<string, string>;
 }
 
-/** A URL built from this stack's own port, when one is known. */
 function url(portName: string, host = "localhost"): string | undefined {
   const port = ports[portName];
   return port === undefined ? undefined : `http://${host}:${port}`;

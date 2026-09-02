@@ -457,8 +457,6 @@ async function teardown() {
   rmSync(portsFile(projectName), { force: true });
 }
 
-// ---- isolation ------------------------------------------------------------
-
 /**
  * The compose project name — this run's namespace for containers, networks and volumes.
  *
@@ -610,8 +608,6 @@ async function keycloakAdmin(path, token, { method = "GET", body } = {}) {
   }
   return response.status === 204 ? undefined : await response.json().catch(() => undefined);
 }
-
-// ---- helpers --------------------------------------------------------------
 
 async function step(label, action) {
   const started = Date.now();

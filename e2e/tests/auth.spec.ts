@@ -4,12 +4,7 @@ import { devUsers, stackEnv } from "../support/env.js";
 import { decodeClaims, fetchToken } from "../support/keycloak.js";
 import { RecordingSocket, startSession } from "../support/recording-socket.js";
 
-/**
- * Critical path: authentication (CLAUDE.md).
- *
- * Sign-in through the real Keycloak login form, the token the app ends up holding, and the tenant
- * scope that token carries into the API.
- */
+/** Critical path: authentication (CLAUDE.md). */
 test.describe("auth", () => {
   test("signs in through Keycloak and renders the protected view", async ({ page, signIn }) => {
     await page.goto("/meetings");
@@ -19,7 +14,6 @@ test.describe("auth", () => {
 
     await signIn(devUsers.alice);
 
-    // The access token really is in the app's hands, and it is scoped to Alice's tenant.
     const accessToken = await readAccessToken(page);
     expect(accessToken).not.toBeNull();
 
@@ -27,7 +21,6 @@ test.describe("auth", () => {
     expect(claims["preferred_username"]).toBe(devUsers.alice.username);
     expect(claims["tenant_id"]).toBe(devUsers.alice.tenantId);
 
-    // And the API accepts it, reporting the same scope back.
     const me = await page.request.get(`${stackEnv.apiUrl}/api/me`, {
       headers: { authorization: `Bearer ${accessToken as string}` },
     });
@@ -88,7 +81,6 @@ test.describe("auth", () => {
     // good one in memory, and nothing would come back 401 at all.
     await page.reload();
 
-    // Nothing is asked of the user: the screen renders, and the sign-in page is never reached.
     await expect(page.getByRole("heading", { name: "Templates" })).toBeVisible();
     await expect(page).toHaveURL(/\/templates$/);
     await expect(page.getByText("Your session ended.", { exact: false })).toHaveCount(0);
@@ -165,7 +157,6 @@ test.describe("auth", () => {
     await page.getByRole("button", { name: "Sign out" }).click();
     await endSession;
 
-    // Back at the signed-out landing view, with nothing of the session left in the browser.
     await page.waitForURL(/\/$/);
     await expect(signInButton(page)).toBeVisible();
     await expect
@@ -226,8 +217,6 @@ test.describe("auth", () => {
 });
 
 /**
- * The access token as the app is holding it, read out of the store the OIDC library keeps it in.
- *
  * Several specs need it — to check what it claims, to spoil it, to see it replaced — and each of
  * them wants the token the app would actually send, not one fetched beside it.
  */

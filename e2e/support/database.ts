@@ -1,11 +1,6 @@
 import postgres from "postgres";
 import { stackEnv } from "./env.js";
 
-/**
- * Read-only access to the tables the worker owns, so a test can assert that a job reached the
- * queue and that a transcript exists — the far end of the core path.
- */
-
 // One pool for the whole worker process. `idle_timeout` matters: without it the open connection
 // keeps the Playwright worker alive after the last spec, and closing it in an `afterAll` would
 // break the next spec file, which shares this module.
@@ -23,8 +18,7 @@ export interface QueuedTranscribeJob {
 }
 
 /**
- * Looks the enqueued transcribe job up by the session it belongs to. pg-boss keeps its jobs in
- * the `pgboss` schema; the payload is what the recording endpoint wrote.
+ * pg-boss keeps its jobs in the `pgboss` schema; the payload is what the recording endpoint wrote.
  */
 export async function findTranscribeJob(sessionId: string): Promise<QueuedTranscribeJob | null> {
   const rows = await sql<{ id: string; state: string; data: Record<string, unknown> }[]>`
@@ -52,8 +46,6 @@ export interface FailedJobRow {
 }
 
 /**
- * The job row a failed stage left behind, with the code and the developer-facing message.
- *
  * A UI assertion about a failure needs the failure to have happened first, and this is the row the
  * API derives the meeting's failed state from — so waiting for it separates "the pipeline never
  * failed" from "the screen renders it wrong".
@@ -168,8 +160,6 @@ export async function findSummaries(sessionId: string): Promise<SummaryRow[]> {
 }
 
 /**
- * The id of a user template by the name it was saved under.
- *
  * Asserting which template a summary was made with means naming that template, and the UI only
  * ever shows its name — the id lives in the store. Reading it here keeps the assertion about the
  * row that was actually written rather than about "not the system one".
@@ -187,8 +177,6 @@ export async function findUserTemplateId(name: string): Promise<string | null> {
 }
 
 /**
- * Queue rows pg-boss still holds for a meeting, live and archived.
- *
  * These are queue internals, and the deletion cascade reaches into them on purpose: a `transcribe`
  * job left behind would be picked up after the delete and write a fresh transcript for a meeting
  * that no longer exists. That is the one thing the deletion promise cannot survive, so the suite
@@ -211,9 +199,6 @@ export async function countQueueRows(meetingId: string): Promise<number> {
   return total;
 }
 
-/**
- * How many rows a table still holds for a session — the shape a deletion assertion needs.
- */
 export async function countRowsForSession(
   table: "transcripts" | "summaries" | "jobs",
   sessionId: string,
@@ -241,8 +226,6 @@ export async function countCorrections(meetingId: string): Promise<number> {
 }
 
 /**
- * The machine output as it is stored, straight out of the transcript document.
- *
  * This is what makes "immutable" checkable rather than merely asserted about the screen: a
  * correction changes what is shown and must leave this string exactly as the worker wrote it.
  */

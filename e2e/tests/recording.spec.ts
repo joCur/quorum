@@ -37,12 +37,7 @@ import { audioKey, expectRecordingIntact, objectSize, readManifest } from "../su
  */
 const STUB_SUMMARY_TITLE = "Stub meeting about the release";
 
-/**
- * Critical path: recording → chunk streaming → persistence → transcript (CLAUDE.md).
- *
- * The browser records from Chromium's synthetic microphone, and every claim the UI makes is
- * checked against the two systems that actually hold the data: object storage and the database.
- */
+/** Critical path: recording → chunk streaming → persistence → transcript (CLAUDE.md). */
 
 test("records, persists every chunk and produces a transcript", async ({ page, signIn }) => {
   const alice = await fetchToken(devUsers.alice);
@@ -70,21 +65,18 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
 
   await stopRecording(page);
   await protocol.waitForFinalized();
-  // Finalizing returns the user to the meeting list.
   await expect(page).toHaveURL(/\/meetings$/);
 
   const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
 
   const chunkCount = await expectRecordingIntact(scope, { atLeast: 4 });
 
-  // The session is finalized: the manifest agrees with what was acknowledged.
   const manifest = await readManifest(scope);
   expect(manifest).not.toBeNull();
   expect(manifest?.tenantId).toBe(alice.tenantId);
   expect(manifest?.userId).toBe(alice.userId);
   expect(manifest?.persistedSeq).toBe(chunkCount - 1);
 
-  // A transcribe job reached the queue.
   const job = await waitForValue(
     () => findTranscribeJob(sessionId),
     30_000,
@@ -359,7 +351,6 @@ async function lastTranscriptionFields(): Promise<Record<string, string | null>>
   return body.fields;
 }
 
-/** Arms the stub backend to refuse the next transcription request it receives. */
 async function rejectNextTranscription(): Promise<void> {
   const response = await fetch(`${stackEnv.mockBackendUrl}/control/reject-transcription`, {
     method: "POST",
@@ -411,7 +402,6 @@ test("takes consent on the stage and refuses to stop on a short press", async ({
   await protocol.waitForAck(seqsAfterShortPress + 2);
   await expect(stop).toBeVisible();
 
-  // The full hold does end it, and the session finalizes like any other.
   await stopRecording(page);
   await protocol.waitForFinalized();
   await expect(page).toHaveURL(/\/meetings$/);
@@ -533,11 +523,9 @@ test("keeps recording while the user browses the rest of the app", async ({ page
   await protocol.waitForAck(2);
   const ackedOnScreen = protocol.persistedSeq;
 
-  // Away from the recording screen, the ordinary way: the screen's own way out.
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page).toHaveURL(/\/meetings$/);
 
-  // The recording is still there, and says so.
   await expect(recordingBar(page)).toBeVisible();
   await expect(recordingBar(page)).toContainText("REC");
 

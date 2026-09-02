@@ -35,7 +35,6 @@ test("shapes a template and summarizes an existing recording again with it", asy
 
   await signIn(devUsers.alice);
 
-  // --- The template ------------------------------------------------------------------------
   await page.goto("/templates");
   await page.getByRole("button", { name: "Create a template" }).first().click();
 
@@ -64,7 +63,6 @@ test("shapes a template and summarizes an existing recording again with it", asy
   // visible in the order it will arrive in.
   await expect(card.getByRole("listitem").last()).toHaveText("Risks");
 
-  // --- A meeting to summarize --------------------------------------------------------------
   await page.goto("/record");
   await startRecording(page);
   const sessionId = await protocol.waitForSessionId();
@@ -80,7 +78,6 @@ test("shapes a template and summarizes an existing recording again with it", asy
   const first = await waitForValue(() => findSummary(sessionId), 60_000, "the first summary row");
   expect(first.tenantId).toBe(alice.tenantId);
 
-  // --- Regenerating with the user's template -------------------------------------------------
   await page.goto(`/meetings/${transcript.meetingId}`);
   // Nothing to open first: the summary and the transcript stand side by side, so the template
   // picker is on screen as soon as the meeting is.
@@ -114,7 +111,6 @@ test("shapes a template and summarizes an existing recording again with it", asy
   // And the screen shows the new sections rather than the ones the template dropped.
   await expect(page.getByRole("heading", { name: "Risks" })).toBeVisible({ timeout: 30_000 });
 
-  // --- Deleting the template -----------------------------------------------------------------
   // Destructive controls ask first, and the answer is not assumed: cancelling has to leave the
   // template exactly where it was.
   await page.goto("/templates");
@@ -149,7 +145,6 @@ test("summarizes a new recording with the template the user set as their default
   const protocol = watchRecordingProtocol(page);
   await signIn(devUsers.alice);
 
-  // --- A template, and the decision to summarize with it ---------------------------------------
   await page.goto("/templates");
   await page.getByRole("button", { name: "Create a template" }).first().click();
   await page.getByLabel("Name").fill(DEFAULT_TEMPLATE_NAME);
@@ -178,7 +173,6 @@ test("summarizes a new recording with the template the user set as their default
     "the stored template",
   );
 
-  // --- A recording made afterwards -------------------------------------------------------------
   await page.goto("/record");
   await startRecording(page);
   const sessionId = await protocol.waitForSessionId();
@@ -197,7 +191,6 @@ test("summarizes a new recording with the template the user set as their default
   expect(summary.templateId).toBe(templateId);
   expect((await findSummaries(sessionId)).length).toBe(1);
 
-  // --- Giving the choice up --------------------------------------------------------------------
   // Unsetting is not "no default": it hands the mark back to the system template, so a user is
   // never left without one.
   await page.goto("/templates");
@@ -234,7 +227,6 @@ test("summarizes a recording with the template picked at the start, over the use
   const protocol = watchRecordingProtocol(page);
   await signIn(devUsers.alice);
 
-  // --- Two templates: one the user's default, one for this meeting only ------------------------
   await page.goto("/templates");
   for (const [name, section] of [
     [PREFERRED_NAME, "Usual"],
@@ -265,7 +257,6 @@ test("summarizes a recording with the template picked at the start, over the use
     "the stored one-off template",
   );
 
-  // --- Choosing at the start of a recording ----------------------------------------------------
   await page.goto("/record");
   const picker = page.getByLabel("Summary template");
   // Prefilled with the default, so a user who wants their usual layout touches nothing.
@@ -292,7 +283,6 @@ test("summarizes a recording with the template picked at the start, over the use
   expect(summary.templateId).toBe(oneOffId);
   expect((await findSummaries(sessionId)).length).toBe(1);
 
-  // --- Cleanup ---------------------------------------------------------------------------------
   await page.goto("/templates");
   await page
     .getByTestId("template-card")
