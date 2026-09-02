@@ -79,7 +79,6 @@ export interface TranscriptRepository {
 
 /** The summary half of the same store, kept as its own port for testability. */
 export interface SummaryRepository {
-  /** Writes a template if that (id, version) is not stored yet. */
   seedTemplate(template: SummaryTemplate): Promise<void>;
   /** Highest version of a template visible to the tenant, or `null`. */
   loadTemplate(templateId: string, tenantId: string): Promise<SummaryTemplate | null>;

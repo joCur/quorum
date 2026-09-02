@@ -146,7 +146,6 @@ export interface EnsureWhisperModelOptions {
   timeoutMs?: number;
   /** Pause between attempts while the backend is still starting. */
   retryDelayMs?: number;
-  /** How often a running download reports that it is still running. */
   progressIntervalMs?: number;
   /**
    * Overrides the transport. The default one carries the timeouts derived from

@@ -219,7 +219,6 @@ export class InMemoryRepository implements TranscriptRepository {
     this.migrated = true;
   }
 
-  /** Decoded audio length stored alongside each transcript, keyed by transcript id. */
   readonly durations = new Map<string, number | null>();
 
   async saveTranscript(

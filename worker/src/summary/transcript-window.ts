@@ -39,10 +39,8 @@ export function estimateTokens(text: string): number {
 export interface TranscriptWindow {
   /** The transcript rendered as prompt text, possibly with the middle elided. */
   text: string;
-  /** Segments actually included. */
   includedSegments: number;
   totalSegments: number;
-  /** `true` when the middle was cut out. */
   truncated: boolean;
   estimatedTokens: number;
 }

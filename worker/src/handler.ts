@@ -61,9 +61,7 @@ export interface TranscribeOutcome {
   created: boolean;
   segmentCount: number;
   wordCount: number;
-  /** `true` when the follow-up summary job was placed on the queue. */
   summaryEnqueued: boolean;
-  /** `true` when the repackaging job was placed on the queue. */
   remuxEnqueued: boolean;
   /**
    * Set when the meeting was deleted while the job was running. Nothing was

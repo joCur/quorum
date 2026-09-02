@@ -167,7 +167,6 @@ const WorkerConfigFields = z.object({
     .default("false")
     .transform((value) => value === "true"),
 
-  /** How many transcriptions this process runs at the same time. */
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(1),
   /**
    * Summaries in flight per process. Higher than the transcription default on
@@ -175,9 +174,7 @@ const WorkerConfigFields = z.object({
    * endpoint rather than on the local GPU.
    */
   SUMMARY_CONCURRENCY: z.coerce.number().int().positive().default(2),
-  /** Attempts per job before it is dead-lettered. */
   WORKER_RETRY_LIMIT: z.coerce.number().int().nonnegative().default(4),
-  /** Base delay for the exponential retry backoff, in seconds. */
   WORKER_RETRY_DELAY_SECONDS: z.coerce.number().int().positive().default(30),
   /**
    * Wall-clock budget for a single attempt. pg-boss returns the job to the queue
@@ -190,13 +187,9 @@ const WorkerConfigFields = z.object({
     .default(2 * 3600),
 });
 
-/**
- * The fields plus the constraints that span two of them.
- */
 export const WorkerConfigSchema = WorkerConfigFields.superRefine((config, ctx) => {
-  // Until now this invariant lived in a comment, which is to say it did not
-  // exist. pg-boss returns an attempt to the queue the moment it expires and
-  // another worker picks it up, so an expiry shorter than the transcription
+  // pg-boss returns an attempt to the queue the moment it expires and another
+  // worker picks it up, so an expiry shorter than the transcription
   // timeout re-runs a transcription that is still legitimately in flight: the
   // backend computes the same audio twice at once, on a host that was already
   // too slow, and the loser's result overwrites the winner's. A deployment that

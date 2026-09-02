@@ -33,7 +33,6 @@ export interface JobObservation {
 export interface WorkerMetrics {
   readonly registry: PrometheusRegistry;
   readonly contentType: string;
-  /** Called once per finished attempt. */
   observeJob(observation: JobObservation): void;
   /** Bracket around a running attempt, so a hung job is visible as in-flight. */
   jobStarted(queue: string): void;
