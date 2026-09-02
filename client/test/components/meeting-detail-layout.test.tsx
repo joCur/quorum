@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router-dom";
@@ -126,15 +126,20 @@ const template: SummaryTemplateView = {
   isDefault: true,
 };
 
+/** The meeting the screen is given; a test that needs a different one assigns it in place. */
+let currentDetail: MeetingDetail = detail();
+
 vi.mock("@/features/meetings/use-meeting", () => ({
   useMeeting: (): MeetingDetailState => ({
-    detail: detail(),
+    detail: currentDetail,
     status: "ready",
     errorCode: null,
     deleting: false,
     reload: vi.fn(),
     remove: vi.fn(),
     rename: vi.fn(),
+    correct: vi.fn(),
+    reset: vi.fn(),
   }),
 }));
 
@@ -182,6 +187,10 @@ function renderDetail() {
 describe("meeting detail layout", () => {
   beforeAll(async () => {
     await useLanguage("en");
+  });
+
+  beforeEach(() => {
+    currentDetail = detail();
   });
 
   it("puts the transcript and the summary on the page together", () => {
@@ -260,5 +269,43 @@ describe("meeting detail layout", () => {
     expect(attribution.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
+  });
+});
+
+/**
+ * The summary against a transcript that has been corrected since (ADR-010).
+ *
+ * The note is the whole feature here: no re-summarizing, no warning banner, just the summary
+ * saying it describes wording that has since changed.
+ */
+describe("a summary older than the corrections", () => {
+  beforeAll(async () => {
+    await useLanguage("en");
+  });
+
+  it("says nothing while the transcript stands as it was transcribed", () => {
+    currentDetail = detail();
+    renderDetail();
+
+    expect(screen.queryByText(/corrected after this summary/)).not.toBeInTheDocument();
+  });
+
+  it("notes a correction made after the summary was written", () => {
+    currentDetail = { ...detail(), transcriptCorrectedAt: new Date().toISOString() };
+    renderDetail();
+
+    expect(
+      screen.getByText("The transcript was corrected after this summary was written."),
+    ).toBeInTheDocument();
+  });
+
+  it("stays quiet about a correction the summary already knew about", () => {
+    currentDetail = {
+      ...detail(),
+      transcriptCorrectedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+    };
+    renderDetail();
+
+    expect(screen.queryByText(/corrected after this summary/)).not.toBeInTheDocument();
   });
 });

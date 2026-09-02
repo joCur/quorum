@@ -2,12 +2,15 @@ import {
   MeetingDetailSchema,
   MeetingListSchema,
   MeetingSchema,
+  SegmentCorrectionResponseSchema,
   TranscriptionJobAcceptedSchema,
 } from "@quorum/shared";
 import type {
   Meeting,
   MeetingDetail,
   RenameMeetingRequest,
+  SegmentCorrectionResponse,
+  SegmentOverlay,
   TranscriptionJobAccepted,
 } from "@quorum/shared";
 import { apiUrl } from "@/env";
@@ -151,6 +154,44 @@ export async function renameMeeting(
     body: JSON.stringify(body),
   });
   return MeetingSchema.parse(await response.json());
+}
+
+/**
+ * Corrects one transcript segment (ADR-003 §2, ADR-010).
+ *
+ * The whole overlay goes in every request, both fields always present: the server stores what it
+ * is sent, so a correction that mentioned only the text would be read as "and no speaker
+ * override" — which it may well not mean.
+ */
+export async function correctSegment(
+  meetingId: string,
+  segmentId: string,
+  overlay: SegmentOverlay,
+  options: RequestOptions,
+): Promise<SegmentCorrectionResponse> {
+  const response = await call(correctionPath(meetingId, segmentId), {
+    ...options,
+    method: "PUT",
+    body: JSON.stringify(overlay),
+  });
+  return SegmentCorrectionResponseSchema.parse(await response.json());
+}
+
+/** Takes a correction back off, which is what brings the machine's own words back. */
+export async function resetSegment(
+  meetingId: string,
+  segmentId: string,
+  options: RequestOptions,
+): Promise<SegmentCorrectionResponse> {
+  const response = await call(correctionPath(meetingId, segmentId), {
+    ...options,
+    method: "DELETE",
+  });
+  return SegmentCorrectionResponseSchema.parse(await response.json());
+}
+
+function correctionPath(meetingId: string, segmentId: string): string {
+  return `/api/meetings/${meetingId}/transcript/segments/${segmentId}/correction`;
 }
 
 /** URL of a meeting's audio stream. The request itself carries the access token. */

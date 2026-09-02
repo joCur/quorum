@@ -421,7 +421,19 @@
       "retryUnavailable": "Die Transkription konnte gerade nicht gestartet werden. Bitte versuche es in einem Moment noch einmal.",
       "jumpTo": "Zu {{time}} springen",
       "uncertain": "Geringe Erkennungssicherheit",
-      "uncertainShort": "unsicher"
+      "uncertainShort": "unsicher",
+      "correction": {
+        "edit": "Passage bei {{time}} korrigieren",
+        "label": "Korrigierter Text",
+        "speaker": "Sprecher",
+        "speakerNone": "Kein Sprecher",
+        "original": "Aufgezeichnet als:",
+        "save": "Speichern",
+        "cancel": "Verwerfen",
+        "marker": "Korrigiert",
+        "reset": "Ursprünglichen Wortlaut wiederherstellen",
+        "failed": "Diese Korrektur konnte nicht gespeichert werden."
+      }
     },
     "summary": {
       "working": "Deine Zusammenfassung folgt — sie startet, sobald das Transkript fertig ist.",
@@ -434,7 +446,8 @@
       "regenerate": "Neu erstellen",
       "regenerating": "Wird geschrieben…",
       "previousVersion": "Vorherige Fassung — sie wird ersetzt, sobald die neue fertig ist.",
-      "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben."
+      "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben.",
+      "correctedSince": "Das Transkript wurde korrigiert, nachdem diese Zusammenfassung geschrieben wurde."
     }
   }
 }

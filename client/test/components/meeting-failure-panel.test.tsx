@@ -136,6 +136,8 @@ vi.mock("@/features/meetings/use-meeting", () => ({
     reload,
     remove: vi.fn(),
     rename: vi.fn(),
+    correct: vi.fn(),
+    reset: vi.fn(),
   }),
 }));
 

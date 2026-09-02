@@ -1,11 +1,13 @@
 import * as React from "react";
-import type { MeetingDetail } from "@quorum/shared";
+import type { MeetingDetail, SegmentCorrectionResponse, SegmentOverlay } from "@quorum/shared";
 import { useAuth } from "@/features/auth/auth-provider";
 import {
+  correctSegment,
   deleteMeeting,
   fetchMeeting,
   MeetingApiError,
   renameMeeting,
+  resetSegment,
 } from "@/features/meetings/api";
 import { isInProgress } from "@/features/meetings/status";
 import { POLL_INTERVAL_MS } from "@/features/meetings/use-meetings";
@@ -24,6 +26,13 @@ export interface MeetingDetailState {
    * unnamed. Rejects when the request fails, so the screen can say so and keep the editor open.
    */
   rename: (title: string) => Promise<void>;
+  /**
+   * Corrects one transcript segment (ADR-003 §2). Rejects when the request fails, so the segment
+   * can say so and keep what was typed.
+   */
+  correct: (segmentId: string, overlay: SegmentOverlay) => Promise<void>;
+  /** Takes a segment's correction back off, which brings the machine's own words back. */
+  reset: (segmentId: string) => Promise<void>;
 }
 
 /**
@@ -108,5 +117,51 @@ export function useMeeting(meetingId: string): MeetingDetailState {
     [accessToken, meetingId],
   );
 
-  return { detail, status, errorCode, deleting, reload, remove, rename };
+  /**
+   * Puts a confirmed correction onto the detail in hand, for the same reason a rename does: the
+   * transcript is what the user is reading, and re-fetching it under them would move the page.
+   *
+   * The server's answer is what lands, not the typed text — it has already decided whether that
+   * counts as a correction at all, and a segment that came back uncorrected has to stop wearing
+   * the marker.
+   */
+  const applyCorrection = React.useCallback(
+    (segmentId: string, answer: SegmentCorrectionResponse): void => {
+      setDetail((current) => {
+        if (current === null || current.transcript === null) return current;
+        return {
+          ...current,
+          transcript: {
+            ...current.transcript,
+            segments: current.transcript.segments.map((segment) =>
+              segment.id === segmentId ? answer.segment : segment,
+            ),
+          },
+          transcriptCorrectedAt: answer.transcriptCorrectedAt,
+        };
+      });
+    },
+    [],
+  );
+
+  const correct = React.useCallback(
+    async (segmentId: string, overlay: SegmentOverlay): Promise<void> => {
+      if (!accessToken) return;
+      applyCorrection(
+        segmentId,
+        await correctSegment(meetingId, segmentId, overlay, { accessToken }),
+      );
+    },
+    [accessToken, applyCorrection, meetingId],
+  );
+
+  const reset = React.useCallback(
+    async (segmentId: string): Promise<void> => {
+      if (!accessToken) return;
+      applyCorrection(segmentId, await resetSegment(meetingId, segmentId, { accessToken }));
+    },
+    [accessToken, applyCorrection, meetingId],
+  );
+
+  return { detail, status, errorCode, deleting, reload, remove, rename, correct, reset };
 }
