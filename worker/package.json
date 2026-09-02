@@ -1,6 +1,6 @@
 {
   "name": "@quorum/worker",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Quorum job worker — consumes transcribe jobs, calls the OpenAI-compatible Whisper endpoint and persists transcripts.",

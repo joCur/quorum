@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.1.0](https://github.com/joCur/quorum/compare/v1.0.3...v1.1.0) (2026-09-02)
+
+
+### Features
+
+* **client:** correct a transcript passage, and say when the summary fell behind ([#194](https://github.com/joCur/quorum/issues/194)) ([7f4c308](https://github.com/joCur/quorum/commit/7f4c308aa5b206f19c27790e0050a8ae9708c99a))
+* **meetings:** name a meeting from its own transcript, and let the user rename it ([#185](https://github.com/joCur/quorum/issues/185)) ([02def06](https://github.com/joCur/quorum/commit/02def06606d71314bef3f9b03fe64364bfacc25b))
+* **pipeline:** derive recorded duration from the audio instead of the client ([#191](https://github.com/joCur/quorum/issues/191)) ([b2548db](https://github.com/joCur/quorum/commit/b2548dbba93e692d8c75cc9814488d4cae9e0d35))
+* **pipeline:** let a user retry a failed transcription ([#187](https://github.com/joCur/quorum/issues/187)) ([4694c9d](https://github.com/joCur/quorum/commit/4694c9ddf74e6c503d0b08e26e0302ce5eaadee3))
+* **pipeline:** make a finished recording seekable ([#195](https://github.com/joCur/quorum/issues/195)) ([b79c78c](https://github.com/joCur/quorum/commit/b79c78c9f71560a9d8c62ce0d6dc509f6a86495c))
+* **transcription:** let a user bias recognition with their own terms ([#193](https://github.com/joCur/quorum/issues/193)) ([924478d](https://github.com/joCur/quorum/commit/924478d85c4449d3b2697b48cfcdc13a1787064a))
+* **transcription:** resolve the language per meeting instead of one global default ([#186](https://github.com/joCur/quorum/issues/186)) ([ed47653](https://github.com/joCur/quorum/commit/ed47653a14d6ac66034319397f03ebb44755e88d))
+* **transcript:** store segment corrections beside the machine output ([#190](https://github.com/joCur/quorum/issues/190)) ([f237059](https://github.com/joCur/quorum/commit/f2370593bacfc9bef6a198091ddb500bc0385669))
+* **worker:** provision the configured Whisper model on startup ([#172](https://github.com/joCur/quorum/issues/172)) ([3209d53](https://github.com/joCur/quorum/commit/3209d533078b9ab1529919e86c50a4d471e7216f))
+
+
+### Bug Fixes
+
+* **e2e:** harden the bucket-bootstrap retry and the startup-failure log capture ([#182](https://github.com/joCur/quorum/issues/182)) ([f73e1e9](https://github.com/joCur/quorum/commit/f73e1e9847c192cd1e3d0fdd8444913588debb20)), closes [#149](https://github.com/joCur/quorum/issues/149)
+* **e2e:** keep a generated secret from being read as a command-line flag ([#206](https://github.com/joCur/quorum/issues/206)) ([0377e0a](https://github.com/joCur/quorum/commit/0377e0a58079f5715cc9fe4310c1d0bfbc7e1fc1)), closes [#204](https://github.com/joCur/quorum/issues/204)
+* **e2e:** retry the bucket bootstrap, and keep a failed startup's logs ([#171](https://github.com/joCur/quorum/issues/171)) ([71abcf0](https://github.com/joCur/quorum/commit/71abcf0b32794aa64dee6f7e0924b9ed4bf2ea97)), closes [#149](https://github.com/joCur/quorum/issues/149)
+* log pg-boss errors as message, code, and stack — not the whole client ([#183](https://github.com/joCur/quorum/issues/183)) ([18fea59](https://github.com/joCur/quorum/commit/18fea59c27ec082acc3db42b8c05a4f8980e2a8b)), closes [#181](https://github.com/joCur/quorum/issues/181)
+* **worker:** give model provisioning a transport that waits, and one way out ([#184](https://github.com/joCur/quorum/issues/184)) ([92ccfee](https://github.com/joCur/quorum/commit/92ccfeeca8aea966d47abbef0670e26d67ad2f93))
+* **worker:** let the configured request timeout reach the HTTP transport ([#174](https://github.com/joCur/quorum/issues/174)) ([afdd62c](https://github.com/joCur/quorum/commit/afdd62ca91350868c8efdec602dd34dcccb15d28)), closes [#168](https://github.com/joCur/quorum/issues/168)
+* **worker:** make an unrequested shutdown loud and non-zero ([#170](https://github.com/joCur/quorum/issues/170)) ([a50c0a4](https://github.com/joCur/quorum/commit/a50c0a4b2add0d6997ebf01fe4c2ec2a58c3c5c8))
+
 ## [1.0.3](https://github.com/joCur/quorum/compare/v1.0.2...v1.0.3) (2026-08-31)
 
 
