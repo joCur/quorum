@@ -62,6 +62,11 @@ export interface NewSession {
   meetingTitle: string | null;
   /** Template for this meeting's summary; `null` follows the user's default. */
   summaryTemplateId: string | null;
+  /**
+   * Language this meeting is transcribed in — `auto` to have it detected, `null` to state
+   * nothing and leave the whole chain to the server.
+   */
+  language: string | null;
 }
 
 export interface RecordingClientStatus {
@@ -292,6 +297,7 @@ export class RecordingClient {
         type: "session.start",
         meetingTitle: this.pendingStart.meetingTitle,
         summaryTemplateId: this.pendingStart.summaryTemplateId,
+        language: this.pendingStart.language,
         audioFormat: this.pendingStart.audioFormat,
         clientInfo: this.options.clientInfo ?? { platform: "web", userAgent: "" },
       });

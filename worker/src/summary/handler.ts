@@ -36,6 +36,11 @@ export interface SummarizeOutcome {
   repaired: boolean;
   transcriptTruncated: boolean;
   /**
+   * The title this run gave the meeting, or `null` when it gave it none — because the model
+   * suggested nothing, or because the meeting already had a name that stands.
+   */
+  appliedTitle: string | null;
+  /**
    * Set when the meeting was deleted while the job was running. Nothing was
    * written — not the summary and not a job row — and `summaryId` is only the
    * id the run would have used.
@@ -109,6 +114,9 @@ export async function runSummarizeJob(
         sectionCount: 0,
         repaired: false,
         transcriptTruncated: false,
+        // A replay makes no second offer of a name — the same rule `saveSummary` applies when it
+        // recognizes one, and the reason the check above can stand in for it.
+        appliedTitle: null,
       };
     }
 
@@ -168,7 +176,7 @@ export async function runSummarizeJob(
       recordedAt: transcript.recordedAt,
     });
 
-    const { sections, repaired, model } = await completeWithOneRepair(
+    const { sections, title, repaired, model } = await completeWithOneRepair(
       messages,
       resolvedSections,
       deps,
@@ -186,10 +194,21 @@ export async function runSummarizeJob(
       sections,
       model,
       promptVersion: PROMPT_VERSION,
+      generatedTitle: title,
       createdAt: now().toISOString(),
     });
 
+    // The summary and the name it suggested for the meeting are written together — see
+    // `nameMeeting` in the repository for why they share one transaction.
     const saved = await deps.repository.saveSummary(summary, scope, payload.job.id);
+    if (summary.generatedTitle !== null && saved.created) {
+      log.info(
+        { event: "summary.title.applied", applied: saved.appliedTitle !== null },
+        saved.appliedTitle === null
+          ? "meeting kept the name it already had; the suggested title was not applied"
+          : "meeting took the generated title",
+      );
+    }
 
     const succeeded: Job = {
       ...payload.job,
@@ -209,6 +228,7 @@ export async function runSummarizeJob(
         sectionCount: summary.sections.length,
         repaired,
         model,
+        titled: saved.appliedTitle !== null,
       },
       saved.created ? "summary persisted" : "summary already existed; job replay was a no-op",
     );
@@ -219,6 +239,7 @@ export async function runSummarizeJob(
       sectionCount: summary.sections.length,
       repaired,
       transcriptTruncated: window.truncated,
+      appliedTitle: saved.appliedTitle,
     };
   } catch (error) {
     if (error instanceof MeetingGoneError) {
@@ -229,6 +250,7 @@ export async function runSummarizeJob(
         sectionCount: 0,
         repaired: false,
         transcriptTruncated: false,
+        appliedTitle: null,
         abandoned: "meeting-deleted",
       };
     }
@@ -338,14 +360,24 @@ async function completeWithOneRepair(
   resolvedSections: ReturnType<typeof resolveTemplateSections>,
   deps: SummarizeHandlerDependencies,
   log: WorkerLogger,
-): Promise<{ sections: SummarySection[]; repaired: boolean; model: string }> {
+): Promise<{
+  sections: SummarySection[];
+  title: string | null;
+  repaired: boolean;
+  model: string;
+}> {
   const first = await deps.chat.complete(messages);
   logCompletion(log, first, "summary.completed");
 
   try {
     const parsed = parseSummaryResponse(first.content, resolvedSections);
     warnAboutMissingSections(log, parsed.missingSectionIds);
-    return { sections: parsed.sections, repaired: false, model: first.model ?? deps.chat.model };
+    return {
+      sections: parsed.sections,
+      title: parsed.title,
+      repaired: false,
+      model: first.model ?? deps.chat.model,
+    };
   } catch (error) {
     if (!(error instanceof SummaryParseError)) throw error;
     log.warn(
@@ -367,7 +399,12 @@ async function completeWithOneRepair(
       const parsed = parseSummaryResponse(repair.content, resolvedSections);
       warnAboutMissingSections(log, parsed.missingSectionIds);
       log.info({ event: "summary.output.repaired" }, "repair attempt produced a usable answer");
-      return { sections: parsed.sections, repaired: true, model: repair.model ?? deps.chat.model };
+      return {
+        sections: parsed.sections,
+        title: parsed.title,
+        repaired: true,
+        model: repair.model ?? deps.chat.model,
+      };
     } catch (repairError) {
       if (!(repairError instanceof SummaryParseError)) throw repairError;
       log.error(

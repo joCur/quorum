@@ -1,4 +1,4 @@
-import type { SummarySection, TemplateSection } from "@quorum/shared";
+import { normalizeGeneratedTitle, type SummarySection, type TemplateSection } from "@quorum/shared";
 
 /**
  * Turning a model's answer into `SummarySection[]`.
@@ -12,6 +12,10 @@ import type { SummarySection, TemplateSection } from "@quorum/shared";
  * Everything here is tolerant except the one thing that cannot be recovered: an
  * answer that contains no requested section id at all. That is what triggers
  * the single repair attempt in the handler.
+ *
+ * The envelope carries one more thing than the sections: a suggested name for
+ * the meeting. It is optional in both directions — the model may leave it out,
+ * and the meeting may already have a name the user gave it.
  */
 
 /** Signals an answer the handler should try to have repaired once. */
@@ -119,6 +123,27 @@ export interface ParsedSummaryContent {
   sections: SummarySection[];
   /** Sections the model left out entirely; stored empty and logged. */
   missingSectionIds: string[];
+  /**
+   * The suggested meeting title, normalized, or `null` when the model offered none or offered
+   * something unusable. Never a reason to reject an answer: the sections are what was paid for,
+   * and a summary without a title is a complete summary of a meeting that keeps its own name.
+   */
+  title: string | null;
+}
+
+/**
+ * The title out of the answer envelope — and only out of the envelope.
+ *
+ * The requirement is `sections`, not merely an object: in the two shapes the parser tolerates
+ * instead of the envelope — a bare array, and an object keyed by section id — a key called
+ * `title` is a section of a template that happens to have a section with that id, and reading it
+ * as the meeting's name would put a paragraph of prose at the top of the screen.
+ */
+function titleOf(parsed: unknown): string | null {
+  if (Array.isArray(parsed) || typeof parsed !== "object" || parsed === null) return null;
+  const record = parsed as Record<string, unknown>;
+  if (!("sections" in record)) return null;
+  return normalizeGeneratedTitle(record["title"]);
 }
 
 export function parseSummaryResponse(
@@ -162,5 +187,5 @@ export function parseSummaryResponse(
     };
   });
 
-  return { sections, missingSectionIds };
+  return { sections, missingSectionIds, title: titleOf(parsed) };
 }

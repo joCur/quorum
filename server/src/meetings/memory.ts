@@ -1,4 +1,10 @@
-import type { Job, Meeting, Summary, Transcript } from "@quorum/shared";
+import {
+  normalizeUserTitle,
+  type Job,
+  type Meeting,
+  type Summary,
+  type Transcript,
+} from "@quorum/shared";
 import type { AccountUsage, RecordingUsage } from "../recording/types.js";
 import { deriveMeetingState, type StageState } from "./status.js";
 import {
@@ -44,10 +50,27 @@ export class InMemoryMeetingStore implements MeetingStore {
     const existing = this.meetings.get(record.meetingId);
     this.meetings.set(record.meetingId, {
       ...record,
+      // The `NULLIF(btrim(...))` and the `COALESCE` of the SQL implementation: a blank title is
+      // no title, and a repeat of this write must not erase a name the row was given after the
+      // recording started.
+      title: normalizeUserTitle(record.title) ?? existing?.title ?? null,
       finalizedAt: existing?.finalizedAt ?? null,
       audioBytes: existing?.audioBytes ?? 0,
       recordedSeconds: existing?.recordedSeconds ?? 0,
     });
+  }
+
+  async renameMeeting(
+    scope: MeetingScope,
+    meetingId: string,
+    title: string | null,
+  ): Promise<Meeting | null> {
+    const stored = this.meetings.get(meetingId);
+    if (!stored || stored.tenantId !== scope.tenantId || stored.userId !== scope.userId) {
+      return null;
+    }
+    stored.title = normalizeUserTitle(title);
+    return (await this.findMeeting(scope, meetingId))?.meeting ?? null;
   }
 
   /** Monotonic, exactly like the `GREATEST` of the SQL implementation. */

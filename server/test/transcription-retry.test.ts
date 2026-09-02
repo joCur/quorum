@@ -7,6 +7,7 @@ import { DEFAULT_USER_LIMITS, StaticUserLimitsResolver } from "../src/limits.js"
 import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
 import { InMemoryMeetingStore } from "../src/meetings/memory.js";
+import { InMemoryUserSettingsStore } from "../src/settings/repository.js";
 import { AUDIENCE, INTERNAL_ISSUER, ISSUER, createTestKeyPair, signAccessToken } from "./keys.js";
 import type { TestKeyPair } from "./keys.js";
 
@@ -50,6 +51,8 @@ const BUSY = uuid("a", 4);
 const BACKING_OFF = uuid("a", 5);
 /** A `queued` row with nothing behind it: a crash between the row move and the enqueue. */
 const STRANDED = uuid("a", 6);
+/** No session object was ever written for it, so its chosen language is unknowable. */
+const NO_SESSION = uuid("a", 7);
 const GLOBEX_MEETING = uuid("b", 1);
 
 /**
@@ -80,7 +83,30 @@ function transcribeJob(meetingId: string, overrides: Partial<Job> = {}): Job {
 
 let app: FastifyInstance;
 let queue: InMemoryJobQueue;
+let storage: InMemoryRecordingStorage;
+let settings: InMemoryUserSettingsStore;
 const store = new InMemoryMeetingStore();
+
+/**
+ * The session object the recording endpoint wrote at `session.start`.
+ *
+ * It is the only place that still knows which language this meeting was asked to be transcribed
+ * in, which is why the retry reads it rather than the user's current default.
+ */
+async function seedSession(meetingId: string, language: string | null): Promise<void> {
+  await storage.putSession({
+    sessionId: meetingId,
+    meetingId,
+    tenantId: ACME.tenantId,
+    userId: ACME.userId,
+    meetingTitle: "Weekly sync",
+    summaryTemplateId: null,
+    language,
+    audioFormat: WEBM_OPUS,
+    createdAt: "2026-08-29T10:00:00.000Z",
+    marks: [],
+  });
+}
 
 async function token(scope: { tenantId: string; userId: string }): Promise<string> {
   return signAccessToken(keys, {
@@ -141,6 +167,7 @@ function seedPipelines(): void {
   store.setPipeline(STRANDED, {
     jobs: [transcribeJob(STRANDED, { status: "queued", error: null })],
   });
+  store.setPipeline(NO_SESSION, { jobs: [transcribeJob(NO_SESSION)] });
   store.setPipeline(GLOBEX_MEETING, { jobs: [transcribeJob(GLOBEX_MEETING)] });
   // What the queue is holding. The running job and the one pg-boss is still going to repeat by
   // itself both have a live entry; the stranded row is the crash that left one behind without.
@@ -154,14 +181,18 @@ beforeAll(async () => {
   await seed(BUSY, ACME);
   await seed(BACKING_OFF, ACME);
   await seed(STRANDED, ACME);
+  await seed(NO_SESSION, ACME);
   await seed(GLOBEX_MEETING, GLOBEX);
 
   queue = new InMemoryJobQueue();
+  storage = new InMemoryRecordingStorage();
+  settings = new InMemoryUserSettingsStore();
 
   app = await buildServer({
-    storage: new InMemoryRecordingStorage(),
+    storage,
     queue,
     meetings: store,
+    settings,
     auth: {
       verifyAccessToken: createTokenVerifier({
         issuers: [INTERNAL_ISSUER, ISSUER],
@@ -180,9 +211,13 @@ beforeAll(async () => {
   await app.ready();
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   seedPipelines();
   queue.enqueued.length = 0;
+  // Both halves of the language chain start empty, so a case that cares about one of them says
+  // so rather than inheriting it from whichever case ran before.
+  await settings.updateSettings(ACME, { transcriptionLanguage: null });
+  await seedSession(RETRYABLE, null);
 });
 
 afterAll(async () => {
@@ -222,6 +257,7 @@ describe("retrying a failed transcription", () => {
         tenantId: ACME.tenantId,
         userId: ACME.userId,
         sessionId: RETRYABLE,
+        language: null,
       },
     ]);
   });
@@ -313,6 +349,42 @@ describe("retrying a failed transcription", () => {
     expect(queue.enqueued).toHaveLength(1);
   });
 
+  /**
+   * The language is a property of the recording, not of the user's settings today.
+   *
+   * A retry an hour — or a month — later must transcribe what was asked for when the meeting was
+   * recorded. Re-deriving it from the current default would quietly retranscribe a German meeting
+   * in whatever the user has switched to since, which is precisely why the language travels in
+   * the payload in the first place.
+   */
+  it("keeps the language the recording was made with", async () => {
+    await seedSession(RETRYABLE, "de");
+    await settings.updateSettings(ACME, { transcriptionLanguage: "fr" });
+
+    expect((await retry(RETRYABLE, ACME)).statusCode).toBe(202);
+    expect(queue.enqueued[0]).toMatchObject({ language: "de" });
+  });
+
+  it("falls back to the user's default when the recording named no language", async () => {
+    await settings.updateSettings(ACME, { transcriptionLanguage: "fr" });
+
+    expect((await retry(RETRYABLE, ACME)).statusCode).toBe(202);
+    expect(queue.enqueued[0]).toMatchObject({ language: "fr" });
+  });
+
+  it("leaves the rest of the chain to the worker when nobody stated anything", async () => {
+    expect((await retry(RETRYABLE, ACME)).statusCode).toBe(202);
+    expect(queue.enqueued[0]).toMatchObject({ language: null });
+  });
+
+  it("retries without a language rather than not at all when the session is gone", async () => {
+    // No session object was ever written for this meeting, so the recording's own choice is
+    // unknowable. A transcript in the wrong language is worth more than a recording nobody can
+    // recover, so the chain simply carries on with one link fewer.
+    expect((await retry(NO_SESSION, ACME)).statusCode).toBe(202);
+    expect(queue.enqueued[0]).toMatchObject({ language: null });
+  });
+
   it("hides another tenant's meeting behind a 404 rather than a refusal", async () => {
     const response = await retry(GLOBEX_MEETING, ACME);
     expect(response.statusCode).toBe(404);
@@ -351,7 +423,7 @@ describe("retrying a failed transcription", () => {
 describe("the retry allowance", () => {
   it("meters the route on the small allowance that guards pipeline work", async () => {
     const metered = await buildServer({
-      storage: new InMemoryRecordingStorage(),
+      storage,
       queue: new InMemoryJobQueue(),
       meetings: store,
       auth: {

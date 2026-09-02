@@ -60,6 +60,8 @@ What it does in each case:
 - **Slow to conclude that a backend has no model management.** A 404 on the listing is what a reverse proxy answers before its upstream route is registered, and what a base URL missing `/v1` answers forever. Deciding "no model management" from one response is how provisioning would switch itself off in the deployments that need it most, so the answer has to persist across a confirmation window before it is believed. Once it is, the step is skipped with a warning naming both likely causes.
 - **Careful about calling a download a failure.** Afterwards the listing is polled for a grace period rather than read once, because nothing promises that a finished download and an updated listing happen in the same instant.
 
+Like the two API clients, provisioning runs over the transport in `src/http/timeout-fetch.ts` rather than the global `fetch`, and for the sharpest version of the same reason: the download route sends no response header at all until the bytes are on disk, so undici's built-in five-minute cap — which ignores the abort signal — would fail every attempt at a large model, restacking a download on the backend each time. `WHISPER_MODEL_INSTALL_TIMEOUT_MS` sets the pool's header ceiling; the per-request abort signal, set to what is left of the budget, stays the limit that fires first.
+
 `WHISPER_MODEL_AUTO_INSTALL=false` turns the step off entirely, for an operator-managed model cache or a backend that bakes its models in. ADR-008 records the contract underneath all of this: which routes are required, which are optional, and what a minimal compliant backend has to implement.
 
 ## macOS development
@@ -206,7 +208,7 @@ Four tables, created with `CREATE TABLE IF NOT EXISTS` under an advisory lock on
 | `WHISPER_API_KEY`            | unset                       | Bearer token; self-hosted backends need none                  |
 | `WHISPER_MODEL_AUTO_INSTALL` | `true`                      | Install `WHISPER_MODEL` on the backend before consuming jobs  |
 | `WHISPER_MODEL_INSTALL_TIMEOUT_MS` | `2700000`             | Budget for waiting on the backend plus that download          |
-| `WHISPER_LANGUAGE`           | unset                       | BCP-47 hint; unset means the backend detects the language     |
+| `WHISPER_LANGUAGE`           | unset                       | Fallback BCP-47 hint, below the meeting's and the user's choice |
 | `WHISPER_VAD_FILTER`         | `true`                      | Send `vad_filter=true`; silence is skipped, not transcribed   |
 | `WHISPER_TIMEOUT_MS`         | `1800000`                   | Whole-request timeout for one transcription                   |
 | `SUMMARY_BASE_URL`           | `https://openrouter.ai/api/v1` | OpenAI-compatible chat base URL, including `/v1`           |
@@ -224,7 +226,7 @@ Four tables, created with `CREATE TABLE IF NOT EXISTS` under an advisory lock on
 | `WORKER_JOB_EXPIRE_SECONDS`  | `7200`                      | Budget per attempt; must exceed `WHISPER_TIMEOUT_MS`          |
 | `LOG_LEVEL`                  | `info`                      |                                                               |
 
-`WHISPER_TIMEOUT_MS` and `SUMMARY_TIMEOUT_MS` are bounded by what a timer can actually hold: a value above 2147483647 ms does not make the worker patient, it makes `setTimeout` overflow and fire after a millisecond, so the worker refuses to start rather than fail every request instantly. It also refuses to start when `WORKER_JOB_EXPIRE_SECONDS` does not exceed `WHISPER_TIMEOUT_MS` — the queue would hand the attempt to a second worker while the first is still waiting for its transcript, and the same audio would be transcribed twice on a host that was already too slow.
+`WHISPER_TIMEOUT_MS`, `SUMMARY_TIMEOUT_MS` and `WHISPER_MODEL_INSTALL_TIMEOUT_MS` are bounded by what a timer can actually hold: a value above 2147483647 ms does not make the worker patient, it makes `setTimeout` overflow and fire after a millisecond, so the worker refuses to start rather than fail every request instantly. It also refuses to start when `WORKER_JOB_EXPIRE_SECONDS` does not exceed `WHISPER_TIMEOUT_MS` — the queue would hand the attempt to a second worker while the first is still waiting for its transcript, and the same audio would be transcribed twice on a host that was already too slow.
 
 `WHISPER_VAD_FILTER` is on by default, and the reason is a failure mode rather than a preference: a recording that contains a long speechless stretch — a room recorded before anyone speaks — makes every Whisper size lock onto a repeated phrase, and the loop then runs on through the rest of the transcript. Running the backend's Silero VAD first means the model only ever sees audio with speech in it. The trade-off is that audio the VAD hears as silence is not transcribed at all; word and segment timestamps stay relative to the start of the submitted recording, so nothing downstream changes. A backend that does not implement the field ignores it, which keeps the ADR-005 swap free.
 

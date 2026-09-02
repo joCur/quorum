@@ -1,7 +1,12 @@
 import * as React from "react";
 import type { MeetingDetail } from "@quorum/shared";
 import { useAuth } from "@/features/auth/auth-provider";
-import { deleteMeeting, fetchMeeting, MeetingApiError } from "@/features/meetings/api";
+import {
+  deleteMeeting,
+  fetchMeeting,
+  MeetingApiError,
+  renameMeeting,
+} from "@/features/meetings/api";
 import { isInProgress } from "@/features/meetings/status";
 import { POLL_INTERVAL_MS } from "@/features/meetings/use-meetings";
 
@@ -14,6 +19,11 @@ export interface MeetingDetailState {
   deleting: boolean;
   reload: () => void;
   remove: () => Promise<void>;
+  /**
+   * Stores a new name for the meeting; an empty title clears it and returns the meeting to
+   * unnamed. Rejects when the request fails, so the screen can say so and keep the editor open.
+   */
+  rename: (title: string) => Promise<void>;
 }
 
 /**
@@ -84,5 +94,19 @@ export function useMeeting(meetingId: string): MeetingDetailState {
     }
   }, [accessToken, meetingId]);
 
-  return { detail, status, errorCode, deleting, reload, remove };
+  /**
+   * The new name is put on the detail already in hand rather than triggering a reload: the
+   * server has confirmed it, and re-fetching the whole meeting would replace a transcript and a
+   * summary that did not change — visibly, on a screen the user is reading.
+   */
+  const rename = React.useCallback(
+    async (title: string): Promise<void> => {
+      if (!accessToken) return;
+      const meeting = await renameMeeting(meetingId, title, { accessToken });
+      setDetail((current) => (current === null ? current : { ...current, meeting }));
+    },
+    [accessToken, meetingId],
+  );
+
+  return { detail, status, errorCode, deleting, reload, remove, rename };
 }

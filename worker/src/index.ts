@@ -1,6 +1,6 @@
 import { PgBoss } from "pg-boss";
 import { loadConfig, type WorkerConfig } from "./config.js";
-import { createLogger, type WorkerLogger } from "./logger.js";
+import { createLogger, logQueueError, type WorkerLogger } from "./logger.js";
 import {
   createLifecycle,
   isEntrypoint,
@@ -185,44 +185,25 @@ async function start(
   // backend answers a missing model with a terminal 404, so every recording made
   // in the meantime would dead-letter. Failing here instead turns that into one
   // startup error an operator can act on.
-  try {
-    await ensureWhisperModel({
-      baseUrl: config.WHISPER_BASE_URL,
-      model: config.WHISPER_MODEL,
-      apiKey: config.WHISPER_API_KEY,
-      enabled: config.WHISPER_MODEL_AUTO_INSTALL,
-      timeoutMs: config.WHISPER_MODEL_INSTALL_TIMEOUT_MS,
-      logger,
-    });
-  } catch (error) {
-    logger.fatal(
-      {
-        event: "whisper.model.provisioning-failed",
-        err: error,
-        whisperModel: config.WHISPER_MODEL,
-        whisperBaseUrl: config.WHISPER_BASE_URL,
-      },
-      "the configured transcription model is not available; not consuming jobs",
-    );
-    // The exit is in a `finally` because giving the resources back may itself
-    // reject or hang: a rejected close would otherwise skip the exit entirely,
-    // and the pool alone keeps the event loop alive — leaving a process that
-    // neither consumes jobs nor lets the restart policy replace it.
-    try {
-      await metricsServer.close();
-      await repository.close();
-    } catch (closeError: unknown) {
-      logger.error(
-        { event: "worker.shutdown-failed", err: closeError },
-        "releasing the worker's resources failed; exiting anyway",
-      );
-    } finally {
-      process.exit(1);
-    }
-  }
+  //
+  // No try/catch: the throw is meant to travel. It says its own piece on the way
+  // out — `whisper.model.provisioning-failed`, naming the model and the backend
+  // — and everything after that, giving back the port and the pool in the order
+  // they were taken and exiting non-zero even when giving them back hangs, is
+  // the lifecycle guard's job through `main`'s startup-failed route.
+  await ensureWhisperModel({
+    baseUrl: config.WHISPER_BASE_URL,
+    model: config.WHISPER_MODEL,
+    apiKey: config.WHISPER_API_KEY,
+    enabled: config.WHISPER_MODEL_AUTO_INSTALL,
+    timeoutMs: config.WHISPER_MODEL_INSTALL_TIMEOUT_MS,
+    logger,
+  });
 
   const boss = new PgBoss({ connectionString: config.DATABASE_URL });
-  boss.on("error", (error: unknown) => logger.error({ err: error }, "pg-boss error"));
+  boss.on("error", (error: unknown) => {
+    logQueueError(logger, error);
+  });
   // pg-boss stopping itself is invisible from outside: the metrics port keeps
   // answering and the container keeps looking healthy while no job is ever
   // fetched again. Treat it as the fault it is instead of idling forever.

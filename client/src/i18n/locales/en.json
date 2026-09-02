@@ -95,6 +95,10 @@
     "templateField": {
       "label": "Summary template"
     },
+    "languageField": {
+      "label": "Spoken language",
+      "followDefault": "Default"
+    },
     "inputField": {
       "label": "Microphone",
       "systemDefault": "System default",
@@ -300,6 +304,16 @@
       "de": "German"
     }
   },
+  "transcriptionLanguages": {
+    "auto": "Detect automatically",
+    "de": "German",
+    "en": "English",
+    "fr": "French",
+    "es": "Spanish",
+    "it": "Italian",
+    "nl": "Dutch",
+    "pt": "Portuguese"
+  },
   "settings": {
     "title": "Settings",
     "account": {
@@ -319,6 +333,13 @@
       "title": "Language",
       "label": "Interface language"
     },
+    "transcription": {
+      "title": "Transcription",
+      "label": "Language of new recordings",
+      "unset": "Not chosen",
+      "help": "Every recording can be set to another language before it starts.",
+      "saveFailed": "The setting could not be saved. Try again in a moment."
+    },
     "about": {
       "title": "About",
       "version": "Version",
@@ -334,6 +355,14 @@
     "back": "Back to meetings",
     "loadError": "This meeting could not be loaded.",
     "deleted": "This meeting was deleted.",
+    "rename": {
+      "action": "Rename meeting",
+      "label": "Meeting title",
+      "placeholder": "Name this meeting",
+      "save": "Save name",
+      "cancel": "Discard changes",
+      "failed": "This name could not be saved."
+    },
     "view": {
       "label": "Meeting content",
       "transcript": "Transcript",

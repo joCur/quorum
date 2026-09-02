@@ -2,6 +2,7 @@ import { PgBoss } from "pg-boss";
 import postgres from "postgres";
 import { JobSchema, type Job } from "@quorum/shared";
 import type { JobQueue } from "../types.js";
+import { logQueueError, type ErrorLogger } from "../../observability/logging.js";
 import { fairnessPriority } from "./fairness.js";
 
 /**
@@ -55,15 +56,28 @@ export const SUMMARIZE_QUEUE = "summarize";
 export const TRANSCRIBE_DEAD_LETTER_QUEUE = `${TRANSCRIBE_QUEUE}-dead-letter`;
 
 /**
- * Payload placed on the queue: the `Job` from `shared/src/job.ts` plus the
+ * What every job payload carries: the `Job` from `shared/src/job.ts` plus the
  * tenant/user/session scope the worker needs to locate the audio in object
  * storage (ADR-001 scoping).
  */
-export interface TranscribeJobPayload {
+export interface JobPayloadScope {
   job: Job;
   tenantId: string;
   userId: string;
   sessionId: string;
+}
+
+/**
+ * Payload placed on the transcription queue.
+ *
+ * `language` is what the user side of the chain resolved to — the meeting's own
+ * choice, or the user's default — and `null` when neither said anything. The
+ * worker completes it with the deployment default and then autodetect. It
+ * travels here rather than being looked up when the job runs, so a retry
+ * transcribes what was asked for at the time.
+ */
+export interface TranscribeJobPayload extends JobPayloadScope {
+  language: string | null;
 }
 
 /**
@@ -75,7 +89,7 @@ export interface TranscribeJobPayload {
  * must name the exact transcript it was derived from, not "whichever is active
  * now". The worker validates this shape on the way in.
  */
-export interface SummarizeJobPayload extends TranscribeJobPayload {
+export interface SummarizeJobPayload extends JobPayloadScope {
   transcriptId: string;
   templateId: string;
 }
@@ -115,8 +129,19 @@ export class PgBossJobQueue implements JobQueue {
     }
   }
 
-  async start(): Promise<void> {
+  /**
+   * Connects and declares the two queues.
+   *
+   * The logger arrives here rather than in the constructor because it is the API's — Fastify's —
+   * and that one exists only once the app is built, which happens with this queue already in
+   * hand. A listener is attached either way: pg-boss is an `EventEmitter`, and an `error` event
+   * from a dropped database connection with nobody listening is rethrown and ends the process.
+   */
+  async start(logger?: ErrorLogger): Promise<void> {
     if (this.started) return;
+    this.boss.on("error", (error: unknown) => {
+      if (logger) logQueueError(logger, error);
+    });
     await this.boss.start();
     await this.boss.createQueue(TRANSCRIBE_QUEUE);
     await this.boss.createQueue(SUMMARIZE_QUEUE);
@@ -135,6 +160,7 @@ export class PgBossJobQueue implements JobQueue {
     tenantId: string;
     userId: string;
     sessionId: string;
+    language: string | null;
   }): Promise<void> {
     const job = JobSchema.parse({
       id: input.jobId,
@@ -153,6 +179,7 @@ export class PgBossJobQueue implements JobQueue {
       tenantId: input.tenantId,
       userId: input.userId,
       sessionId: input.sessionId,
+      language: input.language,
     };
     const priority = await this.priorityFor(TRANSCRIBE_QUEUE, {
       tenantId: input.tenantId,
@@ -224,7 +251,7 @@ export class PgBossJobQueue implements JobQueue {
    */
   private async send(
     queue: string,
-    payload: TranscribeJobPayload,
+    payload: JobPayloadScope,
     options: { singletonKey: string; priority: number },
   ): Promise<void> {
     const queueJobId = await this.boss.send(queue, payload, options);

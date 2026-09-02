@@ -95,6 +95,10 @@
     "templateField": {
       "label": "Vorlage für die Zusammenfassung"
     },
+    "languageField": {
+      "label": "Gesprochene Sprache",
+      "followDefault": "Standard"
+    },
     "inputField": {
       "label": "Mikrofon",
       "systemDefault": "Systemstandard",
@@ -300,6 +304,16 @@
       "de": "Deutsch"
     }
   },
+  "transcriptionLanguages": {
+    "auto": "Automatisch erkennen",
+    "de": "Deutsch",
+    "en": "Englisch",
+    "fr": "Französisch",
+    "es": "Spanisch",
+    "it": "Italienisch",
+    "nl": "Niederländisch",
+    "pt": "Portugiesisch"
+  },
   "settings": {
     "title": "Einstellungen",
     "account": {
@@ -319,6 +333,13 @@
       "title": "Sprache",
       "label": "Sprache der Oberfläche"
     },
+    "transcription": {
+      "title": "Transkription",
+      "label": "Sprache neuer Aufnahmen",
+      "unset": "Nicht festgelegt",
+      "help": "Vor dem Start lässt sich für jede Aufnahme eine andere Sprache wählen.",
+      "saveFailed": "Die Einstellung konnte nicht gespeichert werden. Versuch es gleich noch einmal."
+    },
     "about": {
       "title": "Über",
       "version": "Version",
@@ -334,6 +355,14 @@
     "back": "Zurück zu den Meetings",
     "loadError": "Dieses Meeting konnte nicht geladen werden.",
     "deleted": "Dieses Meeting wurde gelöscht.",
+    "rename": {
+      "action": "Meeting umbenennen",
+      "label": "Meeting-Titel",
+      "placeholder": "Meeting benennen",
+      "save": "Namen speichern",
+      "cancel": "Änderungen verwerfen",
+      "failed": "Dieser Name konnte nicht gespeichert werden."
+    },
     "view": {
       "label": "Meeting-Inhalt",
       "transcript": "Transkript",

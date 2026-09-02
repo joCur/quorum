@@ -10,6 +10,7 @@ import { MEETING_ID, capturingLogger, silentLogger, transcribeJob } from "./help
 import {
   FakeChatClient,
   InMemorySummaryRepository,
+  SUGGESTED_TITLE,
   SUMMARIZE_JOB_ID,
   TRANSCRIPT_ID,
   WELL_FORMED_ANSWER,
@@ -89,7 +90,7 @@ describe("summarize job", () => {
         repository.summaries.get(outcome.summaryId)!.summary.templateSnapshot.options,
       ).toMatchObject({ outputLanguage: "de" });
       const prompt = (dependencies.chat as FakeChatClient).calls[0]![1]!.content;
-      expect(prompt).toContain("Write the summary in de");
+      expect(prompt).toContain("Write the summary and the title in de");
     });
 
     it("keeps an explicitly chosen language even when the transcript differs", async () => {
@@ -186,6 +187,84 @@ describe("summarize job", () => {
       outcome.summaryId,
     )!.summary;
     expect(summary.model).toBe("vendor/real-model-v2");
+  });
+
+  describe("the generated meeting title", () => {
+    it("names a meeting the user left unnamed", async () => {
+      const dependencies = deps();
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+      const repository = dependencies.repository as InMemorySummaryRepository;
+
+      expect(outcome.appliedTitle).toBe(SUGGESTED_TITLE);
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe(SUGGESTED_TITLE);
+      // The suggestion is part of the summary document either way — it is what the model said.
+      expect(repository.summaries.get(outcome.summaryId)!.summary.generatedTitle).toBe(
+        SUGGESTED_TITLE,
+      );
+    });
+
+    it("leaves a title the user typed alone, and still stores the suggestion", async () => {
+      const dependencies = deps();
+      const repository = dependencies.repository as InMemorySummaryRepository;
+      repository.meetingTitles.set(MEETING_ID, "Weekly sync");
+
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+
+      expect(outcome.appliedTitle).toBeNull();
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe("Weekly sync");
+      expect(repository.summaries.get(outcome.summaryId)!.summary.generatedTitle).toBe(
+        SUGGESTED_TITLE,
+      );
+    });
+
+    it("fills a title that is only whitespace, which is an empty line to a reader", async () => {
+      const dependencies = deps();
+      const repository = dependencies.repository as InMemorySummaryRepository;
+      repository.meetingTitles.set(MEETING_ID, "   ");
+
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+
+      expect(outcome.appliedTitle).toBe(SUGGESTED_TITLE);
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe(SUGGESTED_TITLE);
+    });
+
+    it("stores the summary even when the model suggested no title", async () => {
+      const answer = JSON.stringify({
+        sections: [{ sectionId: "overview", content: ["It happened."] }],
+      });
+      const dependencies = deps({ chat: new FakeChatClient([answer]) });
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+      const repository = dependencies.repository as InMemorySummaryRepository;
+
+      expect(outcome.appliedTitle).toBeNull();
+      expect(repository.meetingTitles.has(MEETING_ID)).toBe(false);
+      expect(repository.summaries.get(outcome.summaryId)!.summary.generatedTitle).toBeNull();
+    });
+
+    it("lands with the summary rather than after it, so a reader sees both or neither", async () => {
+      const dependencies = deps();
+      const repository = dependencies.repository as InMemorySummaryRepository;
+      const outcome = await runSummarizeJob(summarizePayload(), 0, dependencies);
+
+      // The store writes both in one step; what this pins is that the handler asks for it that
+      // way, because a meeting turns "ready" the moment the summary exists and a client stops
+      // polling on that.
+      expect(repository.summaries.has(outcome.summaryId)).toBe(true);
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe(SUGGESTED_TITLE);
+    });
+
+    it("makes no second offer when the job is replayed", async () => {
+      const dependencies = deps();
+      const repository = dependencies.repository as InMemorySummaryRepository;
+      await runSummarizeJob(summarizePayload(), 0, dependencies);
+      repository.meetingTitles.set(MEETING_ID, "Renamed by the user");
+
+      const replay = await runSummarizeJob(summarizePayload(), 1, dependencies);
+
+      expect(replay.created).toBe(false);
+      expect(replay.appliedTitle).toBeNull();
+      expect(repository.meetingTitles.get(MEETING_ID)).toBe("Renamed by the user");
+    });
   });
 
   it("records the job lifecycle from the shared job schema", async () => {

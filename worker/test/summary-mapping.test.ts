@@ -13,7 +13,12 @@ import {
   resolveTemplateSections,
 } from "../src/summary/template.js";
 import { MEETING_ID } from "./helpers.js";
-import { SUMMARIZE_JOB_ID, TRANSCRIPT_ID, WELL_FORMED_ANSWER } from "./summary-helpers.js";
+import {
+  SUGGESTED_TITLE,
+  SUMMARIZE_JOB_ID,
+  TRANSCRIPT_ID,
+  WELL_FORMED_ANSWER,
+} from "./summary-helpers.js";
 
 const SECTIONS = resolveTemplateSections(SYSTEM_SUMMARY_TEMPLATE);
 
@@ -116,6 +121,55 @@ describe("response parsing", () => {
     const answer = JSON.stringify({ sections: [{ sectionId: "overview", content: "One line." }] });
     expect(parse(answer).sections[0]!.content).toEqual(["One line."]);
   });
+
+  it("reads the suggested meeting title out of the envelope", () => {
+    expect(parse(WELL_FORMED_ANSWER).title).toBe(SUGGESTED_TITLE);
+  });
+
+  it("keeps the title in the language the model answered in", () => {
+    const answer = JSON.stringify({
+      title: "Releasetermin und offene Aufgaben",
+      sections: [{ sectionId: "overview", content: ["Das Team hat sich geeinigt."] }],
+    });
+    expect(parse(answer).title).toBe("Releasetermin und offene Aufgaben");
+  });
+
+  it("has no title when the model offered none, which is not a parse failure", () => {
+    const answer = JSON.stringify({
+      sections: [{ sectionId: "overview", content: ["It happened."] }],
+    });
+    const parsed = parse(answer);
+    expect(parsed.title).toBeNull();
+    expect(parsed.sections[0]!.content).toEqual(["It happened."]);
+  });
+
+  it("has no title when the answer skipped the envelope altogether", () => {
+    expect(
+      parse(JSON.stringify([{ sectionId: "overview", content: ["It happened."] }])).title,
+    ).toBeNull();
+  });
+
+  it("does not read a section called `title` as the meeting's name", () => {
+    // The keyed-by-section-id shape carries no envelope, so a template whose section id happens
+    // to be "title" would otherwise have its prose lifted out and stored as the meeting name.
+    const sections = [
+      {
+        id: "title",
+        title: "Title",
+        instruction: "The formal title of the matter under discussion",
+        format: "prose" as const,
+      },
+      ...SECTIONS,
+    ];
+    const answer = JSON.stringify({
+      title: ["A whole paragraph, which is not a name."],
+      overview: ["It happened."],
+    });
+    const parsed = parseSummaryResponse(answer, sections);
+
+    expect(parsed.title).toBeNull();
+    expect(parsed.sections[0]!.content).toEqual(["A whole paragraph, which is not a name."]);
+  });
 });
 
 describe("malformed output", () => {
@@ -156,6 +210,7 @@ describe("summary mapping", () => {
       sections: parse(WELL_FORMED_ANSWER).sections,
       model: "test/model",
       promptVersion: PROMPT_VERSION,
+      generatedTitle: parse(WELL_FORMED_ANSWER).title,
       createdAt: "2026-08-29T11:05:00.000Z",
     });
   }
@@ -187,6 +242,10 @@ describe("summary mapping", () => {
     expect(map().transcriptId).toBe(TRANSCRIPT_ID);
   });
 
+  it("records the suggested title, whether or not the meeting takes it", () => {
+    expect(map().generatedTitle).toBe(SUGGESTED_TITLE);
+  });
+
   it("rejects content that violates the summary schema", () => {
     expect(() =>
       mapToSummary({
@@ -200,6 +259,7 @@ describe("summary mapping", () => {
         sections: [],
         model: "test/model",
         promptVersion: PROMPT_VERSION,
+        generatedTitle: null,
         createdAt: "2026-08-29T11:05:00.000Z",
       }),
     ).toThrow(/mapped summary is invalid/);

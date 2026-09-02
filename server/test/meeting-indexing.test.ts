@@ -36,11 +36,11 @@ function harness(registry?: MeetingRegistry): Harness {
   return { connection, handler, meetings, warnings };
 }
 
-async function record(test: Harness): Promise<string> {
+async function record(test: Harness, meetingTitle: string | null = "Weekly sync"): Promise<string> {
   await test.handler.handleText(
     JSON.stringify({
       type: "session.start",
-      meetingTitle: "Weekly sync",
+      meetingTitle,
       audioFormat: WEBM_OPUS,
       clientInfo: { platform: "web-desktop", userAgent: "vitest" },
     }),
@@ -103,6 +103,30 @@ describe("meeting indexing from the recording endpoint", () => {
     expect(test.connection.closed).toBeNull();
     expect(test.connection.last("chunk.ack")?.persistedSeq).toBe(0);
     expect(test.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("keeps a name the meeting was given while it was still recording", async () => {
+    const test = harness();
+    const sessionId = await record(test, null);
+    const started = (await test.meetings.listMeetings(SCOPE))[0]!;
+    expect(started.title).toBeNull();
+
+    // The summary names a recording nobody named. The index write repeats when the recording
+    // ends, carrying the empty title the session started with, and must not put it back.
+    await test.meetings.recordSession({
+      meetingId: started.id,
+      sessionId,
+      ...SCOPE,
+      title: "Named by the summary",
+      audioFormat: WEBM_OPUS,
+      createdAt: started.createdAt,
+    });
+
+    await test.handler.handleBinary(chunk(sessionId, 0));
+    await test.handler.handleText(JSON.stringify({ type: "session.end", sessionId, lastSeq: 0 }));
+
+    const meetings = await test.meetings.listMeetings(SCOPE);
+    expect(meetings[0]).toMatchObject({ title: "Named by the summary", hasAudio: true });
   });
 
   it("repairs a missing index entry when the recording is finalized", async () => {

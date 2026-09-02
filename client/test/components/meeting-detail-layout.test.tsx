@@ -91,6 +91,7 @@ function detail(): MeetingDetail {
         },
         model: "llama",
         promptVersion: "1",
+        generatedTitle: null,
         // Relative to now, because the attribution line reports how long ago it was written.
         createdAt: TWO_HOURS_AGO,
         sections: [
@@ -133,6 +134,7 @@ vi.mock("@/features/meetings/use-meeting", () => ({
     deleting: false,
     reload: vi.fn(),
     remove: vi.fn(),
+    rename: vi.fn(),
   }),
 }));
 
@@ -151,6 +153,7 @@ vi.mock("@/features/templates/use-templates", () => ({
       create: vi.fn(),
       update: vi.fn(),
       remove: vi.fn(),
+      rename: vi.fn(),
       chooseDefault: vi.fn(),
     }) as unknown as TemplatesState,
 }));

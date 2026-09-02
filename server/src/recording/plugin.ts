@@ -18,6 +18,7 @@ import type {
   MeetingRegistry,
   RecordingContextProvider,
   RecordingStorage,
+  UserPreferences,
 } from "./types.js";
 
 export interface RecordingPluginOptions {
@@ -26,6 +27,8 @@ export interface RecordingPluginOptions {
   contextProvider: RecordingContextProvider;
   /** Index that makes finished recordings appear in the meeting list. */
   meetings?: MeetingRegistry | undefined;
+  /** The user's defaults; the source of the user-level link of the transcription language chain. */
+  settings?: UserPreferences | undefined;
   /** Route the WebSocket endpoint is mounted on. */
   path?: string;
   /**
@@ -82,6 +85,7 @@ const recordingPlugin: FastifyPluginAsync<RecordingPluginOptions> = async (app, 
         storage: options.storage,
         queue: options.queue,
         meetings: options.meetings,
+        preferences: options.settings,
         context: { tenantId: "", userId: "" },
         limits,
         registry,

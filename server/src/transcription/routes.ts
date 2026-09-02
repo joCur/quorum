@@ -1,14 +1,29 @@
 import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import { z } from "zod";
-import { isRetryableJobErrorCode, type Job, type TranscriptionJobAccepted } from "@quorum/shared";
+import {
+  isRetryableJobErrorCode,
+  resolveTranscriptionLanguage,
+  type Job,
+  type TranscriptionJobAccepted,
+} from "@quorum/shared";
 import type { MeetingStore, RequeueOutcome } from "../meetings/repository.js";
 import { TRANSCRIBE_DEAD_LETTER_QUEUE, TRANSCRIBE_QUEUE } from "../recording/queue/pg-boss.js";
-import type { JobQueue } from "../recording/types.js";
+import type { JobQueue, RecordingStorage, UserPreferences } from "../recording/types.js";
 
 export interface TranscriptionRoutesOptions {
   meetings: MeetingStore;
   queue: JobQueue;
+  /**
+   * Object storage, for the session record the retry reads its language from. The recording is
+   * the only place that still knows what was asked for when it was made.
+   */
+  storage: RecordingStorage;
+  /**
+   * The user's defaults, the second link of the language chain. Optional for the same reason it
+   * is optional on the recording endpoint: without one the chain simply has a link fewer.
+   */
+  preferences?: UserPreferences | undefined;
   /** Route prefix; the default matches the client's API base. */
   prefix?: string;
 }
@@ -91,6 +106,15 @@ const transcriptionRoutesImpl: FastifyPluginAsync<TranscriptionRoutesOptions> = 
         });
       }
 
+      // The language the first attempt was asked for, resolved before the row is touched so a
+      // failure to read it fails the request rather than half of it.
+      const language = await transcriptionLanguage(
+        scope,
+        found.meeting.sessionId,
+        options,
+        request,
+      );
+
       let outcome: RequeueOutcome;
       try {
         outcome = await options.meetings.requeueFailedJob(scope, {
@@ -104,6 +128,7 @@ const transcriptionRoutesImpl: FastifyPluginAsync<TranscriptionRoutesOptions> = 
               tenantId: context.tenantId,
               userId: context.userId,
               sessionId: found.meeting.sessionId,
+              language,
             }),
         });
       } catch (error) {
@@ -165,6 +190,52 @@ const transcriptionRoutesImpl: FastifyPluginAsync<TranscriptionRoutesOptions> = 
     },
   );
 };
+
+/**
+ * The language a retried transcription is asked for.
+ *
+ * The same chain the recording endpoint runs when it hands a finished recording over — the
+ * meeting's own choice, then the user's default — and deliberately the same *order of reading*:
+ * the meeting's choice comes from the session record written at `session.start`, which is the
+ * only place that still knows what was asked for when the recording was made. Re-deriving it from
+ * the user's current default alone would silently retranscribe a German meeting in whatever the
+ * user has since switched to, which is exactly the drift the language travels in the payload to
+ * avoid.
+ *
+ * A session object that cannot be read costs the choice, not the retry. The remaining links —
+ * the deployment default, then autodetect — are the worker's (ADR-005), so a retry with one link
+ * missing still produces a transcript.
+ */
+async function transcriptionLanguage(
+  scope: { tenantId: string; userId: string },
+  sessionId: string,
+  options: TranscriptionRoutesOptions,
+  request: { log: { warn: (fields: object, message: string) => void } },
+): Promise<string | null> {
+  let chosen: string | null = null;
+  try {
+    const session = await options.storage.getSession(scope.tenantId, scope.userId, sessionId);
+    chosen = session?.language ?? null;
+  } catch (error) {
+    request.log.warn(
+      { event: "transcription.retry_language_unreadable", sessionId, err: error },
+      "could not read the recording's chosen language; leaving it to the rest of the chain",
+    );
+  }
+
+  let userDefault: string | null = null;
+  try {
+    const settings = await options.preferences?.findSettings(scope);
+    userDefault = settings?.transcriptionLanguage ?? null;
+  } catch (error) {
+    request.log.warn(
+      { event: "transcription.retry_language_default_unreadable", err: error },
+      "could not read the user's default transcription language; leaving it to the pipeline",
+    );
+  }
+
+  return resolveTranscriptionLanguage(chosen, userDefault);
+}
 
 function meetingNotFound(): { error: string; message: string } {
   return { error: "meeting_not_found", message: "No meeting with this id exists." };

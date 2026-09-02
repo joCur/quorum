@@ -14,6 +14,12 @@
  * schema-validated documents that we read whole and rarely query field by field
  * (ADR-006 §4). The queryable metadata lives in real columns next to the blob,
  * which is what keeps the deletion cascade of ADR-001 auditable.
+ *
+ * WHAT THIS WORKER TOUCHES OUTSIDE ITS OWN TABLES: the server-owned `meetings`
+ * table is read to tell a deleted meeting from a broken job, and one column of
+ * it is written — `title`, and only where it is empty, to give a recording
+ * nobody named the name its summary suggested (ADR-009). Nothing else there is
+ * the worker's to change.
  */
 export const MIGRATIONS: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS transcripts (
@@ -107,6 +113,17 @@ export const MIGRATIONS: readonly string[] = [
      updated_at          timestamptz NOT NULL DEFAULT now(),
      PRIMARY KEY (tenant_id, user_id)
    )`,
+
+  // The language new recordings start out in. Plain text rather than a check
+  // constraint or an enum type: which tags the pickers offer is a product
+  // decision that moves faster than a migration, and a stored tag the current
+  // build no longer offers is read back as "no choice" rather than being
+  // handed to the transcription backend.
+  //
+  // Added as an ALTER because the table above already exists in deployments
+  // that predate the setting, and `CREATE TABLE IF NOT EXISTS` does not
+  // reconcile columns.
+  `ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS transcription_language text`,
 
   `CREATE TABLE IF NOT EXISTS summaries (
      id               uuid PRIMARY KEY,
