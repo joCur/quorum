@@ -64,6 +64,13 @@ retry() {
       echo "minio-init: configuration (MINIO_ENDPOINT, the root credentials, the bucket name) and" >&2
       echo "minio-init: not the timing — or raise MINIO_INIT_RETRY_WINDOW_SECONDS if this machine" >&2
       echo "minio-init: really is that slow." >&2
+      case "$output" in
+        *"flag provided but not defined"*)
+          echo "minio-init: that particular error is a value being parsed as a command-line flag," >&2
+          echo "minio-init: not a rejected credential — check whether MINIO_ROOT_USER," >&2
+          echo "minio-init: MINIO_ROOT_PASSWORD or S3_BUCKET begins with '-'." >&2
+          ;;
+      esac
       return 1
     fi
     echo "minio-init: ${what} — retrying in ${delay}s" >&2
@@ -74,8 +81,10 @@ retry() {
   done
 }
 
+# `--` ends mc's own flag parsing: without it a credential that happens to begin with "-" is read
+# as a flag ("flag provided but not defined"), which no amount of retrying can survive.
 retry "reaching MinIO at ${MINIO_ENDPOINT}" \
-  mc alias set quorum "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+  mc alias set -- quorum "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
 retry "creating the '${S3_BUCKET}' bucket" \
   mc mb --ignore-existing "quorum/${S3_BUCKET}"
 # Default SSE-S3 encryption for every object written to the bucket.

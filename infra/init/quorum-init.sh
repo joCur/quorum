@@ -100,7 +100,10 @@ phase_storage() {
   # mc writes its configuration under $HOME by default, which a read-only container refuses.
   export MC_CONFIG_DIR=/tmp/mc
 
-  wait_for "minio" mc alias set quorum "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+  # `--` ends mc's own flag parsing. Without it an operator's password that begins with "-" is
+  # read as a flag, and the retry above then spends its whole budget on an error that no wait can
+  # fix while pointing at MinIO rather than at the credential.
+  wait_for "minio" mc alias set -- quorum "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
   mc mb --ignore-existing "quorum/${S3_BUCKET}"
   mc encrypt set sse-s3 "quorum/${S3_BUCKET}"
   log "bucket '${S3_BUCKET}' ready with default sse-s3 encryption"

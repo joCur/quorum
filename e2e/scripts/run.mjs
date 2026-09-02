@@ -37,6 +37,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
+import { flagLikeSecrets, stackSecret } from "./stack-secret.mjs";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const e2eDir = resolve(here, "..");
 const repoRoot = resolve(e2eDir, "..");
@@ -759,17 +761,16 @@ function localEnvFile() {
  */
 function loadCredentials() {
   const path = resolve(e2eDir, ".stack.env");
-  if (existsSync(path)) return parseEnvFile(path);
+  if (existsSync(path)) return assertUsableCredentials(parseEnvFile(path), path);
 
   credentialsAreNew = true;
-  const secret = () => randomBytes(24).toString("base64url");
   const generated = {
-    POSTGRES_PASSWORD: secret(),
-    MINIO_ROOT_PASSWORD: secret(),
+    POSTGRES_PASSWORD: stackSecret(),
+    MINIO_ROOT_PASSWORD: stackSecret(),
     // MinIO's built-in KMS wants `<key-name>:<base64 32 bytes>`.
     MINIO_KMS_SECRET_KEY: `quorum-e2e-key:${randomBytes(32).toString("base64")}`,
-    KEYCLOAK_ADMIN_PASSWORD: secret(),
-    KEYCLOAK_DB_PASSWORD: secret(),
+    KEYCLOAK_ADMIN_PASSWORD: stackSecret(),
+    KEYCLOAK_DB_PASSWORD: stackSecret(),
   };
 
   try {
@@ -788,9 +789,31 @@ function loadCredentials() {
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
     credentialsAreNew = false;
-    return parseEnvFile(path);
+    return assertUsableCredentials(parseEnvFile(path), path);
   }
   return generated;
+}
+
+/**
+ * Refuses credentials that a command-line tool would misread, rather than letting them reach the
+ * stack.
+ *
+ * Files written before `stackSecret` existed hold plain base64url values, which can begin with
+ * "-", and the file outlives the run that wrote it — so one unlucky draw broke every later run on
+ * that machine. The failure surfaced deep inside the bucket bootstrap as an unexplained flag
+ * error, a long way from the file that has to be deleted. Nothing is rewritten here: a stack may
+ * already be up on these credentials, and only the person running knows whether it can go.
+ */
+function assertUsableCredentials(values, path) {
+  const flagLike = flagLikeSecrets(values);
+  if (flagLike.length === 0) return values;
+  throw new Error(
+    `${path} holds credentials that begin with "-" (${flagLike.join(", ")}). Command-line tools ` +
+      `read those as flags — the bucket bootstrap fails with "flag provided but not defined" and ` +
+      `the stack never comes up. Delete the file (\`rm ${path}\`) and run again; the next run ` +
+      `generates credentials that cannot begin with one. A stack still up on the old ones has to ` +
+      `go first, volumes included, or it will refuse the new password.`,
+  );
 }
 
 /** Minimal `KEY=value` reader — enough for the flat file the suite ships. */

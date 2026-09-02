@@ -49,9 +49,11 @@ export default defineConfig({
           globals: true,
           environment: "node",
           // Repo toolchain scripts under `scripts/` are plain ESM with no build step, so their
-          // tests sit next to them instead of in a `test/` directory.
-          include: ["**/test/**/*.test.ts", "scripts/**/*.test.mjs"],
-          exclude: ["**/node_modules/**", "**/dist/**", "e2e/**"],
+          // tests sit next to them instead of in a `test/` directory. The end-to-end harness has
+          // scripts of the same kind; only its Playwright specs have to stay out of this suite,
+          // which is why the exclusion names `e2e/tests` rather than all of `e2e`.
+          include: ["**/test/**/*.test.ts", "scripts/**/*.test.mjs", "e2e/scripts/**/*.test.mjs"],
+          exclude: ["**/node_modules/**", "**/dist/**", "e2e/tests/**"],
           env,
         },
       },
