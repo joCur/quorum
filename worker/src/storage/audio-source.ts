@@ -2,7 +2,6 @@ import {
   CopyObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
-  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
   type S3ClientConfig,
@@ -47,8 +46,6 @@ export interface AudioSource {
 export interface RemuxStorage {
   /** Bytes at a key, or `null` when nothing is stored there. */
   readObject(key: string): Promise<Uint8Array | null>;
-  /** Size in bytes of the object at a key, or `null` when nothing is stored there. */
-  objectSize(key: string): Promise<number | null>;
   writeObject(key: string, body: Uint8Array, contentType: string): Promise<void>;
   /** Server-side copy, so the bytes that were verified are the bytes that get the final name. */
   copyObject(fromKey: string, toKey: string): Promise<void>;
@@ -182,21 +179,6 @@ export class S3AudioSource implements AudioSource, RemuxStorage {
 
   async readObject(key: string): Promise<Uint8Array | null> {
     return this.getBytes(key);
-  }
-
-  async objectSize(key: string): Promise<number | null> {
-    try {
-      const result = await this.client.send(
-        new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
-      );
-      return result.ContentLength ?? null;
-    } catch (error) {
-      if (isNotFound(error)) return null;
-      throw new JobError("AUDIO_FETCH_FAILED", `failed to stat object "${key}"`, {
-        retryable: true,
-        cause: error,
-      });
-    }
   }
 
   async writeObject(key: string, body: Uint8Array, contentType: string): Promise<void> {

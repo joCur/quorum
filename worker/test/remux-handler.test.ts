@@ -87,10 +87,6 @@ class FakeStore implements AudioSource, RemuxStorage {
     return this.objects.get(key) ?? null;
   }
 
-  async objectSize(key: string): Promise<number | null> {
-    return this.objects.get(key)?.byteLength ?? null;
-  }
-
   async writeObject(key: string, body: Uint8Array): Promise<void> {
     if (this.failWriteOf === key) throw new Error(`simulated failure writing "${key}"`);
     this.objects.set(key, body);
