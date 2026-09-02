@@ -20,6 +20,7 @@ import {
   watchDisplayCapture,
   watchRecordingProtocol,
 } from "../fixtures.js";
+import type { Page } from "@playwright/test";
 import { devUsers, stackEnv } from "../support/env.js";
 import { fetchToken } from "../support/keycloak.js";
 import {
@@ -48,17 +49,16 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   const protocol = watchRecordingProtocol(page);
 
   await signIn(devUsers.alice);
+
+  // Terms Whisper has no reason to know, added the way a user adds them.
+  await addVocabulary(page, ["MinIO", "Keycloak"]);
+
   await page.goto("/record");
 
   // This meeting is held in German, said on the stage before capture starts. Detection reads the
   // first half minute of audio and guesses wrong on a recording that opens without speech, which
   // is the failure the per-meeting choice exists to prevent.
   await page.getByLabel("Spoken language").selectOption("de");
-
-  // Terms this user's meetings are full of and Whisper has no reason to know. Stored through the
-  // API rather than typed into the settings screen: what the critical path has to prove is that a
-  // stored vocabulary reaches the transcription request, and the screen has its own tests.
-  await storeVocabulary(alice, ["MinIO", "Keycloak"]);
 
   // Consent comes before the microphone, every single time.
   await startRecording(page);
@@ -298,19 +298,23 @@ test("says a recording could not be transcribed, and transcribes it on a retry",
   await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 60_000 });
 });
 
-/** Stores a user's custom vocabulary through the settings API, as the settings screen would. */
-async function storeVocabulary(user: { accessToken: string }, terms: string[]): Promise<void> {
-  const response = await fetch(`${stackEnv.apiUrl}/api/settings`, {
-    method: "PUT",
-    headers: {
-      authorization: `Bearer ${user.accessToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ vocabulary: terms }),
-  });
-  if (!response.ok) {
-    throw new Error(`could not store the vocabulary: ${response.status}`);
+/**
+ * Adds terms through the screens rather than the API, so the settings-to-subpage route is covered
+ * too. Each term is confirmed before the next is typed, so a failed save surfaces here instead of
+ * further down the test.
+ */
+async function addVocabulary(page: Page, terms: string[]): Promise<void> {
+  await page.goto("/settings");
+  await page.getByRole("link", { name: /Manage/ }).click();
+  await expect(page).toHaveURL(/\/settings\/vocabulary$/);
+
+  for (const term of terms) {
+    await page.getByLabel("Add a term").fill(term);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.getByRole("button", { name: `Remove ${term}` })).toBeVisible();
   }
+
+  await expect(page.getByText(`${terms.length} of 40 terms`)).toBeVisible();
 }
 
 /**

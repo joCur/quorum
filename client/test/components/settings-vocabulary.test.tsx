@@ -5,8 +5,8 @@ import { MAX_VOCABULARY_TERMS, MAX_VOCABULARY_TERM_LENGTH } from "@quorum/shared
 import { renderWithProviders, useLanguage } from "./render";
 
 /**
- * The vocabulary section of the settings panel: a flat list, a field to add a term, a delete per
- * entry, and a limit the screen refuses to go past.
+ * The vocabulary subpage: a flat list, a field to add a term, a delete per entry, and a limit the
+ * screen refuses to go past.
  *
  * The store is mocked because the subject is the screen's behavior at the limit and around a
  * failed save — the API has its own tests. What is *not* mocked is the shared decision about
@@ -40,15 +40,10 @@ vi.mock("@/features/settings/use-user-settings", () => ({
   }),
 }));
 
-const { SettingsRoute } = await import("@/routes/settings");
-const { ThemeProvider } = await import("@/features/theme/theme-provider");
+const { SettingsVocabularyRoute } = await import("@/routes/settings-vocabulary");
 
 function renderSettings() {
-  renderWithProviders(
-    <ThemeProvider>
-      <SettingsRoute />
-    </ThemeProvider>,
-  );
+  renderWithProviders(<SettingsVocabularyRoute />, { route: "/settings/vocabulary" });
 }
 
 async function addTerm(term: string) {
@@ -57,7 +52,7 @@ async function addTerm(term: string) {
   await user.click(screen.getByRole("button", { name: "Add" }));
 }
 
-describe("the vocabulary section", () => {
+describe("the vocabulary subpage", () => {
   beforeAll(async () => {
     await useLanguage("en");
   });
@@ -74,11 +69,20 @@ describe("the vocabulary section", () => {
     await useLanguage("en");
   });
 
-  it("says the vocabulary applies to future recordings only", async () => {
+  it("carries the whole explanation, which settings no longer repeats", async () => {
     renderSettings();
 
+    expect(screen.getByRole("heading", { level: 1, name: "Vocabulary" })).toBeVisible();
     // The one thing a user cannot discover by trying it: nothing already transcribed changes.
     expect(screen.getByText(/applies to future recordings only/i)).toBeVisible();
+  });
+
+  it("offers the way back to settings", async () => {
+    // The page is reached from a settings row and the top bar has no pill for it, so the back
+    // link is the only way out that does not go through browser history.
+    renderSettings();
+
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings");
   });
 
   it("adds a term and hands the whole list to the store", async () => {
@@ -204,12 +208,13 @@ describe("the vocabulary section", () => {
     expect(screen.getByRole("button", { name: "Remove Ansible" })).toBeDisabled();
   });
 
-  it("translates the whole section", async () => {
+  it("translates the whole page", async () => {
     vocabulary.current = ["Ansible"];
     await useLanguage("de");
     renderSettings();
 
-    expect(screen.getByRole("heading", { level: 2, name: "Fachbegriffe" })).toBeVisible();
+    expect(screen.getByRole("heading", { level: 1, name: "Fachbegriffe" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Einstellungen" })).toBeVisible();
     expect(screen.getByText(`1 von ${MAX_VOCABULARY_TERMS} Begriffen`)).toBeVisible();
     expect(screen.getByRole("button", { name: "Ansible entfernen" })).toBeVisible();
   });

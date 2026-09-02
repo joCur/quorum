@@ -341,7 +341,9 @@
       "saveFailed": "Die Einstellung konnte nicht gespeichert werden. Versuch es gleich noch einmal."
     },
     "vocabulary": {
+      "back": "Einstellungen",
       "title": "Fachbegriffe",
+      "manage": "Verwalten",
       "label": "Begriff hinzufügen",
       "placeholder": "Name, Produkt, Fachbegriff",
       "add": "Hinzufügen",

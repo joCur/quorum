@@ -1,20 +1,18 @@
 import * as React from "react";
-import { LogOut, X } from "lucide-react";
+import { ChevronRight, LogOut } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import {
   MAX_VOCABULARY_TERMS as MAX_TERMS,
-  MAX_VOCABULARY_TERM_LENGTH as MAX_TERM_LENGTH,
   TRANSCRIPTION_LANGUAGES,
-  canAddVocabularyTerm,
   type TranscriptionLanguage,
 } from "@quorum/shared";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { useAuth } from "@/features/auth/auth-provider";
-import { useUserSettings, type UserSettingsState } from "@/features/settings/use-user-settings";
+import { useUserSettings } from "@/features/settings/use-user-settings";
 import { THEME_PREFERENCES, useTheme, type ThemePreference } from "@/features/theme/theme-provider";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/i18n";
 import { APP_VERSION } from "@/env";
@@ -33,7 +31,8 @@ const LANGUAGE_LABELS = {
 } as const satisfies Record<SupportedLanguage, string>;
 
 /**
- * Settings screen: appearance, language, transcription, the account, and what this build is.
+ * Settings screen: appearance, language, transcription, the vocabulary, the account, and what
+ * this build is.
  *
  * One panel of rows rather than a card each. These are short settings, not separate subjects — a
  * card apiece gave each the weight of a section and made the screen a stack of near-empty boxes.
@@ -113,11 +112,24 @@ export function SettingsRoute() {
           </div>
         </Row>
 
-        {/* The user's own terms. Its own row rather than a control under the language above: the
-            language says how a recording is decoded, this says what it is likely to contain, and
-            the list needs room the language picker does not. */}
+        {/* A reference, not the list: inline, forty entries pushed the account row and its
+            sign-out button off the screen. */}
         <Row label={t("settings.vocabulary.title")}>
-          <VocabularySection settings={settings} />
+          <Link
+            to="/settings/vocabulary"
+            className="-mx-2 flex min-h-[44px] items-center justify-between gap-3 rounded-sm px-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="text-sm">{t("settings.vocabulary.manage")}</span>
+            <span className="flex items-center gap-1 text-sm text-muted-foreground">
+              <span className="tabular-figures">
+                {t("settings.vocabulary.count", {
+                  count: settings.settings.vocabulary.length,
+                  max: MAX_TERMS,
+                })}
+              </span>
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </span>
+          </Link>
         </Row>
 
         <Row label={t("settings.about.title")}>
@@ -151,105 +163,6 @@ export function SettingsRoute() {
           </Button>
         </Row>
       </Card>
-    </div>
-  );
-}
-
-/**
- * The custom vocabulary: a flat, alphabetically sorted list of terms with a field to add one and
- * a delete action per entry.
- *
- * WHY NO INLINE EDITING: a term is one word or a short phrase, and fixing a typo by deleting and
- * retyping is fewer interactions than an edit mode would need — plus the list is sorted, so an
- * edited term would jump somewhere else the moment it was committed.
- *
- * THE LIMIT IS THE INTERESTING PART. The whole list is sent to the transcription backend as the
- * prompt that biases recognition, and that prompt has a small fixed budget which the backend
- * enforces by silently discarding the overflow. So the screen refuses the entry that would not
- * fit, rather than accepting terms that would quietly never be sent. Two things can be full — the
- * count and the room the terms take up — and the message says which.
- */
-function VocabularySection({ settings }: { settings: UserSettingsState }) {
-  const { t } = useTranslation();
-  const [draft, setDraft] = React.useState("");
-  const terms = settings.settings.vocabulary;
-  const busy = settings.status === "loading" || settings.saving;
-
-  function add(event: React.FormEvent) {
-    event.preventDefault();
-    const attempt = canAddVocabularyTerm(terms, draft);
-    if (!attempt.ok) {
-      // "Nothing typed" is the one refusal with nothing to say: the user pressed enter on an empty
-      // field, which is not a mistake worth a message.
-      if (attempt.reason !== "empty") {
-        notify.failure(t(`settings.vocabulary.rejected.${attempt.reason}`, { max: MAX_TERMS }));
-      }
-      return;
-    }
-    // Cleared straight away rather than after the save: the term is already in the list the save
-    // is built from, and leaving it in the field invites a second, duplicate submission.
-    setDraft("");
-    void settings.saveVocabulary([...terms, attempt.term]).catch(() => {
-      // Only if the field is still empty. A slow save that fails after the user has started
-      // typing the next term must not overwrite what they are in the middle of.
-      setDraft((current) => (current === "" ? attempt.term : current));
-      notify.failure(t("settings.vocabulary.saveFailed"));
-    });
-  }
-
-  function remove(term: string) {
-    void settings
-      .saveVocabulary(terms.filter((stored) => stored !== term))
-      .catch(() => notify.failure(t("settings.vocabulary.saveFailed")));
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">{t("settings.vocabulary.help")}</p>
-
-      <form className="flex max-w-md gap-2" onSubmit={add}>
-        <Label htmlFor="vocabulary-term" className="sr-only">
-          {t("settings.vocabulary.label")}
-        </Label>
-        <Input
-          id="vocabulary-term"
-          value={draft}
-          disabled={busy}
-          maxLength={MAX_TERM_LENGTH}
-          placeholder={t("settings.vocabulary.placeholder")}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <Button type="submit" variant="outline" disabled={busy || draft.trim() === ""}>
-          {t("settings.vocabulary.add")}
-        </Button>
-      </form>
-
-      {terms.length > 0 ? (
-        <ul className="flex flex-wrap gap-2">
-          {terms.map((term) => (
-            <li
-              key={term}
-              className="flex items-center gap-1 rounded-full border border-input py-1 pl-3 pr-1 text-sm"
-            >
-              <span>{term}</span>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => remove(term)}
-                aria-label={t("settings.vocabulary.remove", { term })}
-                className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition-colors duration-micro hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-              >
-                <X aria-hidden="true" className="size-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {/* The count is what tells the user the limit exists before they run into it. */}
-      <p className="text-sm text-muted-foreground tabular-figures">
-        {t("settings.vocabulary.count", { count: terms.length, max: MAX_TERMS })}
-      </p>
     </div>
   );
 }

@@ -81,6 +81,28 @@ describe("settings panel", () => {
     expect(screen.getByText(/Your recordings, transcripts and summaries/)).toBeInTheDocument();
   });
 
+  it("points at the vocabulary page and previews how full the list is", async () => {
+    // The row is the whole of the vocabulary in settings now: a list that grew inline pushed the
+    // account row, sign-out included, off the bottom of the screen. The count has to be here so
+    // the limit is visible without opening the page.
+    vocabulary.current = ["Ansible", "MinIO"];
+    renderSettings();
+
+    const row = screen.getByRole("link", { name: /Manage/ });
+    expect(row).toHaveAttribute("href", "/settings/vocabulary");
+    expect(row).toHaveTextContent("2 of 40 terms");
+  });
+
+  it("keeps no vocabulary copy of its own beyond the row", () => {
+    // The help text moved to the page with the list. Saying it in both places would be two things
+    // to keep in step, and the row has no room for it.
+    vocabulary.current = ["Ansible"];
+    renderSettings();
+
+    expect(screen.queryByText(/applies to future recordings only/i)).toBeNull();
+    expect(screen.queryByLabelText("Add a term")).toBeNull();
+  });
+
   it("closes the panel with the account, under the settings it would interrupt", () => {
     renderSettings();
 
