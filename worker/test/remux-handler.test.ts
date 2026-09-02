@@ -45,6 +45,11 @@ class FakeStore implements AudioSource, RemuxStorage {
   failWriteOf: string | null = null;
   /** Bytes to hand back for a read-back check instead of what was written. */
   corruptReadOf: string | null = null;
+  /**
+   * Key whose read-back drops the clusters but keeps the byte count, which is what a parse that
+   * silently lost audio would look like from storage: right size, wrong recording.
+   */
+  truncateReadOf: string | null = null;
   readonly copies: Array<{ from: string; to: string }> = [];
 
   constructor(manifest: RecordingManifest, chunks: readonly Uint8Array[]) {
@@ -84,7 +89,15 @@ class FakeStore implements AudioSource, RemuxStorage {
 
   async readObject(key: string): Promise<Uint8Array | null> {
     if (this.corruptReadOf === key) return new Uint8Array(3);
-    return this.objects.get(key) ?? null;
+    const stored = this.objects.get(key) ?? null;
+    if (stored === null || this.truncateReadOf !== key) return stored;
+    // Same length, clusters blanked out — the cluster id no longer occurs, so an inspection
+    // finds a well-formed head and none of the audio behind it.
+    const damaged = Uint8Array.from(stored);
+    for (let i = 0; i + 3 < damaged.byteLength; i += 1) {
+      if (damaged[i] === 0x1f && damaged[i + 1] === 0x43) damaged[i + 1] = 0x00;
+    }
+    return damaged;
   }
 
   async writeObject(key: string, body: Uint8Array): Promise<void> {
@@ -226,14 +239,34 @@ describe("the remux job", () => {
     expect(store.objects.has(audioKey(SCOPE))).toBe(false);
   });
 
-  it("refuses to delete the chunks when the duration is nothing like the transcript's", async () => {
-    // The one check that can catch a parse which quietly lost half a recording: the byte counts
-    // would look plausible, the duration would not.
-    await expect(
-      runRemuxJob(payload({ expectedDurationSeconds: 3600 }), 0, deps(store)),
-    ).rejects.toMatchObject({ code: "REMUX_VERIFICATION_FAILED" });
+  it("repackages anyway when the transcription decoded a very different length", async () => {
+    // The two numbers measure different things: with the backend's silence filter on, a
+    // recording of a room that waits for someone to speak is honestly shorter to Whisper than
+    // it is to the container. Refusing on the gap would throw away a good repackaging of
+    // exactly the recordings that filter exists for, so the gap is a log line, not a verdict.
+    const { logger, events } = capturingLogger();
+    const outcome = await runRemuxJob(
+      payload({ expectedDurationSeconds: 3600 }),
+      0,
+      deps(store, { logger }),
+    );
+
+    expect(outcome.chunksDeleted).toBe(CHUNK_COUNT);
+    expect(events.some((event) => event.event === "remux.duration_differs")).toBe(true);
+  });
+
+  it("refuses to delete the chunks when the artifact no longer holds the whole recording", async () => {
+    // The check that stands in for the one above: a parse that quietly lost a stretch of the
+    // recording produces a file of plausible size that still opens cleanly, and only the cluster
+    // count read back out of storage gives it away.
+    store.truncateReadOf = stagingAudioKey(SCOPE);
+
+    await expect(runRemuxJob(payload(), 0, deps(store))).rejects.toMatchObject({
+      code: "REMUX_VERIFICATION_FAILED",
+    });
 
     expect(store.keys.filter((key) => key.includes("/chunks/"))).toHaveLength(CHUNK_COUNT);
+    expect(store.objects.has(audioKey(SCOPE))).toBe(false);
   });
 
   it("still runs when the transcription reported no duration at all", async () => {

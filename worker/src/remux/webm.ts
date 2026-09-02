@@ -606,6 +606,8 @@ export interface WebmInspection {
   hasCues: boolean;
   /** The playing time the file declares, or `null` when it declares none. */
   durationSeconds: number | null;
+  /** Clusters actually present, which is how much of the recording the file still holds. */
+  clusterCount: number;
 }
 
 /**
@@ -617,7 +619,7 @@ export interface WebmInspection {
  * on the way to storage.
  */
 export function inspectWebm(input: Uint8Array): WebmInspection {
-  const absent: WebmInspection = { hasCues: false, durationSeconds: null };
+  const absent: WebmInspection = { hasCues: false, durationSeconds: null, clusterCount: 0 };
   const reader = new Reader(input, 0, input.byteLength);
 
   const ebmlId = reader.readId();
@@ -631,6 +633,7 @@ export function inspectWebm(input: Uint8Array): WebmInspection {
   const segmentEnd = Math.min(reader.pos + segmentSize.value, input.byteLength);
 
   let hasCues = false;
+  let clusterCount = 0;
   let durationTicks: number | null = null;
   let timestampScale = DEFAULT_TIMESTAMP_SCALE;
 
@@ -644,6 +647,7 @@ export function inspectWebm(input: Uint8Array): WebmInspection {
     if (bodyTo > segmentEnd) break;
 
     if (id === ID.cues) hasCues = true;
+    if (id === ID.cluster) clusterCount += 1;
     if (id === ID.info) {
       const info = new Reader(input, bodyFrom, bodyTo);
       while (!info.done) {
@@ -665,6 +669,7 @@ export function inspectWebm(input: Uint8Array): WebmInspection {
 
   return {
     hasCues,
+    clusterCount,
     durationSeconds: durationTicks === null ? null : (durationTicks * timestampScale) / 1e9,
   };
 }

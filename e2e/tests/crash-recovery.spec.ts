@@ -14,14 +14,7 @@ import { findTranscribeJob } from "../support/database.js";
 import { fetchToken } from "../support/keycloak.js";
 import { startApi, stopApi } from "../support/stack.js";
 import { RecordingSocket } from "../support/recording-socket.js";
-import {
-  audioKey,
-  chunkSeqs,
-  listKeys,
-  objectSize,
-  readManifest,
-  sessionPrefix,
-} from "../support/storage.js";
+import { chunkSeqs, expectRecordingIntact, readManifest } from "../support/storage.js";
 
 /**
  * Critical path: crash recovery — reconnect from `persistedSeq`, local buffer (CLAUDE.md).
@@ -84,14 +77,12 @@ test("survives the server dying mid-recording", async ({ page, signIn }) => {
 
   // The decisive assertion: server-side object continuity. Every sequence number from 0 to the
   // last one is present exactly once — the outage left no hole and no duplicate.
-  const seqs = await chunkSeqs(scope);
-  expect(seqs.length).toBeGreaterThan(seqsBeforeOutage.length);
-  expect(seqs).toEqual(seqs.map((_value, index) => index));
-  expect(new Set(seqs).size).toBe(seqs.length);
+  const chunkCount = await expectRecordingIntact(scope, {
+    atLeast: seqsBeforeOutage.length + 1,
+  });
 
   const manifest = await readManifest(scope);
-  expect(manifest?.persistedSeq).toBe(seqs.length - 1);
-  expect(manifest?.chunkCount).toBe(seqs.length);
+  expect(manifest?.persistedSeq).toBe(chunkCount - 1);
 });
 
 /**
@@ -154,15 +145,14 @@ test("recovers audio a crashed tab left in the local buffer", async ({ page, sig
 
   // The buffered audio reached object storage: more chunks than were there when the tab died, and
   // still one unbroken sequence — the recovery resumed the session rather than starting a new one.
-  const seqs = await chunkSeqs(scope);
-  expect(seqs).toEqual(seqs.map((_value, index) => index));
-  expect(seqs.length).toBeGreaterThanOrEqual(storedBeforeCrash + bufferedAtCrash);
+  const chunkCount = await expectRecordingIntact(scope, {
+    atLeast: storedBeforeCrash + bufferedAtCrash,
+  });
 
   const manifest = await readManifest(scope);
   expect(manifest?.tenantId).toBe(alice.tenantId);
   expect(manifest?.userId).toBe(alice.userId);
-  expect(manifest?.persistedSeq).toBe(seqs.length - 1);
-  expect(manifest?.chunkCount).toBe(seqs.length);
+  expect(manifest?.persistedSeq).toBe(chunkCount - 1);
 
   // And it is a meeting like any other: one transcribe job, from the one session.
   const job = await waitForValue(
@@ -218,15 +208,7 @@ test("refuses a reconnect to a recording that is already finished", async ({ pag
   }
 
   // And the recording came through it untouched: still one unbroken sequence, or already the
-  // single object the pipeline replaces it with. Both are correct here; a session prefix holding
-  // neither, or holding a re-sent recording on top of the old one, is not.
-  const seqs = await chunkSeqs(scope);
-  const artifact = await objectSize(audioKey(scope));
-  if (artifact === null) {
-    expect(seqs).toEqual(seqs.map((_value, index) => index));
-    expect(seqs.length).toBeGreaterThan(0);
-  } else {
-    expect(artifact).toBeGreaterThan(0);
-    expect(await listKeys(`${sessionPrefix(scope)}/chunks/`)).toEqual([]);
-  }
+  // single object the pipeline replaces it with. A session prefix holding neither, or holding a
+  // re-sent recording written over the finished one, is what the refusal exists to prevent.
+  await expectRecordingIntact(scope, { atLeast: 1 });
 });

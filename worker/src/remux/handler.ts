@@ -7,17 +7,17 @@ import type { RemuxJobPayload } from "../payload.js";
 import { inspectWebm, remuxWebm, RemuxError } from "./webm.js";
 
 /**
- * How far the remuxer's own duration may sit from the transcription's before the result is
- * thrown away.
+ * How far the remuxer's duration may sit from the transcription's before it is worth a log line.
  *
- * Loose on purpose. The two numbers are measured in different ways — one counts container
- * timestamps, the other counts decoded samples after a voice-activity filter has had its say —
- * so they are never expected to agree to the sample. What this catches is the failure that
- * matters: a parse that lost or duplicated whole stretches of a recording, which shows up as a
- * duration that is wrong by a lot, not by a rounding error.
+ * A note, never a refusal, and the transcription backend is the reason. It reports the length of
+ * what it decoded, and with the silence filter on (`WHISPER_VAD_FILTER`) that is the length of
+ * the *speech* — a recording of a room that waits a minute for someone to talk is honestly
+ * shorter to Whisper than it is to the container. Failing on the gap would throw away a perfectly
+ * good repackaging of exactly the recordings the filter exists for. What the artifact is actually
+ * held to is the read-back check below, which needs no second opinion from anyone.
  */
-const DURATION_TOLERANCE_RATIO = 0.05;
-const DURATION_TOLERANCE_SECONDS = 10;
+const DURATION_NOTE_RATIO = 0.25;
+const DURATION_NOTE_SECONDS = 30;
 
 /** The only container this pipeline repackages; see the note in `runRemuxJob`. */
 const REMUXABLE_CONTAINER = "webm";
@@ -111,12 +111,12 @@ export async function runRemuxJob(
 
     const source = await deps.audio.loadAudio(manifest, scope);
     const remuxed = remux(source);
-    checkDuration(remuxed.durationSeconds, payload.expectedDurationSeconds);
+    noteDurationGap(log, remuxed.durationSeconds, payload.expectedDurationSeconds);
 
     const staging = stagingAudioKey(scope);
     const final = audioKey(scope);
     await deps.storage.writeObject(staging, remuxed.bytes, "audio/webm");
-    await verify(deps, staging, remuxed.bytes.byteLength, remuxed.durationSeconds);
+    await verify(deps, staging, remuxed);
 
     // Last look before anything is replaced. The deletion cascade sweeps the queue, but a job
     // already running survives that sweep, and finishing this one would put audio back under a
@@ -184,14 +184,13 @@ function remux(source: Uint8Array): ReturnType<typeof remuxWebm> {
   }
 }
 
-function checkDuration(measured: number, expected: number | null): void {
+function noteDurationGap(log: WorkerLogger, measured: number, expected: number | null): void {
   if (expected === null || expected === 0) return;
-  const tolerance = Math.max(expected * DURATION_TOLERANCE_RATIO, DURATION_TOLERANCE_SECONDS);
+  const tolerance = Math.max(expected * DURATION_NOTE_RATIO, DURATION_NOTE_SECONDS);
   if (Math.abs(measured - expected) <= tolerance) return;
-  throw new JobError(
-    "REMUX_VERIFICATION_FAILED",
-    `repackaged recording is ${measured.toFixed(3)}s long but the transcription measured ${expected.toFixed(3)}s`,
-    { retryable: false },
+  log.info(
+    { event: "remux.duration_differs", containerSeconds: measured, decodedSeconds: expected },
+    "the container is a different length from what the transcription decoded",
   );
 }
 
@@ -200,14 +199,18 @@ function checkDuration(measured: number, expected: number | null): void {
  *
  * A read rather than a comparison against what is still in memory, because what is in memory is
  * not what playback will serve. This is the step that stands between a truncated upload and a
- * deleted set of chunks, so it asks storage the same question a player will: how long is it, and
- * does it parse as a seekable file.
+ * deleted set of chunks, so it asks storage the same questions a player will — how long is it,
+ * where is the index — and one more that nothing outside this worker could answer: does it still
+ * hold every cluster the recording was made of.
+ *
+ * That last one is the integrity check the whole "verify, then delete" order rests on. A parse
+ * that quietly lost half a recording would produce a file of plausible size that still opened
+ * cleanly; a cluster count that no longer matches is what makes it impossible to miss.
  */
 async function verify(
   deps: RemuxHandlerDependencies,
   key: string,
-  expectedBytes: number,
-  expectedDuration: number,
+  remuxed: { bytes: Uint8Array; durationSeconds: number; clusterCount: number },
 ): Promise<void> {
   const stored = await deps.storage.readObject(key);
   if (!stored) {
@@ -215,10 +218,10 @@ async function verify(
       retryable: true,
     });
   }
-  if (stored.byteLength !== expectedBytes) {
+  if (stored.byteLength !== remuxed.bytes.byteLength) {
     throw new JobError(
       "REMUX_VERIFICATION_FAILED",
-      `staged artifact is ${stored.byteLength} bytes but ${expectedBytes} were written`,
+      `staged artifact is ${stored.byteLength} bytes but ${remuxed.bytes.byteLength} were written`,
       { retryable: true },
     );
   }
@@ -230,10 +233,17 @@ async function verify(
       { retryable: false },
     );
   }
-  if (Math.abs(inspected.durationSeconds - expectedDuration) > 0.001) {
+  if (Math.abs(inspected.durationSeconds - remuxed.durationSeconds) > 0.001) {
     throw new JobError(
       "REMUX_VERIFICATION_FAILED",
-      `staged artifact reads back as ${inspected.durationSeconds}s rather than ${expectedDuration}s`,
+      `staged artifact reads back as ${inspected.durationSeconds}s rather than ${remuxed.durationSeconds}s`,
+      { retryable: false },
+    );
+  }
+  if (inspected.clusterCount !== remuxed.clusterCount) {
+    throw new JobError(
+      "REMUX_VERIFICATION_FAILED",
+      `staged artifact holds ${inspected.clusterCount} clusters, not the ${remuxed.clusterCount} the recording was made of`,
       { retryable: false },
     );
   }

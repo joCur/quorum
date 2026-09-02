@@ -4,6 +4,7 @@ import {
   ListObjectsV2Command,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { expect } from "@playwright/test";
 import { stackEnv } from "./env.js";
 
 /**
@@ -118,4 +119,45 @@ export async function objectSize(key: string): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Asserts that every chunk the client sent reached durable storage, gap-free — in whichever of
+ * the two shapes the recording is currently in.
+ *
+ * A finalized recording is its chunk objects until the pipeline repackages it into one seekable
+ * file (ADR-010), and there is no telling from outside which side of that a given assertion
+ * lands on: on a fast machine the transcription and the repackaging can both finish between the
+ * `session.finalized` frame and the next line of a test. Counting chunk objects is therefore not
+ * a stable way to ask the question, and a test that did it would fail for a reason that has
+ * nothing to do with what it is testing.
+ *
+ * The manifest is the stable record — it says what the recorder delivered and survives the
+ * repackaging untouched — so the count comes from there, and the objects are then checked
+ * against whichever shape is actually present. Returns the number of chunks the recording was
+ * made of.
+ */
+export async function expectRecordingIntact(
+  scope: SessionScope,
+  options: { atLeast?: number } = {},
+): Promise<number> {
+  const manifest = await readManifest(scope);
+  expect(manifest, "the finalization manifest").not.toBeNull();
+  const chunkCount = manifest?.chunkCount ?? 0;
+  expect(chunkCount).toBe((manifest?.persistedSeq ?? -1) + 1);
+  if (options.atLeast !== undefined) expect(chunkCount).toBeGreaterThanOrEqual(options.atLeast);
+
+  const seqs = await chunkSeqs(scope);
+  if (seqs.length > 0) {
+    // Still the shape it was recorded in: every sequence number from 0 upwards, exactly once.
+    expect(seqs).toEqual(Array.from({ length: chunkCount }, (_value, index) => index));
+    return chunkCount;
+  }
+
+  // Repackaged: one audio object carrying the whole recording, and nothing left in the chunk
+  // prefix. An empty prefix with no artifact behind it would be audio that simply went missing.
+  const size = await objectSize(audioKey(scope));
+  expect(size, "the repackaged audio object").not.toBeNull();
+  expect(size).toBeGreaterThan(0);
+  return chunkCount;
 }

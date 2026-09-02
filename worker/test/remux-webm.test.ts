@@ -50,6 +50,12 @@ describe("remuxWebm", () => {
     expect(inspected.durationSeconds).toBeCloseTo(result.durationSeconds, 6);
   });
 
+  it("reads back holding every cluster it was made of", () => {
+    // The integrity check the job's "verify, then delete" order rests on: a parse that lost a
+    // stretch of the recording would still produce a file that opens cleanly.
+    expect(inspectWebm(result.bytes).clusterCount).toBe(result.clusterCount);
+  });
+
   it("recovers the recording's real length from the block timestamps", () => {
     // The fixture is six seconds of capture; the last frame lands just short of that.
     expect(result.durationSeconds).toBeGreaterThan(5.5);
@@ -138,6 +144,7 @@ describe("inspectWebm", () => {
     expect(inspectWebm(new Uint8Array([1, 2, 3, 4]))).toEqual({
       hasCues: false,
       durationSeconds: null,
+      clusterCount: 0,
     });
   });
 

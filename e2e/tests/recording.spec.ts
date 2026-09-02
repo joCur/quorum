@@ -28,7 +28,7 @@ import {
   findTranscribeJob,
   findTranscript,
 } from "../support/database.js";
-import { audioKey, chunkSeqs, objectSize, readManifest } from "../support/storage.js";
+import { audioKey, expectRecordingIntact, objectSize, readManifest } from "../support/storage.js";
 
 /**
  * The meeting name the stub summary backend suggests (`e2e/scripts/mock-whisper.mjs`). Repeated
@@ -70,18 +70,16 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
 
   const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
 
-  // The chunks are in object storage, under this tenant's and this user's prefix, with no gap.
-  const seqs = await chunkSeqs(scope);
-  expect(seqs.length).toBeGreaterThanOrEqual(4);
-  expect(seqs).toEqual(seqs.map((_value, index) => index));
+  // The audio is in object storage, under this tenant's and this user's prefix, with no gap —
+  // whether the pipeline has already repackaged it or not.
+  const chunkCount = await expectRecordingIntact(scope, { atLeast: 4 });
 
   // The session is finalized: the manifest agrees with what was acknowledged.
   const manifest = await readManifest(scope);
   expect(manifest).not.toBeNull();
   expect(manifest?.tenantId).toBe(alice.tenantId);
   expect(manifest?.userId).toBe(alice.userId);
-  expect(manifest?.persistedSeq).toBe(seqs.length - 1);
-  expect(manifest?.chunkCount).toBe(seqs.length);
+  expect(manifest?.persistedSeq).toBe(chunkCount - 1);
 
   // A transcribe job reached the queue.
   const job = await waitForValue(
@@ -429,15 +427,12 @@ test("pauses and resumes without splitting the meeting", async ({ page, signIn }
   const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
 
   // One session prefix in object storage, and no gap where the break was.
-  const seqs = await chunkSeqs(scope);
-  expect(seqs).toEqual(seqs.map((_value, index) => index));
-  expect(seqs.length).toBeGreaterThan(seqsBeforePause + 1);
+  const chunkCount = await expectRecordingIntact(scope, { atLeast: seqsBeforePause + 2 });
 
   // One manifest, one meeting — and the marks record where the pause was, which is what lets the
   // pipeline map audio time back to wall clock.
   const manifest = await readManifest(scope);
-  expect(manifest?.chunkCount).toBe(seqs.length);
-  expect(manifest?.persistedSeq).toBe(seqs.length - 1);
+  expect(manifest?.persistedSeq).toBe(chunkCount - 1);
   expect(manifest?.marks.map((mark) => mark.type)).toEqual(["pause", "resume"]);
 
   // Exactly one transcribe job for the whole meeting, break included.
@@ -480,8 +475,7 @@ test("records with the microphone the user picked", async ({ page, signIn }) => 
   await stopRecording(page);
   await protocol.waitForFinalized();
 
-  const seqs = await chunkSeqs({ tenantId: alice.tenantId, userId: alice.userId, sessionId });
-  expect(seqs).toEqual(seqs.map((_value, index) => index));
+  await expectRecordingIntact({ tenantId: alice.tenantId, userId: alice.userId, sessionId });
 
   // The choice is a property of this machine, so it is still there on the next visit.
   await page.goto("/record");
@@ -547,13 +541,11 @@ test("keeps recording while the user browses the rest of the app", async ({ page
   const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
 
   // One gap-free sequence across the whole excursion — one meeting, not two halves.
-  const seqs = await chunkSeqs(scope);
-  expect(seqs).toEqual(seqs.map((_value, index) => index));
-  expect(seqs.length).toBeGreaterThan(ackedAway + 1);
+  const chunkCount = await expectRecordingIntact(scope, { atLeast: ackedAway + 2 });
 
   const manifest = await readManifest(scope);
-  expect(manifest?.chunkCount).toBe(seqs.length);
-  expect(manifest?.persistedSeq).toBe(seqs.length - 1);
+  expect(manifest?.chunkCount).toBe(chunkCount);
+  expect(manifest?.persistedSeq).toBe(chunkCount - 1);
 
   // Exactly one transcribe job: the excursion produced no second session to transcribe.
   const job = await waitForValue(
@@ -627,15 +619,12 @@ test("records an online meeting as sound only, through the unchanged pipeline", 
   await expect(page).toHaveURL(/\/meetings$/);
 
   const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
-  const seqs = await chunkSeqs(scope);
-  expect(seqs.length).toBeGreaterThanOrEqual(4);
-  expect(seqs).toEqual(seqs.map((_value, index) => index));
+  const chunkCount = await expectRecordingIntact(scope, { atLeast: 4 });
 
   const manifest = await readManifest(scope);
   expect(manifest?.tenantId).toBe(alice.tenantId);
   expect(manifest?.userId).toBe(alice.userId);
-  expect(manifest?.chunkCount).toBe(seqs.length);
-  expect(manifest?.persistedSeq).toBe(seqs.length - 1);
+  expect(manifest?.persistedSeq).toBe(chunkCount - 1);
 
   // One audio-only meeting, indistinguishable downstream from one recorded in a room.
   const job = await waitForValue(
