@@ -14,14 +14,12 @@ export interface RecordingContext {
   userId: string;
 }
 
-/** The part of an incoming WebSocket upgrade request a context provider may look at. */
 export interface RecordingContextRequest {
   headers: Record<string, string | string[] | undefined>;
   /** Set by the auth plugin when the upgrade carried a valid access token. */
   auth?: RecordingContext | undefined;
 }
 
-/** Resolves the recording context for an incoming WebSocket upgrade request. */
 export interface RecordingContextProvider {
   resolve(request: RecordingContextRequest): Promise<RecordingContext>;
 }
@@ -98,7 +96,6 @@ export interface RecordingStorage {
   deleteObjects(keys: readonly string[]): Promise<void>;
 }
 
-/** One stored object and its size, from a prefix listing. */
 export interface StoredObject {
   key: string;
   size: number;
@@ -203,15 +200,12 @@ export interface UserPreferences {
   }): Promise<{ transcriptionLanguage: string | null; vocabulary: string[] }>;
 }
 
-/** What one recording session has consumed. */
 export interface RecordingUsage {
-  /** Bytes of audio persisted for this session. */
   audioBytes: number;
   /** Seconds of audio recorded — audio time, so pauses do not count. */
   recordedSeconds: number;
 }
 
-/** What a user has consumed across their meetings. */
 export interface AccountUsage {
   /** Bytes of stored audio over all of the user's meetings. */
   storageBytes: number;

@@ -95,14 +95,12 @@ export function resolveRange(header: string | undefined, totalBytes: number): Ra
   return { kind: "partial", range: { from, to } };
 }
 
-/** A slice of one chunk object that contributes to the requested range. */
 export interface PartSlice {
   key: string;
   /** Inclusive byte range within the chunk object, or `undefined` for the whole object. */
   range: ByteRange | undefined;
 }
 
-/** Selects the chunk objects overlapping `[from, to]` and the slice needed from each. */
 export function slicesForRange(layout: AudioLayout, range: ByteRange): PartSlice[] {
   const slices: PartSlice[] = [];
   for (const part of layout.parts) {
@@ -118,7 +116,6 @@ export function slicesForRange(layout: AudioLayout, range: ByteRange): PartSlice
   return slices;
 }
 
-/** Media type for the container the recording was captured in. */
 export function audioContentType(format: AudioFormat): string {
   switch (format.container) {
     case "webm":

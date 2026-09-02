@@ -38,11 +38,8 @@ export interface UserLimits {
    * difference between a user coming back to a finished meeting and coming back to nothing.
    */
   readonly maxPauseSeconds: number;
-  /** How many recording sessions one user may have open at the same time. */
   readonly maxParallelSessions: number;
-  /** Sustained chunk frames per second a single connection may send. */
   readonly maxChunksPerSecond: number;
-  /** Sustained bytes per second a single connection may send. */
   readonly maxBytesPerSecond: number;
   /**
    * How many seconds' worth of the two rates above a connection may spend at once.
@@ -51,7 +48,6 @@ export interface UserLimits {
    * fast as the socket allows, and that burst must not look like an attack.
    */
   readonly burstSeconds: number;
-  /** Total bytes of stored audio one user may hold. */
   readonly maxStorageBytes: number;
   /** Seconds a user may record within one calendar month (UTC). */
   readonly maxMonthlyRecordedSeconds: number;
@@ -62,9 +58,7 @@ export interface UserLimits {
    * `session.end` would have cost real storage and counted for nothing.
    */
   readonly usageFlushChunks: number;
-  /** REST requests one user may make per window. */
   readonly apiRequestsPerWindow: number;
-  /** Length of that window, in seconds. */
   readonly apiWindowSeconds: number;
   /**
    * Requests per window to a route that buys pipeline work — regenerating a summary, retrying a

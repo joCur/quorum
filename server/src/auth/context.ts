@@ -17,13 +17,11 @@ export interface RequestContext {
   readonly username: string | undefined;
   /** Email address, if the token carries one. Display only. */
   readonly email: string | undefined;
-  /** Issuer that signed the token. */
   readonly issuer: string;
   /** Token expiry as a UNIX timestamp in seconds. */
   readonly expiresAt: number;
 }
 
-/** Returns true when the context carries the given realm role. */
 export function hasRole(context: RequestContext, role: string): boolean {
   return context.roles.includes(role);
 }

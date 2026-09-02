@@ -62,7 +62,6 @@ export interface ServerMetricsOptions {
    * numbers are as fresh as the scrape and an unscraped instance costs nothing.
    */
   queues?: QueueSnapshotSource | undefined;
-  /** Existing registry to add to; a fresh one by default. */
   registry?: PrometheusRegistry | undefined;
   /** Node process metrics (heap, event loop lag, file descriptors). */
   collectProcessMetrics?: boolean;

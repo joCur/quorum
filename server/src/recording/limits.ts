@@ -18,7 +18,6 @@ export class TokenBucket {
   private updatedAt: number;
 
   constructor(
-    /** Tokens added per second. */
     private readonly ratePerSecond: number,
     /** Maximum tokens the bucket can hold — the burst allowance. */
     private readonly capacity: number,
@@ -43,7 +42,6 @@ export class TokenBucket {
   }
 }
 
-/** The two rate buckets a single recording connection is metered by. */
 export class ConnectionRateMeter {
   private readonly chunks: TokenBucket;
   private readonly bytes: TokenBucket;
@@ -117,7 +115,7 @@ export class SessionRegistry {
     if (sessions.size === 0) this.open.delete(key);
   }
 
-  /** Number of sessions currently open for a user. Exists for tests and for diagnostics. */
+  /** Exists for tests and for diagnostics. */
   countFor(scope: { tenantId: string; userId: string }): number {
     return this.open.get(scopeKey(scope))?.size ?? 0;
   }

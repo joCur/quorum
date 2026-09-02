@@ -23,7 +23,6 @@ export const ServerConfigSchema = z.object({
     .default("false")
     .transform((value) => value === "true"),
 
-  // --- Abuse and cost protection for the recording endpoint (see `recording/limits.ts`) ---
   /** Seconds of recorded audio after which the server finalizes a recording itself. Default 4 h. */
   RECORDING_MAX_RECORDED_SECONDS: z.coerce
     .number()
@@ -42,7 +41,6 @@ export const ServerConfigSchema = z.object({
     .int()
     .positive()
     .default(2 * 60 * 60),
-  /** Recording sessions one user may have open at the same time. */
   RECORDING_MAX_PARALLEL_SESSIONS: z.coerce.number().int().positive().default(3),
   /** Sustained chunk frames per second per connection. A live recording sends 0.5–1. */
   RECORDING_MAX_CHUNKS_PER_SECOND: z.coerce.number().positive().default(20),
@@ -67,9 +65,7 @@ export const ServerConfigSchema = z.object({
     .default(100 * 60 * 60),
   /** Chunks between two usage writes — what makes the quotas survive a crash. */
   QUOTA_USAGE_FLUSH_CHUNKS: z.coerce.number().int().positive().default(64),
-  /** REST requests one user may make per window. Default 300. */
   API_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
-  /** Length of that window, in seconds. Default 60. */
   API_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(60),
   /** Regenerate requests per window — the one route that costs a model call. Default 10. */
   API_RATE_LIMIT_SUMMARY_MAX: z.coerce.number().int().positive().default(10),

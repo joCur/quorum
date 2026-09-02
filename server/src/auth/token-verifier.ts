@@ -3,7 +3,6 @@ import type { JWTPayload, JWTVerifyGetKey } from "jose";
 import type { RequestContext } from "./context.js";
 import { AuthError } from "./errors.js";
 
-/** Options for {@link createTokenVerifier}. */
 export interface TokenVerifierOptions {
   /**
    * Issuers accepted in the `iss` claim. Two entries are normal in the compose stack: the
@@ -25,7 +24,6 @@ export interface TokenVerifierOptions {
   readonly keySource: JWTVerifyGetKey;
 }
 
-/** Verifies a raw bearer token and produces the tenant-scoped request context. */
 export type TokenVerifier = (token: string) => Promise<RequestContext>;
 
 /**
@@ -40,18 +38,15 @@ export type TokenVerifier = (token: string) => Promise<RequestContext>;
 export interface TokenIdentity {
   /** Stable subject identifier from the token (`sub`). */
   readonly userId: string;
-  /** Realm roles granted to the user. */
   readonly roles: readonly string[];
   readonly username: string | undefined;
   readonly email: string | undefined;
-  /** Whether the provider considers the address verified. */
   readonly emailVerified: boolean;
 }
 
 /** Verifies a raw bearer token and produces the caller's identity, with or without a tenant. */
 export type IdentityVerifier = (token: string) => Promise<TokenIdentity>;
 
-/** Builds the JWKS endpoint of a Keycloak realm from its issuer URL. */
 export function keycloakJwksUri(issuer: string): string {
   return `${issuer.replace(/\/+$/, "")}/protocol/openid-connect/certs`;
 }
@@ -193,7 +188,6 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
   return createTokenVerifiers(options).verifyAccessToken;
 }
 
-/** Extracts the raw token from an `Authorization: Bearer <token>` header. */
 export function extractBearerToken(header: string | undefined): string {
   if (header === undefined || header.length === 0) {
     throw new AuthError("missing_token", "The Authorization header is missing.");
