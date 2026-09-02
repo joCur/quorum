@@ -1,12 +1,6 @@
 import { z } from "zod";
 import { MAX_GENERATED_TITLE_LENGTH } from "./meeting-title.js";
 
-/**
- * Summary templates and summaries (ADR-004)
- * A system template as the default, user templates with one level of inheritance,
- * and a snapshot of the resolved configuration per generated summary.
- */
-
 export const SUMMARY_SCHEMA_VERSION = 1;
 
 export const SectionFormatSchema = z.enum(["prose", "bullets", "table"]);
@@ -19,11 +13,10 @@ export const TemplateSectionSchema = z.object({
   format: SectionFormatSchema,
 });
 
-/** An override in user templates: add, change or hide a section */
 export const SectionOverrideSchema = z.object({
   sectionId: z.string(),
   action: z.enum(["add", "replace", "hide"]),
-  /** Bei add/replace erforderlich */
+  /** Required for `add` and `replace`, unused for `hide`. */
   section: TemplateSectionSchema.nullable().default(null),
 });
 
@@ -39,7 +32,7 @@ export const SummaryTemplateSchema = z.object({
   name: z.string(),
   /** Templates are versioned; a change produces a new version */
   version: z.number().int().positive(),
-  scope: z.enum(["system", "user"]), // extensible later: team/org
+  scope: z.enum(["system", "user"]),
   /** Only one level of inheritance: a user template basedOn a system template */
   basedOn: z.string().uuid().nullable().default(null),
   sections: z.array(TemplateSectionSchema).default([]),
@@ -47,15 +40,13 @@ export const SummaryTemplateSchema = z.object({
   options: SummaryOptionsSchema.default({}),
 });
 
-// ---- Erzeugte Summary ----
-
 export const SummarySectionSchema = z.object({
   sectionId: z.string(),
   title: z.string(),
   format: SectionFormatSchema,
-  /** Strukturierter Inhalt: prose = 1 Element, bullets = n Elemente, table = Zeilen als JSON */
+  /** One entry for `prose`, one per bullet for `bullets`, one JSON-encoded row for `table`. */
   content: z.array(z.string()),
-  /** Quellenverweise auf Transcript-Segmente (ADR-003 stabile IDs); V1: null */
+  /** References to transcript segments (ADR-003 stable ids); always null in V1. */
   sourceSegmentIds: z.array(z.string().uuid()).nullable().default(null),
 });
 
@@ -74,7 +65,6 @@ export const SummarySchema = z.object({
     resolvedSections: z.array(TemplateSectionSchema),
     options: SummaryOptionsSchema,
   }),
-  /** What produced it — the counterpart of model/modelVersion on the transcript. */
   model: z.string(),
   promptVersion: z.string(),
   /**

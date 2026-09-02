@@ -58,7 +58,6 @@ export const MeetingSchema = z.object({
   status: MeetingStatusSchema,
   audioFormat: AudioFormatSchema,
   createdAt: z.string().datetime(),
-  /** Set once the recording was finalized; null while it is still open. */
   finalizedAt: z.string().datetime().nullable(),
   /** Audio length in seconds, known once a transcript exists. */
   durationSeconds: z.number().nonnegative().nullable(),

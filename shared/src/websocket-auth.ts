@@ -10,7 +10,6 @@
  * spelled out once per package.
  */
 
-/** Subprotocol marker that announces a bearer token in the handshake. */
 export const BEARER_SUBPROTOCOL = "quorum.bearer.v1";
 
 /**
@@ -21,7 +20,6 @@ export function bearerSubprotocolOffer(token: string): [string, string] {
   return [BEARER_SUBPROTOCOL, token];
 }
 
-/** Splits a `Sec-WebSocket-Protocol` header into its individual, trimmed entries. */
 export function parseOfferedProtocols(header: string | string[] | undefined): string[] {
   if (header === undefined) return [];
   return (Array.isArray(header) ? header.join(",") : header)
@@ -30,7 +28,6 @@ export function parseOfferedProtocols(header: string | string[] | undefined): st
     .filter((entry) => entry.length > 0);
 }
 
-/** True when the offered subprotocols announce a bearer token. */
 export function offersBearerSubprotocol(header: string | string[] | undefined): boolean {
   return parseOfferedProtocols(header).includes(BEARER_SUBPROTOCOL);
 }

@@ -15,8 +15,6 @@ export const AudioFormatSchema = z.object({
   channels: z.number().int().positive(),
 });
 
-// ---- Client → Server ----
-
 /**
  * Opens a recording session.
  *
@@ -95,8 +93,6 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   SessionEndSchema,
 ]);
 
-// ---- Server → Client ----
-
 export const SessionReadySchema = z.object({
   type: z.literal("session.ready"),
   sessionId: z.string().uuid(),
@@ -113,7 +109,6 @@ export const SessionFinalizedSchema = z.object({
   type: z.literal("session.finalized"),
   sessionId: z.string().uuid(),
   meetingId: z.string().uuid(),
-  /** The ID of the processing job that was created */
   jobId: z.string().uuid(),
 });
 
@@ -131,14 +126,13 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
   TranscriptPartialSchema,
 ]);
 
-// ---- The binary chunk header ----
 // Layout (little-endian): [16 B session UUID][4 B uint32 seq][8 B float64 timestampOffset s][rest: audio payload]
 export const CHUNK_HEADER_BYTES = 28;
 
 export const ChunkMetaSchema = z.object({
   sessionId: z.string().uuid(),
   seq: z.number().int().nonnegative(),
-  /** Sekunden seit Aufnahmestart (Audio-Zeit, Pausen ausgenommen) */
+  /** Seconds since the recording started, in audio time: pauses do not advance it. */
   timestampOffset: z.number().nonnegative(),
 });
 

@@ -20,7 +20,6 @@ import type { SummaryTemplate, TemplateSection } from "./summary.js";
  */
 export const SYSTEM_TEMPLATE_ID = "0b7a1f4d-2c3e-4a55-9f61-8d5c4a2b7e10";
 
-/** Thrown when a template cannot be resolved into a usable section list. */
 export class TemplateResolutionError extends Error {
   constructor(message: string) {
     super(message);

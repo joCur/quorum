@@ -78,10 +78,6 @@ export const RegenerateSummaryRequestSchema = z.object({
   transcriptId: z.string().uuid().optional(),
 });
 
-/**
- * Answer to an accepted regenerate request: the queued job, so the caller can
- * show that work has started and follow it in the meeting's job list.
- */
 export const SummaryJobAcceptedSchema = z.object({
   job: JobSchema,
   templateId: z.string().uuid(),
