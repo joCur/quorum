@@ -175,6 +175,7 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
   }, 30_000);
 
   afterAll(async () => {
+    await sql`DELETE FROM transcript_corrections WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql`DELETE FROM jobs WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql`DELETE FROM summaries WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql`DELETE FROM transcripts WHERE tenant_id LIKE ${tenantId + "%"}`;
@@ -232,6 +233,110 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
     expect(detail?.transcript?.segments).toHaveLength(2);
     expect(detail?.summaries).toEqual([]);
     expect(detail?.jobs.map((job) => job.type)).toEqual(["transcribe"]);
+  });
+
+  /**
+   * Corrections as their own rows (ADR-010).
+   *
+   * The in-memory store answers the route tests; what only real PostgreSQL can show is that the
+   * overlay is upserted rather than duplicated, that it never reaches the transcript document,
+   * and that the scope holds in the statements themselves.
+   */
+  describe("transcript corrections", () => {
+    const TRANSCRIPT = uuid("3", 1);
+    const FIRST_SEGMENT = uuid("2", 1);
+    const SECOND_SEGMENT = uuid("2", 2);
+    const ref = { meetingId: WEEKLY, transcriptId: TRANSCRIPT, segmentId: FIRST_SEGMENT };
+
+    beforeEach(async () => {
+      await sql`DELETE FROM transcript_corrections WHERE transcript_id = ${TRANSCRIPT}`;
+    });
+
+    it("shows the correction on read, over machine output the write never touched", async () => {
+      await store.setSegmentCorrection(ACME, ref, {
+        editedText: "Guten Morgen zusammen.",
+        editedSpeakerId: null,
+      });
+
+      const detail = await store.findMeeting(ACME, WEEKLY);
+      expect(detail?.transcript?.segments[0]?.editedText).toBe("Guten Morgen zusammen.");
+      expect(detail?.transcript?.segments[0]?.text).toBe("Guten Morgen.");
+      expect(detail?.transcriptCorrectedAt).not.toBeNull();
+
+      // The stored document is the worker's, and a correction is not allowed to have edited it.
+      const [stored] = await sql<{ transcript: { segments: { editedText: string | null }[] } }[]>`
+        SELECT transcript FROM transcripts WHERE id = ${TRANSCRIPT}
+      `;
+      expect(stored?.transcript.segments[0]?.editedText).toBeNull();
+    });
+
+    it("replaces the overlay instead of adding a second row", async () => {
+      await store.setSegmentCorrection(ACME, ref, { editedText: "First", editedSpeakerId: null });
+      await store.setSegmentCorrection(ACME, ref, { editedText: "Second", editedSpeakerId: null });
+
+      const rows = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM transcript_corrections
+         WHERE transcript_id = ${TRANSCRIPT} AND segment_id = ${FIRST_SEGMENT}
+      `;
+      expect(rows[0]?.count).toBe(1);
+      expect((await store.findMeeting(ACME, WEEKLY))?.transcript?.segments[0]?.editedText).toBe(
+        "Second",
+      );
+    });
+
+    it("brings the original back when the correction is cleared", async () => {
+      await store.setSegmentCorrection(ACME, ref, {
+        editedText: "Guten Morgen zusammen.",
+        editedSpeakerId: null,
+      });
+      await store.clearSegmentCorrection(ACME, ref);
+
+      const detail = await store.findMeeting(ACME, WEEKLY);
+      expect(detail?.transcript?.segments[0]?.editedText).toBeNull();
+      expect(detail?.transcript?.segments[0]?.text).toBe("Guten Morgen.");
+      expect(detail?.transcriptCorrectedAt).toBeNull();
+    });
+
+    it("reports the newest correction across the transcript", async () => {
+      await store.setSegmentCorrection(ACME, ref, { editedText: "Older", editedSpeakerId: null });
+      const first = (await store.findMeeting(ACME, WEEKLY))?.transcriptCorrectedAt;
+
+      await store.setSegmentCorrection(
+        ACME,
+        { ...ref, segmentId: SECOND_SEGMENT },
+        { editedText: "Newer", editedSpeakerId: null },
+      );
+      const second = (await store.findMeeting(ACME, WEEKLY))?.transcriptCorrectedAt;
+
+      expect(Date.parse(second ?? "")).toBeGreaterThanOrEqual(Date.parse(first ?? ""));
+    });
+
+    it("does not show one tenant's corrections to another", async () => {
+      await store.setSegmentCorrection(ACME, ref, { editedText: "Ours", editedSpeakerId: null });
+
+      // The foreign tenant cannot even see the meeting, and its own write lands on its own row.
+      expect(await store.findMeeting(OTHER_TENANT, WEEKLY)).toBeNull();
+      await store.setSegmentCorrection(OTHER_TENANT, ref, {
+        editedText: "Theirs",
+        editedSpeakerId: null,
+      });
+      expect((await store.findMeeting(ACME, WEEKLY))?.transcript?.segments[0]?.editedText).toBe(
+        "Ours",
+      );
+      await sql`DELETE FROM transcript_corrections WHERE tenant_id = ${OTHER_TENANT.tenantId}`;
+    });
+
+    it("does not let one user of a tenant overwrite another's correction", async () => {
+      await store.setSegmentCorrection(ACME, ref, { editedText: "Ours", editedSpeakerId: null });
+      await store.setSegmentCorrection({ tenantId, userId: "user-2" }, ref, {
+        editedText: "Not theirs to write",
+        editedSpeakerId: null,
+      });
+
+      expect((await store.findMeeting(ACME, WEEKLY))?.transcript?.segments[0]?.editedText).toBe(
+        "Ours",
+      );
+    });
   });
 
   describe("deletion cascade", () => {
@@ -296,6 +401,13 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
           ${"2026-08-25T10:08:00Z"}, ${sql.json({ id: DOOMED_SUMMARY })}
         )
       `;
+
+      // The user's own words about this meeting go with it, like everything else (ADR-010 §7).
+      await store.setSegmentCorrection(
+        ACME,
+        { meetingId: DOOMED, transcriptId: DOOMED_TRANSCRIPT, segmentId: uuid("2", 1) },
+        { editedText: "Guten Morgen zusammen.", editedSpeakerId: null },
+      );
     }, 30_000);
 
     afterAll(async () => {
@@ -315,6 +427,10 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
       `;
       // Guards the assertion below against passing because there was never anything to delete.
       expect(queuedBefore[0]?.count).toBe(1);
+      const correctedBefore = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM transcript_corrections WHERE meeting_id = ${DOOMED}
+      `;
+      expect(correctedBefore[0]?.count).toBe(1);
 
       expect(await store.deleteMeeting(ACME, DOOMED)).toBe(true);
 
@@ -323,6 +439,7 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
         ["meetings", "id"],
         ["transcripts", "meeting_id"],
         ["summaries", "meeting_id"],
+        ["transcript_corrections", "meeting_id"],
         ["jobs", "meeting_id"],
       ] as const) {
         const rows = (await sql.unsafe(

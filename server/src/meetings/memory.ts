@@ -1,7 +1,11 @@
 import {
+  latestCorrectionTime,
   normalizeUserTitle,
+  withCorrections,
   type Job,
   type Meeting,
+  type SegmentCorrection,
+  type SegmentOverlay,
   type Summary,
   type Transcript,
 } from "@quorum/shared";
@@ -17,12 +21,25 @@ import {
   type MeetingStore,
   type RequeueOutcome,
   type RequeueTarget,
+  type SegmentRef,
 } from "./repository.js";
 
 interface StoredMeeting extends MeetingRecord {
   finalizedAt: string | null;
   audioBytes: number;
   recordedSeconds: number;
+}
+
+/** One stored overlay, with the scope it was written under — the map's key is not the predicate. */
+interface StoredCorrection {
+  scope: MeetingScope;
+  meetingId: string;
+  transcriptId: string;
+  correction: SegmentCorrection;
+}
+
+function correctionKey(scope: MeetingScope, ref: SegmentRef): string {
+  return `${scope.tenantId}/${scope.userId}/${ref.transcriptId}/${ref.segmentId}`;
 }
 
 /** Pipeline artifacts a test attaches to a meeting to exercise the derived status. */
@@ -41,6 +58,20 @@ export interface StoredPipeline {
 export class InMemoryMeetingStore implements MeetingStore {
   private readonly meetings = new Map<string, StoredMeeting>();
   private readonly pipelines = new Map<string, StoredPipeline>();
+  private readonly corrections = new Map<string, StoredCorrection>();
+
+  /**
+   * The clock the correction timestamps come from.
+   *
+   * Injectable because "the transcript was corrected after the summary was written" is a
+   * comparison between two instants, and a test that has to wait a real second to produce them is
+   * a test that will one day fail on a fast machine instead.
+   */
+  constructor(private readonly clock: () => Date = () => new Date()) {}
+
+  private now(): string {
+    return this.clock().toISOString();
+  }
 
   async migrate(): Promise<void> {
     // Nothing to apply.
@@ -140,12 +171,50 @@ export class InMemoryMeetingStore implements MeetingStore {
       return null;
     }
     const pipeline = this.pipelines.get(meetingId) ?? {};
+    const stored = pipeline.transcript ?? null;
+    const corrections = stored === null ? [] : this.correctionsFor(scope, stored.id);
     return {
       meeting: this.toMeeting(meeting),
-      transcript: pipeline.transcript ?? null,
+      transcript: stored === null ? null : withCorrections(stored, corrections),
       summaries: pipeline.summaries ?? [],
       jobs: pipeline.jobs ?? [],
+      transcriptCorrectedAt: latestCorrectionTime(corrections),
     };
+  }
+
+  async setSegmentCorrection(
+    scope: MeetingScope,
+    ref: SegmentRef,
+    overlay: SegmentOverlay,
+  ): Promise<string | null> {
+    this.corrections.set(correctionKey(scope, ref), {
+      scope,
+      meetingId: ref.meetingId,
+      transcriptId: ref.transcriptId,
+      correction: {
+        segmentId: ref.segmentId,
+        editedText: overlay.editedText,
+        editedSpeakerId: overlay.editedSpeakerId,
+        updatedAt: this.now(),
+      },
+    });
+    return latestCorrectionTime(this.correctionsFor(scope, ref.transcriptId));
+  }
+
+  async clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<string | null> {
+    this.corrections.delete(correctionKey(scope, ref));
+    return latestCorrectionTime(this.correctionsFor(scope, ref.transcriptId));
+  }
+
+  private correctionsFor(scope: MeetingScope, transcriptId: string): SegmentCorrection[] {
+    return [...this.corrections.values()]
+      .filter(
+        (entry) =>
+          entry.scope.tenantId === scope.tenantId &&
+          entry.scope.userId === scope.userId &&
+          entry.transcriptId === transcriptId,
+      )
+      .map((entry) => entry.correction);
   }
 
   /**
@@ -208,12 +277,17 @@ export class InMemoryMeetingStore implements MeetingStore {
     }
     this.meetings.delete(meetingId);
     this.pipelines.delete(meetingId);
+    for (const [key, entry] of this.corrections) {
+      if (entry.scope.tenantId === scope.tenantId && entry.meetingId === meetingId) {
+        this.corrections.delete(key);
+      }
+    }
     return true;
   }
 
   /** Test seam: what is left in the store, for asserting that a cascade left nothing behind. */
   get size(): number {
-    return this.meetings.size + this.pipelines.size;
+    return this.meetings.size + this.pipelines.size + this.corrections.size;
   }
 
   async close(): Promise<void> {

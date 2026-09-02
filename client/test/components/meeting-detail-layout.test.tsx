@@ -106,6 +106,7 @@ function detail(): MeetingDetail {
       },
     ],
     jobs: [],
+    transcriptCorrectedAt: null,
   };
 }
 

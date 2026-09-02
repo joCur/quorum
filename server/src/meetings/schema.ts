@@ -2,7 +2,7 @@
  * Schema owned by the API server.
  *
  * SPLIT OWNERSHIP, ON PURPOSE FOR NOW: the worker owns `transcripts`, `summaries`,
- * `summary_templates` and `jobs`; the server owns `meetings`, the only table it writes. Both
+ * `summary_templates` and `jobs`; the server owns `meetings` and `transcript_corrections`. Both
  * packages apply their statements idempotently under their own advisory lock, so start order
  * does not matter. The server reads the worker's tables through plain SQL and never writes
  * them. Consolidating all of it into one migration owner is a follow-up — see the note in
@@ -59,4 +59,37 @@ export const MEETING_MIGRATIONS: readonly string[] = [
   `ALTER TABLE meetings ADD COLUMN IF NOT EXISTS audio_bytes bigint NOT NULL DEFAULT 0`,
   `ALTER TABLE meetings
      ADD COLUMN IF NOT EXISTS recorded_seconds double precision NOT NULL DEFAULT 0`,
+
+  /*
+   * WHAT THE USER SAYS A SEGMENT SHOULD READ (ADR-003 §2, ADR-010).
+   *
+   * A correction is an overlay, and it lives here rather than inside the transcript document: that
+   * document belongs to the transcription worker, and the immutability of machine output is worth
+   * more as "nobody else holds a pen" than as an agreement about which keys are safe to touch.
+   *
+   * A row exists only where a correction exists. Resetting a segment deletes its row, which is
+   * what makes the original recoverable by construction — there is no second copy to keep in step.
+   *
+   * The key is the transcript, not the meeting: a meeting can have several transcripts (ADR-003
+   * §3), and a correction was made against the wording of one of them. Reprocessing therefore
+   * starts uncorrected instead of pasting old edits onto text that may no longer say the same
+   * thing.
+   */
+  `CREATE TABLE IF NOT EXISTS transcript_corrections (
+     tenant_id         text NOT NULL,
+     user_id           text NOT NULL,
+     meeting_id        uuid NOT NULL,
+     transcript_id     uuid NOT NULL,
+     segment_id        uuid NOT NULL,
+     edited_text       text,
+     edited_speaker_id uuid,
+     created_at        timestamptz NOT NULL DEFAULT now(),
+     updated_at        timestamptz NOT NULL DEFAULT now(),
+     PRIMARY KEY (tenant_id, transcript_id, segment_id)
+   )`,
+
+  // Reading a meeting loads every correction of its active transcript, and the deletion cascade
+  // removes them by meeting. Both are this index (ADR-001 — the tenant leads every predicate).
+  `CREATE INDEX IF NOT EXISTS transcript_corrections_meeting_idx
+     ON transcript_corrections (tenant_id, meeting_id)`,
 ];
