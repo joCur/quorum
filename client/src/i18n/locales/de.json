@@ -468,5 +468,10 @@
       "alreadyRunning": "Für dieses Meeting wird gerade schon eine Zusammenfassung geschrieben.",
       "fromOriginalWording": "Diese Zusammenfassung beruht auf dem ursprünglichen Wortlaut, vor deinen Korrekturen."
     }
+  },
+  "update": {
+    "available": "Eine neue Version von Quorum ist verfügbar.",
+    "blocked": "Eine neue Version ist verfügbar. Sie wird übernommen, sobald die Aufnahme beendet ist.",
+    "action": "Jetzt neu laden"
   }
 }

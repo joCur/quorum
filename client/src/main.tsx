@@ -23,7 +23,11 @@ import { App } from "@/App";
 import { AuthProvider } from "@/features/auth/auth-provider";
 import { ThemeProvider } from "@/features/theme/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
+import { AppUpdateBanner } from "@/components/app-update-banner";
+import { registerServiceWorker } from "@/features/pwa/register";
 import "@/i18n";
+
+registerServiceWorker();
 
 const container = document.getElementById("root");
 if (!container) {
@@ -40,6 +44,9 @@ createRoot(container).render(
         {/* Outside the router: a confirmation has to outlive the navigation that often follows
             the action it confirms. */}
         <Toaster />
+        {/* Above every screen, signed out included: an app that is out of date is out of date
+            wherever the user happens to be standing. */}
+        <AppUpdateBanner />
       </AuthProvider>
     </ThemeProvider>
   </StrictMode>,
