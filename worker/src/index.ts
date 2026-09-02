@@ -43,6 +43,7 @@ export {
   type TranscriptionRequest,
 } from "./whisper/client.js";
 export * from "./transcript/map.js";
+export * from "./transcript/duration.js";
 export { MIGRATIONS } from "./db/schema.js";
 export {
   PostgresRepository,
@@ -228,6 +229,10 @@ async function start(
     // without anyone pressing a button.
     summaries: new PgBossSummaryEnqueuer(boss),
     summaryTemplateId: SYSTEM_SUMMARY_TEMPLATE.id,
+    durationTolerance: {
+      absoluteSeconds: config.DURATION_TOLERANCE_SECONDS,
+      relative: config.DURATION_TOLERANCE_RATIO,
+    },
     concurrency: config.WORKER_CONCURRENCY,
     metrics,
     retryLimit: config.WORKER_RETRY_LIMIT,

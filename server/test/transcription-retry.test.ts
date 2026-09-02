@@ -105,6 +105,7 @@ async function seedSession(meetingId: string, language: string | null): Promise<
     audioFormat: WEBM_OPUS,
     createdAt: "2026-08-29T10:00:00.000Z",
     marks: [],
+    recordedSeconds: 120,
   });
 }
 

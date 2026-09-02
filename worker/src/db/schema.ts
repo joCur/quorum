@@ -39,6 +39,21 @@ export const MIGRATIONS: readonly string[] = [
      transcript       jsonb NOT NULL
    )`,
 
+  /*
+   * HOW LONG THE AUDIO REALLY WAS.
+   *
+   * The decoded length of the recording, as the transcription backend reported it — the one
+   * duration in this system that does not come from a client. The meeting index reads it to
+   * reconcile the recorded seconds the recorder asserted, and charges the quota for this number
+   * instead once it exists (`shared/src/duration.ts`).
+   *
+   * A real column rather than a value dug out of the JSONB document: a quota read sums it over a
+   * month of meetings, and unnesting every segment of every transcript to find the last one's end
+   * is not what that query should cost. Nullable because a backend may report no duration at all,
+   * and because rows written before this column existed have none.
+   */
+  `ALTER TABLE transcripts ADD COLUMN IF NOT EXISTS duration_seconds double precision`,
+
   // Exactly one active transcript per meeting (ADR-003 §3) — enforced by the
   // database, not by application discipline.
   `CREATE UNIQUE INDEX IF NOT EXISTS transcripts_one_active_per_meeting

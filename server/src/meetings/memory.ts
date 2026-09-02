@@ -1,4 +1,5 @@
 import {
+  billableRecordedSeconds,
   normalizeUserTitle,
   withCorrections,
   type Job,
@@ -49,6 +50,16 @@ function correctionKey(scope: MeetingScope, ref: SegmentRef): string {
 /** Pipeline artifacts a test attaches to a meeting to exercise the derived status. */
 export interface StoredPipeline {
   transcript?: Transcript;
+  /**
+   * Decoded length of the audio, standing in for the transcript row's `duration_seconds`.
+   *
+   * Its own value rather than something read out of the transcript, because that is what the SQL
+   * store holds: the backend measures the file, while the segments only say when it stopped
+   * hearing speech. With the silence filter on, a recording that ends in quiet has a last segment
+   * well before the end of its audio, and billing the two apart is exactly the drift this store
+   * must not invent. Omitted means the pipeline reported no duration.
+   */
+  transcriptDurationSeconds?: number | null;
   summaries?: Summary[];
   jobs?: Job[];
 }
@@ -62,6 +73,8 @@ export interface StoredPipeline {
 export class InMemoryMeetingStore implements MeetingStore {
   private readonly meetings = new Map<string, StoredMeeting>();
   private readonly pipelines = new Map<string, StoredPipeline>();
+  /** Last decoded duration the pipeline reported per meeting; the transcript row's column. */
+  private readonly measuredDurations = new Map<string, number>();
   private readonly corrections = new Map<string, StoredCorrection>();
 
   /**
@@ -122,13 +135,21 @@ export class InMemoryMeetingStore implements MeetingStore {
     }
   }
 
+  /**
+   * Mirrors the SQL implementation, reconciliation included: a meeting that has been transcribed
+   * is charged for the duration of its audio, one that has not for what the client asserted.
+   */
   async readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage> {
     let storageBytes = 0;
     let monthRecordedSeconds = 0;
     for (const meeting of this.meetings.values()) {
       if (meeting.tenantId !== scope.tenantId || meeting.userId !== scope.userId) continue;
       storageBytes += meeting.audioBytes;
-      if (meeting.createdAt >= monthStart) monthRecordedSeconds += meeting.recordedSeconds;
+      if (meeting.createdAt < monthStart) continue;
+      monthRecordedSeconds += billableRecordedSeconds({
+        assertedSeconds: meeting.recordedSeconds,
+        reconciledSeconds: this.measuredDuration(meeting.meetingId),
+      });
     }
     return { storageBytes, monthRecordedSeconds };
   }
@@ -149,6 +170,26 @@ export class InMemoryMeetingStore implements MeetingStore {
   /** Test seam: attaches transcript, summaries and job rows to an existing meeting. */
   setPipeline(meetingId: string, pipeline: StoredPipeline): void {
     this.pipelines.set(meetingId, pipeline);
+    // The SQL store keeps every transcript row it ever wrote, so a measurement survives a later
+    // one that has none. Remembering it here keeps a re-transcription from silently handing the
+    // quota back to the client's assertion.
+    const measured = pipeline.transcriptDurationSeconds;
+    if (typeof measured === "number" && measured > 0) {
+      this.measuredDurations.set(meetingId, measured);
+    }
+  }
+
+  /**
+   * The decoded duration the pipeline measured for a meeting, or `null`.
+   *
+   * Falls back to the last segment's end when nothing measured it, exactly as the SQL store's
+   * `COALESCE` does for transcript rows written before the column existed.
+   */
+  private measuredDuration(meetingId: string): number | null {
+    const measured = this.measuredDurations.get(meetingId);
+    if (measured !== undefined) return measured;
+    const transcript = this.pipelines.get(meetingId)?.transcript ?? null;
+    return transcript ? transcriptDuration(transcript) : null;
   }
 
   async listMeetings(scope: MeetingScope, options: ListMeetingsOptions = {}): Promise<Meeting[]> {
@@ -293,6 +334,7 @@ export class InMemoryMeetingStore implements MeetingStore {
     }
     this.meetings.delete(meetingId);
     this.pipelines.delete(meetingId);
+    this.measuredDurations.delete(meetingId);
     for (const [key, entry] of this.corrections) {
       if (entry.tenantId === scope.tenantId && entry.meetingId === meetingId) {
         this.corrections.delete(key);
@@ -329,7 +371,8 @@ export class InMemoryMeetingStore implements MeetingStore {
       audioFormat: meeting.audioFormat,
       createdAt: meeting.createdAt,
       finalizedAt: meeting.finalizedAt,
-      durationSeconds: transcript ? transcriptDuration(transcript) : null,
+      // One truth for what a meeting lasted: the list shows the number the quota charges for.
+      durationSeconds: transcript ? this.measuredDuration(meeting.meetingId) : null,
       language: transcript?.language ?? null,
       progress: state.progress,
       hasAudio: meeting.finalizedAt !== null,

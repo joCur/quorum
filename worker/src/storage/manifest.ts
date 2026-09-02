@@ -19,6 +19,15 @@ export const RecordingManifestSchema = z.object({
   persistedSeq: z.number().int(),
   chunkKeys: z.array(z.string()),
   marks: z.array(z.object({ type: z.enum(["pause", "resume"]), at: z.string() })).default([]),
+  /**
+   * Seconds of audio the client asserted, from the chunk offsets the recording endpoint saw.
+   *
+   * Nullable and defaulted: a manifest written before this field existed asserts nothing, and a
+   * recording still waiting to be transcribed must not fail its job over that. Absent reads as
+   * "no assertion to reconcile against", never as zero seconds recorded — see
+   * `transcript/duration.ts`.
+   */
+  recordedSeconds: z.number().nullable().default(null),
   finalizedAt: z.string(),
 });
 

@@ -16,6 +16,8 @@ import {
 } from "../src/recording/session.js";
 import { MAX_CHUNK_PAYLOAD_BYTES } from "../src/recording/audio-format.js";
 import { InMemoryJobQueue } from "../src/recording/queue/memory.js";
+import { InMemoryRecordingStorage } from "../src/recording/storage/memory.js";
+import { DEFAULT_USER_LIMITS, StaticUserLimitsResolver } from "../src/limits.js";
 import {
   FakeConnection,
   OGG_HEADER,
@@ -335,6 +337,90 @@ describe("reconnect", () => {
     await handler.handleBinary(chunk(sessionId, 1));
     expect(connection.last("chunk.ack")?.persistedSeq).toBe(1);
     expect(connection.closed).toBeNull();
+  });
+
+  it("keeps the asserted recording duration across a reconnect", async () => {
+    // Without this, a session finalized shortly after a reattach asserts almost no audio, and
+    // the pipeline reads an honest long recording as a client that understated its duration.
+    const first = createHarness();
+    const sessionId = await startSession(first);
+    for (let seq = 0; seq <= 5; seq += 1) {
+      await first.handler.handleBinary(chunk(sessionId, seq));
+    }
+
+    const connection = new FakeConnection();
+    const handler = new RecordingSessionHandler(connection, {
+      storage: first.storage,
+      queue: first.queue,
+      context: { tenantId: "tenant-a", userId: "user-1" },
+      newId: idSequence("9"),
+      now: () => new Date("2026-08-29T10:05:00.000Z"),
+    });
+    await handler.handleText(
+      JSON.stringify({ type: "session.resume", sessionId, at: "2026-08-29T10:05:00.000Z" }),
+    );
+    // The client re-sends the last chunk it never saw acknowledged and then stops. Nothing new is
+    // persisted, so only the offsets that arrive here can carry the assertion.
+    await handler.handleBinary(chunk(sessionId, 5));
+    await handler.handleText(JSON.stringify({ type: "session.end", sessionId, lastSeq: 5 }));
+
+    const manifest = JSON.parse(
+      new TextDecoder().decode(
+        first.storage.objects.get(
+          manifestKey({ tenantId: "tenant-a", userId: "user-1", sessionId }),
+        ),
+      ),
+    ) as { recordedSeconds: number };
+    // `chunk()` puts the sixth chunk at ten seconds of audio time.
+    expect(manifest.recordedSeconds).toBe(10);
+  });
+
+  it("rebuilds the asserted duration from the session record when no chunk is re-sent", async () => {
+    // A flush every two chunks, so the session record on storage is up to date when the
+    // connection dies — the production interval only makes the same point more slowly.
+    const storage = new InMemoryRecordingStorage();
+    const queue = new InMemoryJobQueue();
+    const firstConnection = new FakeConnection();
+    const first = {
+      connection: firstConnection,
+      storage,
+      queue,
+      handler: new RecordingSessionHandler(firstConnection, {
+        storage,
+        queue,
+        context: { tenantId: "tenant-a", userId: "user-1" },
+        newId: idSequence(),
+        now: () => new Date("2026-08-29T10:00:00.000Z"),
+        limits: new StaticUserLimitsResolver({ ...DEFAULT_USER_LIMITS, usageFlushChunks: 2 }),
+      }),
+    };
+    const sessionId = await startSession(first);
+    for (let seq = 0; seq <= 5; seq += 1) {
+      await first.handler.handleBinary(chunk(sessionId, seq));
+    }
+
+    const connection = new FakeConnection();
+    const handler = new RecordingSessionHandler(connection, {
+      storage: first.storage,
+      queue: first.queue,
+      context: { tenantId: "tenant-a", userId: "user-1" },
+      newId: idSequence("8"),
+      now: () => new Date("2026-08-29T10:05:00.000Z"),
+    });
+    await handler.handleText(
+      JSON.stringify({ type: "session.resume", sessionId, at: "2026-08-29T10:05:00.000Z" }),
+    );
+    await handler.handleText(JSON.stringify({ type: "session.end", sessionId, lastSeq: 5 }));
+
+    const manifest = JSON.parse(
+      new TextDecoder().decode(
+        first.storage.objects.get(
+          manifestKey({ tenantId: "tenant-a", userId: "user-1", sessionId }),
+        ),
+      ),
+    ) as { recordedSeconds: number };
+    // The last flush before the disconnect had stored the offset of chunk 5.
+    expect(manifest.recordedSeconds).toBe(10);
   });
 
   it("refuses to attach to a session of another tenant", async () => {

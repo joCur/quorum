@@ -23,6 +23,9 @@ const MIGRATION_LOCK_KEY = 6_120_931_043;
 /** PostgreSQL `undefined_table` — the worker has not applied its schema yet. */
 const UNDEFINED_TABLE = "42P01";
 
+/** PostgreSQL `undefined_column` — the worker's schema predates a column read here. */
+const UNDEFINED_COLUMN = "42703";
+
 /** Tenant and user a request runs under (ADR-001). Never read from the request body. */
 export interface MeetingScope {
   readonly tenantId: string;
@@ -304,21 +307,60 @@ export class PostgresMeetingStore implements MeetingStore {
    * Usage is summed from the meetings themselves, so it is exactly as durable as the meetings
    * are: nothing to reconcile after a restart, and a deleted meeting stops counting the moment
    * the ADR-001 cascade removes its row.
+   *
+   * RECORDED TIME IS BILLED FROM THE AUDIO, NOT FROM THE CLAIM. `recorded_seconds` is the client's
+   * assertion, taken from the chunk offsets it sent, and a client is free to understate it. Once
+   * the transcription of a meeting has run, its `duration_seconds` is the decoded length of the
+   * audio, and that is the number this sum charges for — the same rule
+   * `billableRecordedSeconds` states for the in-memory store. Until then the assertion still
+   * counts: a quota that waited for the pipeline would be bypassed by never letting it finish.
+   *
+   * The join reads the worker's table, as the rest of this class already does, and falls back to
+   * the assertion alone when that table or its column is not there yet — a server that started
+   * before the worker ever migrated still enforces a quota.
+   *
+   * A MEASUREMENT IS NEVER GIVEN BACK. The lateral prefers the active transcript but accepts the
+   * newest measured row of the meeting, so re-transcribing with a backend that reports no
+   * duration cannot revert a meeting to the client's assertion. Once the audio has been measured,
+   * that measurement is what the meeting costs.
    */
   async readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage> {
-    const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
-      SELECT COALESCE(SUM(audio_bytes), 0)::text AS storage_bytes,
-             COALESCE(SUM(recorded_seconds) FILTER (WHERE created_at >= ${monthStart}), 0)::text
-               AS month_seconds
-        FROM meetings
-       WHERE tenant_id = ${scope.tenantId}
-         AND user_id = ${scope.userId}
-    `;
-    const row = rows[0];
-    return {
-      storageBytes: Number(row?.storage_bytes ?? 0),
-      monthRecordedSeconds: Number(row?.month_seconds ?? 0),
-    };
+    try {
+      const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
+        SELECT COALESCE(SUM(m.audio_bytes), 0)::text AS storage_bytes,
+               COALESCE(
+                 SUM(
+                   CASE WHEN t.duration_seconds > 0 THEN t.duration_seconds
+                        ELSE m.recorded_seconds END
+                 ) FILTER (WHERE m.created_at >= ${monthStart}),
+                 0
+               )::text AS month_seconds
+          FROM meetings m
+          LEFT JOIN LATERAL (
+                SELECT duration_seconds
+                  FROM transcripts
+                 WHERE meeting_id = m.id
+                   AND tenant_id = m.tenant_id
+                   AND duration_seconds > 0
+                 ORDER BY is_active DESC, created_at DESC
+                 LIMIT 1
+               ) t ON true
+         WHERE m.tenant_id = ${scope.tenantId}
+           AND m.user_id = ${scope.userId}
+      `;
+      return toAccountUsage(rows[0]);
+    } catch (error) {
+      if (!isMissingPipelineColumn(error)) throw error;
+      const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
+        SELECT COALESCE(SUM(audio_bytes), 0)::text AS storage_bytes,
+               COALESCE(SUM(recorded_seconds) FILTER (WHERE created_at >= ${monthStart}), 0)::text
+                 AS month_seconds
+          FROM meetings
+         WHERE tenant_id = ${scope.tenantId}
+           AND user_id = ${scope.userId}
+      `;
+      return toAccountUsage(rows[0]);
+    }
   }
 
   async listMeetings(scope: MeetingScope, options: ListMeetingsOptions = {}): Promise<Meeting[]> {
@@ -441,6 +483,52 @@ export class PostgresMeetingStore implements MeetingStore {
   }
 
   /**
+   * Language and duration of the active transcript of each meeting.
+   *
+   * THE DURATION SHOWN IS THE DURATION BILLED. `duration_seconds` is the length the transcription
+   * backend decoded, and it is the number the quota charges for, so it is also the number the
+   * meeting list reports. Deriving the displayed value from the segments instead would put a
+   * second, smaller answer on the screen for every recording that ends in silence — the segments
+   * stop at the last speech, the audio does not — and a meeting that reads "12 minutes" while it
+   * costs four hours of allowance is a support case, not a rounding difference.
+   *
+   * The segment maximum stays as the fallback for transcript rows written before the column
+   * existed, and the whole statement falls back to it when the column is not there at all.
+   */
+  private async loadTranscriptFacts(
+    scope: MeetingScope,
+    meetingIds: string[],
+  ): Promise<{ meeting_id: string; language: string; duration_seconds: string | null }[]> {
+    const sql = this.sql;
+    // Built per statement rather than shared: a query fragment belongs to the statement it is
+    // interpolated into, and the fallback is a second statement.
+    const segmentMaximum = (): postgres.PendingQuery<postgres.Row[]> =>
+      sql`(SELECT max((segment->>'end')::double precision)
+             FROM jsonb_array_elements(transcript->'segments') segment)`;
+    try {
+      return await sql<{ meeting_id: string; language: string; duration_seconds: string | null }[]>`
+        SELECT meeting_id,
+               language,
+               COALESCE(duration_seconds, ${segmentMaximum()}) AS duration_seconds
+          FROM transcripts
+         WHERE tenant_id = ${scope.tenantId}
+           AND is_active
+           AND meeting_id IN ${sql(meetingIds)}
+      `;
+    } catch (error) {
+      // Only the column can be missing here; a missing table is the outer catch's business.
+      if (isUndefinedTable(error) || !isMissingPipelineColumn(error)) throw error;
+      return await sql<{ meeting_id: string; language: string; duration_seconds: string | null }[]>`
+        SELECT meeting_id, language, ${segmentMaximum()} AS duration_seconds
+          FROM transcripts
+         WHERE tenant_id = ${scope.tenantId}
+           AND is_active
+           AND meeting_id IN ${sql(meetingIds)}
+      `;
+    }
+  }
+
+  /**
    * Reads the derived-state facts for a batch of meetings.
    *
    * Three narrow statements rather than one query with lateral joins: each hits an existing
@@ -460,18 +548,7 @@ export class PostgresMeetingStore implements MeetingStore {
 
     try {
       const sql = this.sql;
-      const transcriptRows = await sql<
-        { meeting_id: string; language: string; duration_seconds: string | null }[]
-      >`
-        SELECT meeting_id,
-               language,
-               (SELECT max((segment->>'end')::double precision)
-                  FROM jsonb_array_elements(transcript->'segments') segment) AS duration_seconds
-          FROM transcripts
-         WHERE tenant_id = ${scope.tenantId}
-           AND is_active
-           AND meeting_id IN ${sql(meetingIds)}
-      `;
+      const transcriptRows = await this.loadTranscriptFacts(scope, meetingIds);
       const summaryRows = await sql<{ meeting_id: string }[]>`
         SELECT DISTINCT meeting_id
           FROM summaries
@@ -882,4 +959,19 @@ export function escapeLike(value: string): string {
 
 function isUndefinedTable(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === UNDEFINED_TABLE;
+}
+
+/** The worker's transcripts table, or the duration column on it, is not there yet. */
+function isMissingPipelineColumn(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === UNDEFINED_TABLE || code === UNDEFINED_COLUMN;
+}
+
+function toAccountUsage(
+  row: { storage_bytes: string; month_seconds: string } | undefined,
+): AccountUsage {
+  return {
+    storageBytes: Number(row?.storage_bytes ?? 0),
+    monthRecordedSeconds: Number(row?.month_seconds ?? 0),
+  };
 }

@@ -81,6 +81,11 @@ function rejection() {
  * The language is echoed back from the request the way a real backend does: asked for one, it
  * reports that one; asked for none, it reports what it "detected". That is what lets a test hold
  * the pipeline to storing the language the transcription was actually made in.
+ *
+ * `duration`, by contrast, is a constant with nothing to do with the audio the suite submitted:
+ * this mock never decodes anything. A spec may assert that a duration reaches the database, but
+ * never that it equals what was recorded — and no quota assertion may be built on this number.
+ * Checking a measured duration against a real recording needs the `real` whisper mode.
  */
 function transcription(fields) {
   return {

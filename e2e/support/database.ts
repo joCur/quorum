@@ -246,6 +246,8 @@ export interface TranscriptRow {
   language: string;
   model: string;
   isActive: boolean;
+  /** Decoded length of the audio, as the transcription backend reported it. */
+  durationSeconds: number | null;
 }
 
 export async function findTranscript(sessionId: string): Promise<TranscriptRow | null> {
@@ -261,9 +263,11 @@ export async function findTranscript(sessionId: string): Promise<TranscriptRow |
       language: string;
       model: string;
       is_active: boolean;
+      duration_seconds: number | null;
     }[]
   >`
-    SELECT id, meeting_id, tenant_id, user_id, session_id, language, model, is_active
+    SELECT id, meeting_id, tenant_id, user_id, session_id, language, model, is_active,
+           duration_seconds
     FROM transcripts
     WHERE session_id = ${sessionId}::uuid
     ORDER BY created_at DESC
@@ -280,5 +284,6 @@ export async function findTranscript(sessionId: string): Promise<TranscriptRow |
     language: row.language,
     model: row.model,
     isActive: row.is_active,
+    durationSeconds: row.duration_seconds === null ? null : Number(row.duration_seconds),
   };
 }

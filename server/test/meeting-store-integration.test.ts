@@ -49,6 +49,9 @@ const OPEN = uuid("1", 3);
 const FOREIGN = uuid("1", 4);
 const OTHER_USERS = uuid("1", 5);
 
+/** Decoded length of the weekly sync's audio, far above the duration its client asserted. */
+const TRANSCRIBED_SECONDS = 3600;
+
 let store: PostgresMeetingStore;
 let sql: postgres.Sql;
 let boss: PgBoss;
@@ -154,14 +157,20 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
     await sql`
       INSERT INTO transcripts (
         id, job_id, meeting_id, tenant_id, user_id, session_id, schema_version, model,
-        model_version, language, is_active, recorded_at, created_at, transcript
+        model_version, language, is_active, recorded_at, created_at, duration_seconds, transcript
       ) VALUES (
         ${transcriptId}, ${uuid("4", 1)}, ${WEEKLY}, ${tenantId}, ${"user-1"}, ${WEEKLY},
         ${TRANSCRIPT_SCHEMA_VERSION}, ${"whisper"}, ${"large-v3"}, ${"de"}, true,
-        ${transcript.recordedAt}, ${transcript.createdAt},
+        ${transcript.recordedAt}, ${transcript.createdAt}, ${TRANSCRIBED_SECONDS},
         ${sql.json(transcript as unknown as postgres.JSONValue)}
       )
     `;
+
+    // What each meeting claimed while it was recording. The weekly sync claimed a fraction of
+    // what its audio turned out to contain; the others have no transcript to check them against.
+    await store.recordUsage(ACME, WEEKLY, { audioBytes: 1_000, recordedSeconds: 60 });
+    await store.recordUsage(ACME, RETRO, { audioBytes: 2_000, recordedSeconds: 900 });
+    await store.recordUsage(ACME, OPEN, { audioBytes: 500, recordedSeconds: 120 });
     await sql`
       INSERT INTO jobs (
         id, meeting_id, tenant_id, user_id, session_id, type, status, progress, error,
@@ -189,6 +198,56 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
     await store.close();
   });
 
+  describe("usage accounting", () => {
+    it("charges a transcribed meeting for its audio and an untranscribed one for its claim", async () => {
+      const usage = await store.readUsage(ACME, "2026-08-01T00:00:00Z");
+
+      expect(usage.storageBytes).toBe(3_500);
+      // The weekly sync counts as the hour its audio really was, not as the minute it claimed.
+      expect(usage.monthRecordedSeconds).toBe(TRANSCRIBED_SECONDS + 900 + 120);
+    });
+
+    it("counts nothing for a user with no meetings of their own", async () => {
+      const usage = await store.readUsage({ tenantId, userId: "user-3" }, "2026-08-01T00:00:00Z");
+
+      expect(usage).toEqual({ storageBytes: 0, monthRecordedSeconds: 0 });
+    });
+
+    it("shows the duration it bills", async () => {
+      // The weekly sync's segments stop at 42 seconds while its audio was measured at an hour —
+      // the shape a silence-filtered recording has. The list must not report the shorter one.
+      const [, weekly] = await store.listMeetings(ACME);
+      expect(weekly?.id).toBe(WEEKLY);
+      expect(weekly?.durationSeconds).toBe(TRANSCRIBED_SECONDS);
+    });
+
+    it("does not give a measurement back when a newer transcript has none", async () => {
+      // Reprocessing: a second, active transcript whose backend reported no duration.
+      const reprocessed = uuid("6", 1);
+      const transcript = transcriptFor(WEEKLY, reprocessed);
+      await sql`UPDATE transcripts SET is_active = false WHERE meeting_id = ${WEEKLY}`;
+      await sql`
+        INSERT INTO transcripts (
+          id, job_id, meeting_id, tenant_id, user_id, session_id, schema_version, model,
+          model_version, language, is_active, recorded_at, created_at, duration_seconds, transcript
+        ) VALUES (
+          ${reprocessed}, ${uuid("6", 2)}, ${WEEKLY}, ${tenantId}, ${"user-1"}, ${WEEKLY},
+          ${TRANSCRIPT_SCHEMA_VERSION}, ${"whisper"}, ${"large-v3"}, ${"de"}, true,
+          ${transcript.recordedAt}, ${"2026-08-29T11:00:00Z"}, ${null},
+          ${sql.json(transcript as unknown as postgres.JSONValue)}
+        )
+      `;
+      try {
+        const usage = await store.readUsage(ACME, "2026-08-01T00:00:00Z");
+        // Still the measured hour, not the minute the client claimed.
+        expect(usage.monthRecordedSeconds).toBe(TRANSCRIBED_SECONDS + 900 + 120);
+      } finally {
+        await sql`DELETE FROM transcripts WHERE id = ${reprocessed}`;
+        await sql`UPDATE transcripts SET is_active = true WHERE meeting_id = ${WEEKLY}`;
+      }
+    });
+  });
+
   it("lists only the caller's own meetings, newest first", async () => {
     const meetings = await store.listMeetings(ACME);
     expect(meetings.map((meeting) => meeting.id)).toEqual([OPEN, WEEKLY, RETRO]);
@@ -205,7 +264,9 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
       status: "summarizing",
       hasAudio: true,
       language: "de",
-      durationSeconds: 97.25,
+      // The measured length of the audio, which is also what the quota charges — not the 97.25
+      // seconds at which this transcript's last segment ends.
+      durationSeconds: TRANSCRIBED_SECONDS,
     });
     expect(byId.get(RETRO)).toMatchObject({
       status: "failed",
@@ -745,6 +806,14 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
       const meetings = await bare.listMeetings(ACME);
       expect(meetings.map((meeting) => meeting.status)).toEqual(["recording"]);
       expect((await bare.findMeeting(ACME, uuid("5", 1)))?.jobs).toEqual([]);
+
+      // The quota is enforced from the assertion alone until the pipeline table it reconciles
+      // against exists — an unreadable transcript must never read as an unlimited allowance.
+      await bare.recordUsage(ACME, uuid("5", 1), { audioBytes: 42, recordedSeconds: 300 });
+      expect(await bare.readUsage(ACME, "2026-08-01T00:00:00Z")).toEqual({
+        storageBytes: 42,
+        monthRecordedSeconds: 300,
+      });
     } finally {
       await bare.close();
       await sql.unsafe(`DROP SCHEMA ${schema} CASCADE`);
