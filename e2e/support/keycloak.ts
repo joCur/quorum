@@ -1,8 +1,6 @@
 import { stackEnv, type DevUser } from "./env.js";
 
 /**
- * Token access outside the browser.
- *
  * The browser flow under test is Authorization Code + PKCE and stays that way. This helper uses
  * the realm's development-only password-grant client instead, for the two things a page cannot
  * do: learning a user's `sub` (which is half of the object-storage prefix an assertion has to

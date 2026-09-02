@@ -2,8 +2,6 @@ import { defineConfig, devices } from "@playwright/test";
 import { stackEnv } from "./support/env.js";
 
 /**
- * Traces, videos and the HTML report go under this run's compose project name.
- *
  * Playwright empties its output directory when it starts, so two concurrent runs sharing one would
  * delete each other's evidence — and only the survivor would have a report. The orchestrator
  * prints the path at startup; a bare `playwright test` keeps the plain folders.

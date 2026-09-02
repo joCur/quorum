@@ -41,7 +41,6 @@ test("registers, verifies the address by mail, and lands with a working tenant",
   const account = freshAccount();
   await clearInbox();
 
-  // --- Register through Keycloak's own form -------------------------------------------------
   await page.goto("/");
   await signInButton(page).click();
   await page.waitForURL(new RegExp(`^${escapeRegExp(stackEnv.keycloakUrl)}/realms/`));
@@ -59,13 +58,12 @@ test("registers, verifies the address by mail, and lands with a working tenant",
   // says so rather than leaving the user waiting on a page that will not move.
   await expect(page.getByText(/an email with instructions to verify/i)).toBeVisible();
 
-  // --- Verify by opening the link the way a person does: in another tab ----------------------
-  //
-  // This is the whole point of the step. A mail client opens the link in a NEW TAB, which shares
-  // the browser's cookies and not its session storage — so the provider recognises the session,
-  // finishes the required action, and sends a real `code` to a tab that has no OIDC state to
-  // match it against. Following the link in the tab that registered would sail past that, and did:
-  // this spec passed while real users were meeting a raw library error.
+  // Opening the link the way a person does, in another tab, is the whole point of this step. A
+  // mail client opens the link in a NEW TAB, which shares the browser's cookies and not its
+  // session storage — so the provider recognizes the session, finishes the required action, and
+  // sends a real `code` to a tab that has no OIDC state to match it against. Following the link
+  // in the tab that registered would sail past that, and did: this spec passed while real users
+  // were meeting a raw library error.
   const message = await waitForMessage(account.email);
   expect(message.subject).toMatch(/verify/i);
 
@@ -78,8 +76,6 @@ test("registers, verifies the address by mail, and lands with a working tenant",
 
   await mailTab.goto(actionLink(message.body));
 
-  // --- And that tab is simply signed in, with no interaction at all --------------------------
-  //
   // No button to press and nothing to read: the browser is holding a provider session, so the app
   // starts the flow again on its own and the round trip is silent. The account was created without
   // a tenant, so reaching this screen also means the app asked the API to finish the sign-up and
@@ -92,7 +88,6 @@ test("registers, verifies the address by mail, and lands with a working tenant",
   await expect(mailTab.getByText(/no matching state/i)).toHaveCount(0);
   await expect(mailTab.getByRole("alert")).toHaveCount(0);
 
-  // --- And the tenant is real: a recording streams and finalizes under it --------------------
   const protocol = watchRecordingProtocol(mailTab);
   await mailTab.goto("/record");
   await startRecording(mailTab);

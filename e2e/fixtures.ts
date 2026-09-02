@@ -1,13 +1,6 @@
 import { expect, test as base, type Page } from "@playwright/test";
 import { stackEnv, type DevUser } from "./support/env.js";
 
-/**
- * Shared fixtures for the suite.
- *
- * Adding a critical path should mean writing a spec, not re-deriving how to sign in or how to
- * find out which session the app just created — that belongs here.
- */
-
 export interface Fixtures {
   /** Signs a dev user in through the real Keycloak login form. */
   signIn: (user: DevUser) => Promise<void>;
@@ -34,8 +27,6 @@ export const test = base.extend<Fixtures>({
 export { expect } from "@playwright/test";
 
 /**
- * The way into the app from the signed-out landing page.
- *
  * The landing offers the same sign-in twice — once in the header, once under the hero — so a
  * visitor who has scrolled does not have to scroll back. Both do the same thing; the specs take
  * the first one rather than each picking a different half of the page.
@@ -73,12 +64,10 @@ export async function startRecording(page: Page): Promise<void> {
   await expect(stopButton(page)).toBeVisible();
 }
 
-/** The mode pills on the start stage. */
 export function captureModeButton(page: Page, mode: "in-person" | "online") {
   return page.getByTestId(`capture-mode-${mode}`);
 }
 
-/** The start button of an online recording, which names the share it is about to ask for. */
 export function shareAndRecordButton(page: Page) {
   return page.getByRole("button", {
     name: "I have informed the participants — share and start recording",
@@ -136,7 +125,6 @@ export async function stopSharing(page: Page): Promise<void> {
   });
 }
 
-/** What the page did with the display share: how it asked, and what became of the video. */
 export async function displayCaptureReport(page: Page): Promise<{
   calls: number;
   constraints: Record<string, unknown>[];
@@ -154,10 +142,6 @@ export async function displayCaptureReport(page: Page): Promise<{
   });
 }
 
-/**
- * Starts an online recording: the mode is chosen, then the same consent-carrying button is
- * pressed, and the browser's share picker is answered by the fake device.
- */
 export async function startOnlineRecording(page: Page): Promise<void> {
   await expect(page.getByTestId("consent-card")).toBeVisible();
   await captureModeButton(page, "online").click();
@@ -167,8 +151,6 @@ export async function startOnlineRecording(page: Page): Promise<void> {
 }
 
 /**
- * Pauses a running recording and waits until the screen says so.
- *
  * The pill label is the assertion on purpose: "PAUSE" is the state the user is promised,
  * and it is what tells them the red is no longer live.
  */
@@ -199,9 +181,9 @@ export function recordingBar(page: Page) {
  * Stopping is a press-and-hold: the confirmation dialog is gone and the gesture carries the
  * protection it used to.
  *
- * The mouse is driven down, held past the 1.2s the ring takes to fill, and released — a real
- * press, because that is the only thing the button responds to. The hold is given a margin over
- * the nominal duration so a slow CI machine cannot release a tick early.
+ * The mouse is held past the 1.2s the ring takes to fill — a real press, because that is the only
+ * thing the button responds to. The hold is given a margin over the nominal duration so a slow CI
+ * machine cannot release a tick early.
  */
 export async function stopRecording(page: Page): Promise<void> {
   const button = stopButton(page);
@@ -263,7 +245,6 @@ export async function useFakeInputDevices(page: Page): Promise<void> {
   }, fakeAudioInputs);
 }
 
-/** The audio constraints every `getUserMedia` call of this page was made with, in order. */
 export async function capturedAudioConstraints(page: Page): Promise<MediaTrackConstraints[]> {
   return await page.evaluate(
     () =>
@@ -302,14 +283,11 @@ export async function bufferedChunkCount(page: Page, sessionId: string): Promise
   }, sessionId);
 }
 
-/** The card offering to deliver audio a crashed tab left behind. */
 export function recoveryCard(page: Page) {
   return page.getByText("A recording was interrupted");
 }
 
 /**
- * Watches the recording WebSocket and reports what the protocol actually did.
- *
  * The session id never appears in the DOM, but every storage assertion needs it. Reading it off
  * the wire keeps the tests honest: they assert against the session the app really opened.
  */
@@ -402,7 +380,6 @@ export async function waitFor(
   }
 }
 
-/** Polls until the producer returns a value, then hands it back. */
 export async function waitForValue<T>(
   produce: () => Promise<T | null>,
   timeoutMs: number,

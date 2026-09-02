@@ -1,8 +1,6 @@
 import { stackEnv } from "./env.js";
 
 /**
- * Reading the development mail relay.
- *
  * The verification mail is not a detail of the registration flow, it is the middle of it: without
  * opening the message and following the link, the account never becomes one that can sign in. So
  * the suite reads the real message out of the real relay rather than reaching into Keycloak to
@@ -24,7 +22,6 @@ export async function clearInbox(): Promise<void> {
   }
 }
 
-/** Waits for a message to the given address and returns its body as text. */
 export async function waitForMessage(
   address: string,
   timeoutMs = 30_000,

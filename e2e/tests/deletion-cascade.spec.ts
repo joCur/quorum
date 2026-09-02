@@ -90,8 +90,6 @@ test("deletes a meeting and everything derived from it", async ({ page, signIn }
   expect(intruder.status()).toBe(404);
   expect((await listKeys(prefix)).length).toBeGreaterThan(0);
 
-  // The meeting is on the list, and the delete flow is two steps: the row's control, then an
-  // explicit confirmation that names what goes with it.
   await expect(page).toHaveURL(/\/meetings$/);
   const deleteButton = page.getByRole("button", { name: `Delete ${title}` });
   await expect(deleteButton).toBeVisible({ timeout: 30_000 });

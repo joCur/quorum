@@ -8,8 +8,6 @@ import { expect } from "@playwright/test";
 import { stackEnv } from "./env.js";
 
 /**
- * Object-storage assertions.
- *
  * The suite checks what actually landed in MinIO rather than what the UI claims, because the
  * whole point of the chunk protocol is that acknowledged audio is durable. The key layout is the
  * one the recording endpoint and the worker both implement:
@@ -65,7 +63,6 @@ export function audioKey(scope: SessionScope): string {
   return `${sessionPrefix(scope)}/audio.webm`;
 }
 
-/** Sequence numbers of the chunk objects stored for a session, in ascending order. */
 export async function chunkSeqs(scope: SessionScope): Promise<number[]> {
   const keys = await listKeys(`${sessionPrefix(scope)}/chunks/`);
   return keys

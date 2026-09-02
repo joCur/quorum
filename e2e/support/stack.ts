@@ -4,8 +4,6 @@ import { fileURLToPath } from "node:url";
 import { stackEnv } from "./env.js";
 
 /**
- * Control over the running stack, for the tests that need to break something on purpose.
- *
  * Restarting the API container is the honest version of "the server died mid-recording": the open
  * WebSocket goes away, the in-memory session state goes with it, and the client has to reconnect
  * and resume from what object storage says is persisted.
