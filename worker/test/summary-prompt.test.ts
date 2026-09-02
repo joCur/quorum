@@ -234,14 +234,32 @@ describe("transcript windowing", () => {
     expect(user).toContain("has its middle elided");
   });
 
-  it("prefers a user's correction over the machine text", () => {
+  /**
+   * The overlay is not a source of truth for this package (ADR-011 §3).
+   *
+   * User corrections are rows in a table the API server owns, and the `edited*` fields inside a
+   * stored transcript document are read by nothing: a segment with no row is uncorrected however
+   * the document was written. Honoring them here would make the summary pipeline and the API
+   * disagree about what a transcript says, and only for old documents. The meeting screen tells
+   * the reader that a summary is written from the original wording; this is that being true.
+   */
+  it("summarizes the machine's own words, not an overlay left in the document", () => {
     const transcript = transcriptFixture();
+    const speakerId = "99999999-9999-4999-8999-999999999999";
     const corrected = transcriptFixture({
-      segments: [{ ...transcript.segments[0]!, editedText: "Corrected opening line." }],
+      speakers: [{ id: speakerId, label: "Mara", profileId: null }],
+      segments: [
+        {
+          ...transcript.segments[0]!,
+          editedText: "Corrected opening line.",
+          editedSpeakerId: speakerId,
+        },
+      ],
     });
     const window = windowTranscript(corrected, 10_000);
-    expect(window.text).toContain("Corrected opening line.");
-    expect(window.text).not.toContain("Right, let us start");
+    expect(window.text).toContain("Right, let us start");
+    expect(window.text).not.toContain("Corrected opening line.");
+    expect(window.text).not.toContain("Mara");
   });
 
   it("spends no tokens on silent segments", () => {
