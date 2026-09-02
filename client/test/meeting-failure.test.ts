@@ -35,7 +35,6 @@ function detail(jobs: Job[]): MeetingDetail {
     transcript: null,
     summaries: [],
     jobs,
-    transcriptCorrectedAt: null,
   };
 }
 

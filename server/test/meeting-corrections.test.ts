@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import {
+  hasCorrections,
   SUMMARY_SCHEMA_VERSION,
   TRANSCRIPT_SCHEMA_VERSION,
   type AudioFormat,
@@ -18,7 +19,7 @@ import { AUDIENCE, INTERNAL_ISSUER, ISSUER, createTestKeyPair, signAccessToken }
 import type { TestKeyPair } from "./keys.js";
 
 /**
- * Correcting a transcript segment over the API (ADR-003 §2, ADR-010).
+ * Correcting a transcript segment over the API (ADR-003 §2, ADR-011).
  *
  * What is held here is the promise the feature makes: the machine output survives every write, a
  * reset brings the original back, another tenant cannot reach any of it, and the meeting reports
@@ -220,7 +221,6 @@ describe("correcting a segment's text", () => {
     const body = response.json() as SegmentCorrectionResponse;
     expect(body.segment.editedText).toBe("We ship on Monday.");
     expect(body.segment.text).toBe("We ship on Friday.");
-    expect(body.transcriptCorrectedAt).toBe(CORRECTED_AT.toISOString());
   });
 
   it("shows the correction on the next read, over untouched machine output", async () => {
@@ -230,7 +230,7 @@ describe("correcting a segment's text", () => {
     const segment = meeting.transcript?.segments[0];
     expect(segment?.editedText).toBe("We ship on Monday.");
     expect(segment?.text).toBe("We ship on Friday.");
-    expect(meeting.transcriptCorrectedAt).toBe(CORRECTED_AT.toISOString());
+    expect(hasCorrections(meeting.transcript as Transcript)).toBe(true);
   });
 
   it("leaves the other segments alone", async () => {
@@ -264,7 +264,7 @@ describe("correcting a segment's text", () => {
     });
 
     expect((response.json() as SegmentCorrectionResponse).segment.editedText).toBeNull();
-    expect((await detail()).transcriptCorrectedAt).toBeNull();
+    expect(hasCorrections((await detail()).transcript as Transcript)).toBe(false);
   });
 });
 
@@ -309,7 +309,6 @@ describe("resetting a segment to the original", () => {
     expect(body.segment.editedText).toBeNull();
     expect(body.segment.editedSpeakerId).toBeNull();
     expect(body.segment.text).toBe("We ship on Friday.");
-    expect(body.transcriptCorrectedAt).toBeNull();
   });
 
   it("is idempotent, so a repeated reset is not an error", async () => {
@@ -337,7 +336,7 @@ describe("resetting a segment to the original", () => {
     const meeting = await detail();
     expect(meeting.transcript?.segments[0]?.editedText).toBeNull();
     expect(meeting.transcript?.segments[1]?.editedText).toBe("Agreed, unanimously.");
-    expect(meeting.transcriptCorrectedAt).toBe(CORRECTED_AT.toISOString());
+    expect(hasCorrections(meeting.transcript as Transcript)).toBe(true);
   });
 });
 
@@ -381,6 +380,95 @@ describe("scope (ADR-001)", () => {
       payload: { editedText: "x", editedSpeakerId: null },
     });
     expect(response.statusCode).toBe(404);
+  });
+});
+
+/**
+ * One correction per segment, whoever writes it (ADR-011 §6).
+ *
+ * The API is user-scoped today, so a second author cannot reach the same meeting — but the store
+ * is where that would change first, and a per-user key there would quietly become two overlays on
+ * one passage the day a meeting is shared. The semantics are pinned at the store.
+ */
+describe("two authors correcting one segment", () => {
+  const ANOTHER_MEMBER = { tenantId: ACME.tenantId, userId: "user-7" };
+
+  it("keeps one correction, the last one written", async () => {
+    await store.setSegmentCorrection(
+      ACME,
+      { meetingId: MEETING, transcriptId: TRANSCRIPT, segmentId: FIRST },
+      { editedText: "First author.", editedSpeakerId: null },
+    );
+    const second = await store.setSegmentCorrection(
+      ANOTHER_MEMBER,
+      { meetingId: MEETING, transcriptId: TRANSCRIPT, segmentId: FIRST },
+      { editedText: "Second author.", editedSpeakerId: null },
+    );
+
+    expect(second).toEqual({
+      kind: "stored",
+      correction: {
+        segmentId: FIRST,
+        editedText: "Second author.",
+        editedSpeakerId: null,
+        updatedAt: CORRECTED_AT.toISOString(),
+      },
+    });
+    expect((await detail()).transcript?.segments[0]?.editedText).toBe("Second author.");
+  });
+});
+
+/**
+ * The reprocessing race (ADR-011 §8).
+ *
+ * A correction resolved against one transcript and written after it stopped being the active one
+ * would be accepted, answered with 200, and then be invisible — the store refuses it and the route
+ * says so, so the screen can ask for a reload instead of showing a lie.
+ */
+describe("a transcript replaced under the correction", () => {
+  it("refuses the write and names the reason", async () => {
+    // What reprocessing does: a new active transcript for the same meeting.
+    const replacement = { ...transcript(), id: uuid("c", 2) };
+    store.setPipeline(MEETING, { transcript: replacement, summaries: [summary()] });
+
+    const outcome = await store.setSegmentCorrection(
+      ACME,
+      { meetingId: MEETING, transcriptId: TRANSCRIPT, segmentId: FIRST },
+      { editedText: "Against the old transcript.", editedSpeakerId: null },
+    );
+
+    expect(outcome).toEqual({ kind: "transcript-replaced" });
+    expect((await detail()).transcript?.segments[0]?.editedText).toBeNull();
+  });
+
+  it("is answered as 409, so the client can ask for a reload", async () => {
+    // The race cannot be produced through the API from outside — the route resolves the active
+    // transcript itself — so the store is made to report what it reports when it loses that race.
+    const replaced = vi
+      .spyOn(store, "setSegmentCorrection")
+      .mockResolvedValue({ kind: "transcript-replaced" });
+
+    const response = await correct(FIRST, {
+      editedText: "Against a transcript that has been replaced.",
+      editedSpeakerId: null,
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect((response.json() as { error: string }).error).toBe("transcript_replaced");
+    replaced.mockRestore();
+  });
+
+  it("refuses a reset against it too, rather than reporting one it did not make", async () => {
+    const replacement = { ...transcript(), id: uuid("c", 2) };
+    store.setPipeline(MEETING, { transcript: replacement, summaries: [summary()] });
+
+    expect(
+      await store.clearSegmentCorrection(ACME, {
+        meetingId: MEETING,
+        transcriptId: TRANSCRIPT,
+        segmentId: FIRST,
+      }),
+    ).toEqual({ kind: "transcript-replaced" });
   });
 });
 

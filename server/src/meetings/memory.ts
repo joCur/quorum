@@ -1,5 +1,4 @@
 import {
-  latestCorrectionTime,
   normalizeUserTitle,
   withCorrections,
   type Job,
@@ -18,6 +17,7 @@ import {
   type MeetingDetailRow,
   type MeetingRecord,
   type MeetingScope,
+  type CorrectionOutcome,
   type MeetingStore,
   type RequeueOutcome,
   type RequeueTarget,
@@ -30,16 +30,20 @@ interface StoredMeeting extends MeetingRecord {
   recordedSeconds: number;
 }
 
-/** One stored overlay, with the scope it was written under — the map's key is not the predicate. */
+/**
+ * One stored overlay. `author` is who wrote it last and is deliberately not part of the key: the
+ * key is the tenant, the transcript and the segment, exactly as in the SQL table.
+ */
 interface StoredCorrection {
-  scope: MeetingScope;
+  tenantId: string;
+  author: string;
   meetingId: string;
   transcriptId: string;
   correction: SegmentCorrection;
 }
 
 function correctionKey(scope: MeetingScope, ref: SegmentRef): string {
-  return `${scope.tenantId}/${scope.userId}/${ref.transcriptId}/${ref.segmentId}`;
+  return `${scope.tenantId}/${ref.transcriptId}/${ref.segmentId}`;
 }
 
 /** Pipeline artifacts a test attaches to a meeting to exercise the derived status. */
@@ -178,42 +182,54 @@ export class InMemoryMeetingStore implements MeetingStore {
       transcript: stored === null ? null : withCorrections(stored, corrections),
       summaries: pipeline.summaries ?? [],
       jobs: pipeline.jobs ?? [],
-      transcriptCorrectedAt: latestCorrectionTime(corrections),
     };
   }
 
+  /**
+   * One correction per segment, last writer wins, `author` recording who wrote it — the same
+   * semantics as the SQL upsert, down to the key. Two stores that disagree about what one call
+   * does are two behaviors, and the tests would only ever exercise the one here.
+   */
   async setSegmentCorrection(
     scope: MeetingScope,
     ref: SegmentRef,
     overlay: SegmentOverlay,
-  ): Promise<string | null> {
+  ): Promise<CorrectionOutcome> {
+    if (!this.stillActive(scope, ref)) return { kind: "transcript-replaced" };
+    const correction: SegmentCorrection = {
+      segmentId: ref.segmentId,
+      editedText: overlay.editedText,
+      editedSpeakerId: overlay.editedSpeakerId,
+      updatedAt: this.now(),
+    };
     this.corrections.set(correctionKey(scope, ref), {
-      scope,
+      tenantId: scope.tenantId,
+      author: scope.userId,
       meetingId: ref.meetingId,
       transcriptId: ref.transcriptId,
-      correction: {
-        segmentId: ref.segmentId,
-        editedText: overlay.editedText,
-        editedSpeakerId: overlay.editedSpeakerId,
-        updatedAt: this.now(),
-      },
+      correction,
     });
-    return latestCorrectionTime(this.correctionsFor(scope, ref.transcriptId));
+    return { kind: "stored", correction };
   }
 
-  async clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<string | null> {
+  async clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<CorrectionOutcome> {
+    if (!this.stillActive(scope, ref)) return { kind: "transcript-replaced" };
     this.corrections.delete(correctionKey(scope, ref));
-    return latestCorrectionTime(this.correctionsFor(scope, ref.transcriptId));
+    return { kind: "cleared" };
   }
 
+  /** The SQL store's `FOR SHARE` check, with nothing to lock: is this still the active transcript? */
+  private stillActive(scope: MeetingScope, ref: SegmentRef): boolean {
+    const meeting = this.meetings.get(ref.meetingId);
+    if (!meeting || meeting.tenantId !== scope.tenantId) return false;
+    const transcript = this.pipelines.get(ref.meetingId)?.transcript;
+    return transcript?.id === ref.transcriptId && transcript.isActive;
+  }
+
+  /** Scoped by tenant, not by user: a correction belongs to the segment, not to its author. */
   private correctionsFor(scope: MeetingScope, transcriptId: string): SegmentCorrection[] {
     return [...this.corrections.values()]
-      .filter(
-        (entry) =>
-          entry.scope.tenantId === scope.tenantId &&
-          entry.scope.userId === scope.userId &&
-          entry.transcriptId === transcriptId,
-      )
+      .filter((entry) => entry.tenantId === scope.tenantId && entry.transcriptId === transcriptId)
       .map((entry) => entry.correction);
   }
 
@@ -278,7 +294,7 @@ export class InMemoryMeetingStore implements MeetingStore {
     this.meetings.delete(meetingId);
     this.pipelines.delete(meetingId);
     for (const [key, entry] of this.corrections) {
-      if (entry.scope.tenantId === scope.tenantId && entry.meetingId === meetingId) {
+      if (entry.tenantId === scope.tenantId && entry.meetingId === meetingId) {
         this.corrections.delete(key);
       }
     }

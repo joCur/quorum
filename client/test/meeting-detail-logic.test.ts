@@ -47,7 +47,6 @@ function detail(overrides: Partial<Meeting> = {}): MeetingDetail {
     transcript: null,
     summaries: [],
     jobs: [],
-    transcriptCorrectedAt: null,
   };
 }
 

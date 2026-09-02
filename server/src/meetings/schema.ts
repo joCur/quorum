@@ -61,7 +61,7 @@ export const MEETING_MIGRATIONS: readonly string[] = [
      ADD COLUMN IF NOT EXISTS recorded_seconds double precision NOT NULL DEFAULT 0`,
 
   /*
-   * WHAT THE USER SAYS A SEGMENT SHOULD READ (ADR-003 §2, ADR-010).
+   * WHAT THE USER SAYS A SEGMENT SHOULD READ (ADR-003 §2, ADR-011).
    *
    * A correction is an overlay, and it lives here rather than inside the transcript document: that
    * document belongs to the transcription worker, and the immutability of machine output is worth

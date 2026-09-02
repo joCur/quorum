@@ -82,18 +82,13 @@ export const MeetingListSchema = z.object({
  */
 export const MeetingDetailSchema = z.object({
   meeting: MeetingSchema,
-  /** The active transcript with the user's corrections already applied (ADR-010 §3). */
+  /** The active transcript with the user's corrections already applied (ADR-011 §3). */
   transcript: TranscriptSchema.nullable(),
   summaries: z.array(SummarySchema),
   jobs: z.array(JobSchema),
-  /**
-   * When the active transcript was last corrected, or null when it never was.
-   *
-   * It is a fact about the transcript but it does not live on the transcript document, which the
-   * transcription worker owns and nobody else writes (ADR-010 §1). The summary view compares it
-   * against a summary's `createdAt` to say that the transcript moved on since.
-   */
-  transcriptCorrectedAt: z.string().datetime().nullable().default(null),
+  // No separate "corrected at": the corrections are on the segments, and whether the transcript
+  // carries any is the only question anything asks (`hasCorrections`, ADR-011). A timestamp beside
+  // them would be a second fact about the same rows for every writer to keep true.
 });
 
 /**

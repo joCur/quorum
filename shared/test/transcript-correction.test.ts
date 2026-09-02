@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasCorrections,
   isCorrected,
-  isSummaryStale,
-  latestCorrectionTime,
   normalizeSegmentOverlay,
   withCorrections,
   TRANSCRIPT_SCHEMA_VERSION,
@@ -12,7 +11,7 @@ import {
 } from "../src/index.js";
 
 /**
- * What counts as a correction (ADR-003 §2, ADR-010).
+ * What counts as a correction (ADR-003 §2, ADR-011).
  *
  * These rules decide two things a user can see: whether a segment wears the "corrected" marker
  * with a reset beside it, and whether a row exists at all. Client and server both read them from
@@ -159,38 +158,40 @@ describe("what the screen reads off a segment", () => {
   });
 });
 
-describe("the summary staleness hint", () => {
-  const written = "2026-08-29T10:08:00.000Z";
+describe("the summary note", () => {
+  const plain = segment();
+  const corrected = segment({
+    id: "dddddddd-0000-4000-8000-000000000002",
+    editedText: "Agreed, unanimously.",
+  });
 
   it("says nothing about a transcript nobody corrected", () => {
-    expect(isSummaryStale(written, null)).toBe(false);
+    expect(hasCorrections(transcript([plain]))).toBe(false);
   });
 
-  it("reports a correction made after the summary was written", () => {
-    expect(isSummaryStale(written, "2026-08-29T11:00:00.000Z")).toBe(true);
+  it("reports a transcript that carries any correction at all", () => {
+    expect(hasCorrections(transcript([plain, corrected]))).toBe(true);
   });
 
-  it("stays quiet about a correction the summary already knew about", () => {
-    expect(isSummaryStale(written, "2026-08-29T10:07:00.000Z")).toBe(false);
+  it("counts a speaker reassignment as a correction too", () => {
+    const reassigned = segment({ editedSpeakerId: SPEAKER_B });
+    expect(hasCorrections(transcript([reassigned]))).toBe(true);
   });
 
-  it("compares instants, not the strings they were written as", () => {
-    // 11:30+02:00 is 09:30 UTC — earlier than the summary, though it sorts later as text.
-    expect(isSummaryStale(written, "2026-08-29T11:30:00.000+02:00")).toBe(false);
+  /*
+   * The two cases a comparison against the summary's own timestamp got wrong, held here as
+   * behavior rather than as a note in an ADR: the answer depends on the transcript alone, so
+   * neither writing a new summary nor resetting one of several corrections can change it while a
+   * correction still stands.
+   */
+  it("does not depend on when the summary was written", () => {
+    const corrected = transcript([plain, segment({ id: "x", editedText: "changed" })]);
+    expect(hasCorrections(corrected)).toBe(true);
   });
 
-  it("takes the newest of several corrections", () => {
-    expect(
-      latestCorrectionTime([
-        { segmentId: "a", editedText: "x", editedSpeakerId: null, updatedAt: written },
-        {
-          segmentId: "b",
-          editedText: "y",
-          editedSpeakerId: null,
-          updatedAt: "2026-08-29T12:00:00.000Z",
-        },
-      ]),
-    ).toBe("2026-08-29T12:00:00.000Z");
-    expect(latestCorrectionTime([])).toBeNull();
+  it("still reports the transcript when only one of several corrections is reset", () => {
+    const one = segment({ id: "a", editedText: "changed" });
+    const two = segment({ id: "b" });
+    expect(hasCorrections(transcript([one, two]))).toBe(true);
   });
 });

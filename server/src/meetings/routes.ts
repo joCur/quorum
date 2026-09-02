@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
 import { z } from "zod";
 import {
@@ -17,6 +17,7 @@ import { audioContentType, audioLayout, resolveRange, slicesForRange } from "./a
 import {
   DEFAULT_MEETING_LIMIT,
   MAX_MEETING_LIMIT,
+  type CorrectionOutcome,
   type MeetingScope,
   type MeetingStore,
 } from "./repository.js";
@@ -43,9 +44,6 @@ const MeetingParamsSchema = z.object({
 const SegmentParamsSchema = MeetingParamsSchema.extend({
   segmentId: z.string().uuid(),
 });
-
-/** What a segment reads like with no correction on it — the shape a reset writes back. */
-const EMPTY_OVERLAY = { editedText: null, editedSpeakerId: null } as const;
 
 /**
  * Read API for meetings.
@@ -94,7 +92,6 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
       transcript: found.transcript,
       summaries: found.summaries,
       jobs: found.jobs,
-      transcriptCorrectedAt: found.transcriptCorrectedAt,
     };
     return body;
   });
@@ -140,7 +137,7 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
   });
 
   /**
-   * Correcting one transcript segment, and taking the correction back off (ADR-003 §2, ADR-010).
+   * Correcting one transcript segment, and taking the correction back off (ADR-003 §2, ADR-011).
    *
    * PUT rather than PATCH: the request carries the whole overlay, both fields always present, and
    * writing it twice with the same body leaves the same single row. `DELETE` is the reset — it
@@ -188,28 +185,13 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
     };
     // Typing the machine's own words back in is not a correction, and neither is clearing the
     // field. Both land here as "no overlay", and storing none is what keeps the corrected marker
-    // and the reset control honest (ADR-010 §2).
-    const transcriptCorrectedAt =
+    // and the reset control honest (ADR-011 §2).
+    const outcome =
       overlay === null
         ? await options.store.clearSegmentCorrection(scope, ref)
         : await options.store.setSegmentCorrection(scope, ref, overlay);
 
-    request.log.info(
-      {
-        event: "transcript.segment.corrected",
-        meetingId: ref.meetingId,
-        transcriptId: ref.transcriptId,
-        segmentId: ref.segmentId,
-        cleared: overlay === null,
-      },
-      overlay === null ? "reset a transcript segment" : "corrected a transcript segment",
-    );
-
-    const answer: SegmentCorrectionResponse = {
-      segment: { ...target.segment, ...(overlay ?? EMPTY_OVERLAY) },
-      transcriptCorrectedAt,
-    };
-    return answer;
+    return answerCorrection(request, reply, target.segment, ref, outcome);
   });
 
   app.delete(correctionPath, async (request, reply) => {
@@ -221,27 +203,14 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
     const target = await findSegment(options.store, scope, params.data);
     if (!target) return reply.code(404).send(segmentNotFound());
 
-    const transcriptCorrectedAt = await options.store.clearSegmentCorrection(scope, {
+    const ref = {
       meetingId: params.data.meetingId,
       transcriptId: target.transcript.id,
       segmentId: params.data.segmentId,
-    });
-
-    request.log.info(
-      {
-        event: "transcript.segment.reset",
-        meetingId: params.data.meetingId,
-        transcriptId: target.transcript.id,
-        segmentId: params.data.segmentId,
-      },
-      "reset a transcript segment",
-    );
-
-    const body: SegmentCorrectionResponse = {
-      segment: { ...target.segment, ...EMPTY_OVERLAY },
-      transcriptCorrectedAt,
     };
-    return body;
+    const outcome = await options.store.clearSegmentCorrection(scope, ref);
+
+    return answerCorrection(request, reply, target.segment, ref, outcome);
   });
 
   /**
@@ -351,6 +320,51 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
     return reply.code(204).send();
   });
 };
+
+/**
+ * Turns what the store did into what the caller is told.
+ *
+ * The response is built from the outcome and never from the request: a write the store refused
+ * must not come back described as one it made. That is not a hypothetical — the transcript can be
+ * replaced by a reprocessing between the read that resolved it and the write, and answering 200
+ * with the requested text would leave the user looking at a correction that is not stored anywhere.
+ *
+ * The two log events are kept apart on purpose: "somebody corrected a passage" and "somebody put a
+ * passage back" are different questions to ask a log, and one event with a boolean makes both
+ * queries awkward.
+ */
+function answerCorrection(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  segment: Segment,
+  ref: { meetingId: string; transcriptId: string; segmentId: string },
+  outcome: CorrectionOutcome,
+): SegmentCorrectionResponse | FastifyReply {
+  if (outcome.kind === "transcript-replaced") {
+    request.log.info(
+      { event: "transcript.segment.correction_stale", ...ref },
+      "refused a correction against a transcript that is no longer the active one",
+    );
+    return reply.code(409).send({
+      error: "transcript_replaced",
+      message: "This meeting has a newer transcript. Reload it and make the correction again.",
+    });
+  }
+
+  const stored = outcome.kind === "stored" ? outcome.correction : null;
+  request.log.info(
+    { event: stored ? "transcript.segment.corrected" : "transcript.segment.reset", ...ref },
+    stored ? "corrected a transcript segment" : "reset a transcript segment",
+  );
+
+  return {
+    segment: {
+      ...segment,
+      editedText: stored?.editedText ?? null,
+      editedSpeakerId: stored?.editedSpeakerId ?? null,
+    },
+  };
+}
 
 /**
  * The segment a correction is about, inside the meeting's active transcript.

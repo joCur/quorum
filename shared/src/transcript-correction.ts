@@ -2,7 +2,7 @@ import { z } from "zod";
 import { SegmentSchema, type Segment, type Transcript } from "./transcript.js";
 
 /**
- * User corrections to a transcript segment (ADR-003 §2, ADR-010).
+ * User corrections to a transcript segment (ADR-003 §2, ADR-011).
  *
  * A correction is an overlay: the machine's `text` and `speakerId` are never touched, and the two
  * `edited*` fields beside them carry what the user says it should read instead. The overlay is
@@ -48,22 +48,20 @@ export const SetSegmentCorrectionRequestSchema = SegmentOverlaySchema;
 /** A stored overlay, as the server hands it back and as the deletion cascade counts it. */
 export const SegmentCorrectionSchema = SegmentOverlaySchema.extend({
   segmentId: z.string().uuid(),
-  /** When this correction was last written — the input to the summary staleness hint. */
+  /** When this correction was last written. */
   updatedAt: z.string().datetime(),
 });
 
 /**
- * The answer to setting or clearing a correction: the segment as it now reads, and the freshest
- * correction time for the whole transcript.
+ * The answer to setting or clearing a correction: the segment as it now reads.
  *
- * Returning the merged segment lets the screen update the meeting it already holds instead of
- * re-fetching a transcript and a summary that did not change — visibly, under someone who is
- * reading them.
+ * It is built from what the store did, never from what the request asked for — a write that did
+ * not land must not come back described as one that did. Returning the merged segment lets the
+ * screen update the meeting it already holds instead of re-fetching a transcript and a summary
+ * that did not change, visibly, under someone who is reading them.
  */
 export const SegmentCorrectionResponseSchema = z.object({
   segment: SegmentSchema,
-  /** Newest correction across the active transcript, or null once the last one is cleared. */
-  transcriptCorrectedAt: z.string().datetime().nullable(),
 });
 
 export type SegmentOverlay = z.infer<typeof SegmentOverlaySchema>;
@@ -134,27 +132,18 @@ export function withCorrections(
 }
 
 /**
- * The newest correction time in a set, or null when nothing is corrected.
+ * True when any segment of this transcript carries a correction.
  *
- * Compared as instants rather than as strings: the two sides of this product serialize timestamps
- * from different places, and `2026-09-02T12:00:00Z` sorts before `2026-09-02T11:00:00.000+01:00`
- * as text while being the later moment.
+ * This, and not a comparison of timestamps, is what tells a summary it describes wording the user
+ * has since changed (ADR-011). Every summary in this cut is written from the transcript the
+ * machine produced — the pipeline never reads the overlay — so the question is not *when* a
+ * correction was made relative to the summary. It is whether the transcript on screen still reads
+ * the way the summary's source did.
+ *
+ * A time comparison answers that wrongly in both directions: regenerating a summary would clear
+ * the note although the new summary saw the original wording just like the old one, and resetting
+ * one of several corrections would clear it although the others still stand.
  */
-export function latestCorrectionTime(corrections: readonly SegmentCorrection[]): string | null {
-  let latest: string | null = null;
-  for (const correction of corrections) {
-    if (latest === null || Date.parse(correction.updatedAt) > Date.parse(latest)) {
-      latest = correction.updatedAt;
-    }
-  }
-  return latest;
-}
-
-/** True when the transcript was corrected after this summary was written (ADR-010). */
-export function isSummaryStale(
-  summaryCreatedAt: string,
-  transcriptCorrectedAt: string | null,
-): boolean {
-  if (transcriptCorrectedAt === null) return false;
-  return Date.parse(transcriptCorrectedAt) > Date.parse(summaryCreatedAt);
+export function hasCorrections(transcript: Transcript): boolean {
+  return transcript.segments.some(isCorrected);
 }

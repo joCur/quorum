@@ -1,6 +1,5 @@
 import postgres from "postgres";
 import {
-  latestCorrectionTime,
   normalizeUserTitle,
   withCorrections,
   JobSchema,
@@ -50,12 +49,10 @@ export interface ListMeetingsOptions {
 
 export interface MeetingDetailRow {
   meeting: Meeting;
-  /** The active transcript with the stored corrections already merged in (ADR-010 §3). */
+  /** The active transcript with the stored corrections already merged in (ADR-011 §3). */
   transcript: Transcript | null;
   summaries: Summary[];
   jobs: Job[];
-  /** Newest correction on the active transcript, or null when it has none. */
-  transcriptCorrectedAt: string | null;
 }
 
 /** Which segment of which transcript a correction is about. */
@@ -64,6 +61,20 @@ export interface SegmentRef {
   transcriptId: string;
   segmentId: string;
 }
+
+/**
+ * What a correction write actually did.
+ *
+ * The route answers from this rather than from the request it was handed: a write that did not
+ * land must not be reported as one that did. `transcript-replaced` is the reprocessing race — the
+ * transcript the correction was aimed at stopped being the active one between the read that
+ * resolved it and the write, and the correction would have been stored against a document nothing
+ * displays any more.
+ */
+export type CorrectionOutcome =
+  | { kind: "stored"; correction: SegmentCorrection }
+  | { kind: "cleared" }
+  | { kind: "transcript-replaced" };
 
 /**
  * Persistence port for meetings. The routes depend only on this, so they can be exercised
@@ -95,23 +106,28 @@ export interface MeetingStore {
   /** `null` when the meeting does not exist *or* belongs to another tenant or user. */
   findMeeting(scope: MeetingScope, meetingId: string): Promise<MeetingDetailRow | null>;
   /**
-   * Stores what the user says a segment should read (ADR-010). One row per corrected segment,
-   * replaced in full on every write.
+   * Stores what the user says a segment should read (ADR-011).
+   *
+   * ONE CORRECTION PER SEGMENT, LAST WRITER WINS. The row is keyed by tenant, transcript and
+   * segment; `user_id` records who wrote it last, and is an author, never part of the key. A
+   * segment reads one way for everyone who can see the meeting, so two people correcting the same
+   * passage is a conflict resolved by order of arrival — not two overlays the reader would have to
+   * choose between.
    *
    * The overlay handed in is already normalized: whether a piece of typing counts as a correction
-   * at all is decided once, in `@quorum/shared`, so both stores and the client agree. Returns the
-   * newest correction time on that transcript afterwards — what the summary staleness hint reads.
+   * at all is decided once, in `@quorum/shared`, so both stores and the client agree. Returns what
+   * the write actually did, which is what the caller answers with.
    */
   setSegmentCorrection(
     scope: MeetingScope,
     ref: SegmentRef,
     overlay: SegmentOverlay,
-  ): Promise<string | null>;
+  ): Promise<CorrectionOutcome>;
   /**
    * Removes a segment's correction, which is how the original comes back: there is no second copy
    * to restore, because the machine output was never overwritten. Idempotent.
    */
-  clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<string | null>;
+  clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<CorrectionOutcome>;
   /**
    * Hands a job back to the queue: its row goes to `queued` with the last attempt's error and
    * timings cleared, and `target.enqueue` puts it on the queue — as one atomic step.
@@ -347,91 +363,81 @@ export class PostgresMeetingStore implements MeetingStore {
 
     // The corrections are read against the transcript they were made on, so a meeting that was
     // reprocessed since shows the new transcript uncorrected rather than wearing edits made to
-    // wording that is no longer there (ADR-010 §4).
+    // wording that is no longer there (ADR-011 §4).
     const corrections = stored === null ? [] : await this.loadCorrections(scope, stored.id);
     return {
       meeting: toMeeting(row, facts),
       transcript: stored === null ? null : withCorrections(stored, corrections),
       summaries,
       jobs,
-      transcriptCorrectedAt: latestCorrectionTime(corrections),
     };
   }
 
-  /** Every correction stored against one transcript. */
+  /**
+   * Every correction stored against one transcript.
+   *
+   * Scoped by tenant, not by user: a correction is a property of the segment, not of the person
+   * who typed it, so everyone who can read the meeting reads the same words.
+   */
   private async loadCorrections(
     scope: MeetingScope,
     transcriptId: string,
   ): Promise<SegmentCorrection[]> {
-    const rows = await this.sql<
-      {
-        segment_id: string;
-        edited_text: string | null;
-        edited_speaker_id: string | null;
-        updated_at: Date;
-      }[]
-    >`
+    const rows = await this.sql<CorrectionRow[]>`
       SELECT segment_id, edited_text, edited_speaker_id, updated_at
         FROM transcript_corrections
        WHERE tenant_id = ${scope.tenantId}
-         AND user_id = ${scope.userId}
          AND transcript_id = ${transcriptId}
     `;
-    return rows.map((entry) => ({
-      segmentId: entry.segment_id,
-      editedText: entry.edited_text,
-      editedSpeakerId: entry.edited_speaker_id,
-      updatedAt: entry.updated_at.toISOString(),
-    }));
+    return rows.map(toCorrection);
   }
 
   async setSegmentCorrection(
     scope: MeetingScope,
     ref: SegmentRef,
     overlay: SegmentOverlay,
-  ): Promise<string | null> {
-    await this.sql`
-      INSERT INTO transcript_corrections (
-        tenant_id, user_id, meeting_id, transcript_id, segment_id, edited_text, edited_speaker_id
-      ) VALUES (
-        ${scope.tenantId}, ${scope.userId}, ${ref.meetingId}, ${ref.transcriptId},
-        ${ref.segmentId}, ${overlay.editedText}, ${overlay.editedSpeakerId}
-      )
-      ON CONFLICT (tenant_id, transcript_id, segment_id) DO UPDATE SET
-        edited_text = EXCLUDED.edited_text,
-        edited_speaker_id = EXCLUDED.edited_speaker_id,
-        updated_at = now()
-      -- The scope is in the predicate here too, not only in the lookup that preceded this write:
-      -- one user of a tenant must not land on another's row through the shared key (ADR-001).
-      WHERE transcript_corrections.user_id = ${scope.userId}
-    `;
-    return this.latestCorrection(scope, ref.transcriptId);
+  ): Promise<CorrectionOutcome> {
+    return this.sql.begin(async (sql) => {
+      if (!(await stillActive(sql, scope, ref))) return { kind: "transcript-replaced" };
+
+      // Last writer wins, and `user_id` is updated with the row: it records who corrected the
+      // segment, and is deliberately not part of the key or the predicate. Two people correcting
+      // one passage is one passage with one correction, not two overlays a reader has to pick
+      // between.
+      const rows = await sql<CorrectionRow[]>`
+        INSERT INTO transcript_corrections (
+          tenant_id, user_id, meeting_id, transcript_id, segment_id, edited_text, edited_speaker_id
+        ) VALUES (
+          ${scope.tenantId}, ${scope.userId}, ${ref.meetingId}, ${ref.transcriptId},
+          ${ref.segmentId}, ${overlay.editedText}, ${overlay.editedSpeakerId}
+        )
+        ON CONFLICT (tenant_id, transcript_id, segment_id) DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          edited_text = EXCLUDED.edited_text,
+          edited_speaker_id = EXCLUDED.edited_speaker_id,
+          updated_at = now()
+        RETURNING segment_id, edited_text, edited_speaker_id, updated_at
+      `;
+      const row = rows[0];
+      // Unreachable: the insert either inserts or updates, and both paths return the row. Reported
+      // as the race rather than assumed away, so a future predicate on the upsert cannot turn a
+      // silent no-op into a 200 that describes a write nobody made.
+      if (!row) return { kind: "transcript-replaced" };
+      return { kind: "stored", correction: toCorrection(row) };
+    });
   }
 
-  async clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<string | null> {
-    await this.sql`
-      DELETE FROM transcript_corrections
-       WHERE tenant_id = ${scope.tenantId}
-         AND user_id = ${scope.userId}
-         AND transcript_id = ${ref.transcriptId}
-         AND segment_id = ${ref.segmentId}
-    `;
-    return this.latestCorrection(scope, ref.transcriptId);
-  }
-
-  private async latestCorrection(
-    scope: MeetingScope,
-    transcriptId: string,
-  ): Promise<string | null> {
-    const rows = await this.sql<{ latest: Date | null }[]>`
-      SELECT max(updated_at) AS latest
-        FROM transcript_corrections
-       WHERE tenant_id = ${scope.tenantId}
-         AND user_id = ${scope.userId}
-         AND transcript_id = ${transcriptId}
-    `;
-    const latest = rows[0]?.latest;
-    return latest instanceof Date ? latest.toISOString() : null;
+  async clearSegmentCorrection(scope: MeetingScope, ref: SegmentRef): Promise<CorrectionOutcome> {
+    return this.sql.begin(async (sql) => {
+      if (!(await stillActive(sql, scope, ref))) return { kind: "transcript-replaced" };
+      await sql`
+        DELETE FROM transcript_corrections
+         WHERE tenant_id = ${scope.tenantId}
+           AND transcript_id = ${ref.transcriptId}
+           AND segment_id = ${ref.segmentId}
+      `;
+      return { kind: "cleared" };
+    });
   }
 
   /**
@@ -677,7 +683,7 @@ export class PostgresMeetingStore implements MeetingStore {
       // yet — the order is the one a constraint would demand. The user's corrections reference
       // transcript segments and go before the transcript for the same reason: they are the user's
       // own words about this meeting, and a deletion that left them behind would not be one
-      // (ADR-001, ADR-010 §7).
+      // (ADR-001, ADR-011 §7).
       for (const table of ["summaries", "transcript_corrections", "transcripts", "jobs"] as const) {
         if (!(await tableExists(sql, "public", table))) continue;
         await sql`
@@ -720,6 +726,51 @@ export class PostgresMeetingStore implements MeetingStore {
   async close(): Promise<void> {
     await this.sql.end({ timeout: 5 });
   }
+}
+
+interface CorrectionRow {
+  segment_id: string;
+  edited_text: string | null;
+  edited_speaker_id: string | null;
+  updated_at: Date;
+}
+
+function toCorrection(row: CorrectionRow): SegmentCorrection {
+  return {
+    segmentId: row.segment_id,
+    editedText: row.edited_text,
+    editedSpeakerId: row.edited_speaker_id,
+    updatedAt: row.updated_at.toISOString(),
+  };
+}
+
+/**
+ * Is this still the transcript the meeting displays?
+ *
+ * The route resolves the active transcript by reading the meeting, and the write happens in a
+ * later statement. Reprocessing deactivates a transcript and activates its successor in between
+ * those two, and a correction stored against the old one would be accepted, answered with 200 and
+ * then be invisible on the next load — the worst shape a write can have.
+ *
+ * `FOR SHARE` rather than a plain read: it holds the row against the worker's `is_active` update
+ * until this transaction commits, which is what turns the check from "was true a moment ago" into
+ * "is true for the write that follows it". The lock is held for the microseconds of one upsert, on
+ * one row, and the reprocessing job is the only writer that can ever wait on it.
+ */
+async function stillActive(
+  sql: postgres.TransactionSql,
+  scope: MeetingScope,
+  ref: SegmentRef,
+): Promise<boolean> {
+  const rows = await sql<{ id: string }[]>`
+    SELECT id FROM transcripts
+     WHERE id = ${ref.transcriptId}
+       AND tenant_id = ${scope.tenantId}
+       AND meeting_id = ${ref.meetingId}
+       AND is_active
+     FOR SHARE
+  `;
+  return rows.length > 0;
 }
 
 /** Existence check that is safe inside a transaction, unlike letting the statement fail. */

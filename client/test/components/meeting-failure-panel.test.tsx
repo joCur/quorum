@@ -107,7 +107,6 @@ function detailWithFailure(failure: MeetingFailure, jobs: Job[]): MeetingDetail 
         : null,
     summaries: [],
     jobs,
-    transcriptCorrectedAt: null,
   };
 }
 
