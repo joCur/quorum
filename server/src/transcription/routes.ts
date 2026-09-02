@@ -106,8 +106,8 @@ const transcriptionRoutesImpl: FastifyPluginAsync<TranscriptionRoutesOptions> = 
         });
       }
 
-      // The language the first attempt was asked for, resolved before the row is touched so a
-      // failure to read it fails the request rather than half of it.
+      // The language this recording was made with. Resolved before the row is touched, so its two
+      // lookups happen outside the lock the requeue holds rather than inside it.
       const language = await transcriptionLanguage(
         scope,
         found.meeting.sessionId,
