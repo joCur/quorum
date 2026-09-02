@@ -55,6 +55,11 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   // is the failure the per-meeting choice exists to prevent.
   await page.getByLabel("Spoken language").selectOption("de");
 
+  // Terms this user's meetings are full of and Whisper has no reason to know. Stored through the
+  // API rather than typed into the settings screen: what the critical path has to prove is that a
+  // stored vocabulary reaches the transcription request, and the screen has its own tests.
+  await storeVocabulary(alice, ["MinIO", "Keycloak"]);
+
   // Consent comes before the microphone, every single time.
   await startRecording(page);
 
@@ -131,6 +136,10 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     // far end: a select on the recording screen, through the session record and the job payload,
     // into the request the worker makes.
     expect(fields.language).toBe("de");
+    // And it carried the user's vocabulary as the prompt, sorted and joined the one way both sides
+    // agree on. The backend silently drops the front of an over-long prompt, so this is the only
+    // place the terms can be seen actually arriving rather than merely being stored.
+    expect(fields.prompt).toBe("Keycloak, MinIO.");
     // What the meeting says it is in is what the transcription was made in, not a global default.
     expect(transcript.language).toBe("de");
   }
@@ -282,6 +291,21 @@ test("says a recording could not be transcribed, and transcribes it on a retry",
 
   await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 60_000 });
 });
+
+/** Stores a user's custom vocabulary through the settings API, as the settings screen would. */
+async function storeVocabulary(user: { accessToken: string }, terms: string[]): Promise<void> {
+  const response = await fetch(`${stackEnv.apiUrl}/api/settings`, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${user.accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ vocabulary: terms }),
+  });
+  if (!response.ok) {
+    throw new Error(`could not store the vocabulary: ${response.status}`);
+  }
+}
 
 /**
  * The form fields of the last transcription request the stub backend received.

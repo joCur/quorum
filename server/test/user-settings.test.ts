@@ -78,7 +78,7 @@ describe("the settings API", () => {
     const response = await call("GET", ACME);
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ transcriptionLanguage: null });
+    expect(response.json()).toEqual({ transcriptionLanguage: null, vocabulary: [] });
   });
 
   it("stores a choice and answers with what is now stored", async () => {
@@ -87,8 +87,11 @@ describe("the settings API", () => {
     expect(written.statusCode).toBe(200);
     // The response is the settings rather than 204, so the screen renders what was stored instead
     // of what it hoped for.
-    expect(written.json()).toEqual({ transcriptionLanguage: "de" });
-    expect((await call("GET", ACME)).json()).toEqual({ transcriptionLanguage: "de" });
+    expect(written.json()).toEqual({ transcriptionLanguage: "de", vocabulary: [] });
+    expect((await call("GET", ACME)).json()).toEqual({
+      transcriptionLanguage: "de",
+      vocabulary: [],
+    });
   });
 
   it("gives the choice up again on an explicit null", async () => {
@@ -96,6 +99,7 @@ describe("the settings API", () => {
 
     expect((await call("PUT", ACME, { transcriptionLanguage: null })).json()).toEqual({
       transcriptionLanguage: null,
+      vocabulary: [],
     });
   });
 
@@ -103,7 +107,10 @@ describe("the settings API", () => {
     await call("PUT", ACME, { transcriptionLanguage: "de" });
 
     // A client that predates a preference must not reset it by saving the ones it knows about.
-    expect((await call("PUT", ACME, {})).json()).toEqual({ transcriptionLanguage: "de" });
+    expect((await call("PUT", ACME, {})).json()).toEqual({
+      transcriptionLanguage: "de",
+      vocabulary: [],
+    });
   });
 
   it("refuses a language the pickers do not offer", async () => {
@@ -112,14 +119,23 @@ describe("the settings API", () => {
     // The value ends up as the `language` field of a transcription request; a backend answers a
     // tag it cannot read with a rejection rather than with a transcript.
     expect(response.statusCode).toBe(400);
-    expect((await call("GET", ACME)).json()).toEqual({ transcriptionLanguage: null });
+    expect((await call("GET", ACME)).json()).toEqual({
+      transcriptionLanguage: null,
+      vocabulary: [],
+    });
   });
 
   it("keeps one user's preferences out of another's, inside a tenant and across tenants", async () => {
     await call("PUT", ACME, { transcriptionLanguage: "de" });
 
-    expect((await call("GET", ACME_COLLEAGUE)).json()).toEqual({ transcriptionLanguage: null });
-    expect((await call("GET", GLOBEX)).json()).toEqual({ transcriptionLanguage: null });
+    expect((await call("GET", ACME_COLLEAGUE)).json()).toEqual({
+      transcriptionLanguage: null,
+      vocabulary: [],
+    });
+    expect((await call("GET", GLOBEX)).json()).toEqual({
+      transcriptionLanguage: null,
+      vocabulary: [],
+    });
   });
 
   it("refuses a request without a token", async () => {
@@ -175,7 +191,7 @@ describe.each([
     // The settings screen and, more importantly, the recording endpoint both ask this. Neither
     // can afford to fail over a preference that simply is not stored yet — the chain has further
     // links, and a recording must not be lost to a mid-deploy read.
-    expect(await store.findSettings(ACME)).toEqual({ transcriptionLanguage: null });
+    expect(await store.findSettings(ACME)).toEqual({ transcriptionLanguage: null, vocabulary: [] });
   });
 
   it("refuses a write instead of reporting a success that never happened", async () => {

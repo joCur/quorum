@@ -15,8 +15,8 @@
     "error": "Sign-in did not complete. Please try again.",
     "errorDeclined": "Sign-in was cancelled at the sign-in provider. Try again when you are ready.",
     "sessionExpired": "Your session ended. Sign in again to continue where you left off.",
-    "settingUp": "Setting up your workspace\u2026",
-    "setupFailed": "Your workspace could not be set up. This usually passes \u2014 try again in a moment."
+    "settingUp": "Setting up your workspace…",
+    "setupFailed": "Your workspace could not be set up. This usually passes — try again in a moment."
   },
   "landing": {
     "hero": {
@@ -339,6 +339,22 @@
       "unset": "Not chosen",
       "help": "Every recording can be set to another language before it starts.",
       "saveFailed": "The setting could not be saved. Try again in a moment."
+    },
+    "vocabulary": {
+      "title": "Vocabulary",
+      "label": "Add a term",
+      "placeholder": "Name, product, technical term",
+      "add": "Add",
+      "remove": "Remove {{term}}",
+      "count": "{{count}} of {{max}} terms",
+      "help": "Names and terms listed here are recognized more reliably. It applies to future recordings only — transcripts that already exist do not change.",
+      "saveFailed": "The vocabulary could not be saved. Try again in a moment.",
+      "rejected": {
+        "duplicate": "That term is already on the list.",
+        "too-long": "That term is too long for the list.",
+        "list-full": "The list is full at {{max}} terms. Remove one to add another.",
+        "budget-exhausted": "There is no room left for another term. Remove one to add this one."
+      }
     },
     "about": {
       "title": "About",

@@ -1,4 +1,4 @@
-import { transcriptionLanguageRequest, type Job } from "@quorum/shared";
+import { transcriptionLanguageRequest, vocabularyPrompt, type Job } from "@quorum/shared";
 import type { AudioSource } from "./storage/audio-source.js";
 import type { TranscriptionClient } from "./whisper/client.js";
 import type { TranscriptRepository } from "./db/repository.js";
@@ -109,16 +109,23 @@ export async function runTranscribeJob(
     // deployment's default. `undefined` means the backend detects it (ADR-005 keeps the shape of
     // the request here, which is why the deployment default is applied here and not at enqueue).
     const language = transcriptionLanguageRequest(payload.language, deps.language);
+    // The vocabulary is already normalized and capped by the side that stored it; this only turns
+    // the list into the prompt string, and into nothing at all when the list is empty.
+    const prompt = vocabularyPrompt(payload.vocabulary);
     const response = await deps.transcription.transcribe({
       audio,
       filename: descriptor.filename,
       contentType: descriptor.contentType,
       language,
+      prompt,
     });
     log.info(
       {
         event: "transcription.completed",
         requestedLanguage: language ?? null,
+        // The count and not the terms: a vocabulary is the user's own words, and the operator
+        // reading this log needs to know whether biasing was in play, not what it said.
+        vocabularyTerms: payload.vocabulary.length,
         language: response.language,
         durationSeconds: response.duration,
         segmentCount: response.segments?.length ?? 0,

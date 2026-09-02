@@ -26,6 +26,16 @@ export const TranscribeJobPayloadSchema = z.object({
    * looks like — leaves the deployment default and then autodetect to this side.
    */
   language: z.string().nullable().default(null),
+  /**
+   * The user's custom vocabulary as it stood when the recording was handed over, already
+   * normalized and capped by the API side. Absent — which is what a job enqueued before this
+   * existed looks like — is the same as an empty list.
+   *
+   * Like `language`, it travels in the payload rather than being looked up when the job runs: a
+   * retry an hour later biases towards the terms that were configured at recording time, not
+   * towards a list the user has since edited.
+   */
+  vocabulary: z.array(z.string()).default([]),
 });
 
 export type TranscribeJobPayload = z.infer<typeof TranscribeJobPayloadSchema>;

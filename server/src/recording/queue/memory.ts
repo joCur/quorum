@@ -9,6 +9,7 @@ export class InMemoryJobQueue implements JobQueue {
     userId: string;
     sessionId: string;
     language: string | null;
+    vocabulary: string[];
   }> = [];
   readonly summarized: Array<{
     jobId: string;
@@ -30,6 +31,7 @@ export class InMemoryJobQueue implements JobQueue {
     userId: string;
     sessionId: string;
     language: string | null;
+    vocabulary: string[];
   }): Promise<void> {
     if (this.failNextEnqueue) {
       this.failNextEnqueue = false;

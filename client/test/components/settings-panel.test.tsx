@@ -17,14 +17,20 @@ vi.mock("@/features/auth/auth-provider", () => ({
 
 /** The stored preferences, and what the screen did to them — the API itself is not the subject. */
 const chooseTranscriptionLanguage = vi.fn(async () => undefined);
+const saveVocabulary = vi.fn(async () => undefined);
 const transcriptionLanguage = vi.hoisted(() => ({ current: null as string | null }));
+const vocabulary = vi.hoisted(() => ({ current: [] as string[] }));
 
 vi.mock("@/features/settings/use-user-settings", () => ({
   useUserSettings: () => ({
-    settings: { transcriptionLanguage: transcriptionLanguage.current },
+    settings: {
+      transcriptionLanguage: transcriptionLanguage.current,
+      vocabulary: vocabulary.current,
+    },
     status: "ready",
     saving: false,
     chooseTranscriptionLanguage,
+    saveVocabulary,
   }),
 }));
 
@@ -47,7 +53,9 @@ describe("settings panel", () => {
   beforeEach(() => {
     signOut.mockClear();
     chooseTranscriptionLanguage.mockClear();
+    saveVocabulary.mockClear();
     transcriptionLanguage.current = null;
+    vocabulary.current = [];
     profile.current = { name: "Maria Winter" };
     window.localStorage.clear();
   });
@@ -65,6 +73,7 @@ describe("settings panel", () => {
       "Appearance",
       "Language",
       "Transcription",
+      "Vocabulary",
       "About",
       "Account",
     ]);

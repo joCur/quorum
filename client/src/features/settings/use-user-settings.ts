@@ -12,10 +12,15 @@ export interface UserSettingsState {
   saving: boolean;
   /** Stores the language new recordings start out in; `null` gives the choice up. */
   chooseTranscriptionLanguage: (language: TranscriptionLanguage | null) => Promise<void>;
+  /**
+   * Stores the vocabulary as a whole. The screen adds and removes terms locally and hands the
+   * resulting list over, so the server never has to reconcile two half-updates.
+   */
+  saveVocabulary: (terms: readonly string[]) => Promise<void>;
 }
 
 /** What a user who has chosen nothing has, and what every screen renders until the load lands. */
-const UNSET: UserSettings = { transcriptionLanguage: null };
+const UNSET: UserSettings = { transcriptionLanguage: null, vocabulary: [] };
 
 /**
  * The caller's preferences, loaded once.
@@ -75,5 +80,20 @@ export function useUserSettings(): UserSettingsState {
     [accessToken],
   );
 
-  return { settings, status, saving, chooseTranscriptionLanguage };
+  const saveVocabulary = React.useCallback(
+    async (terms: readonly string[]) => {
+      if (!accessToken) throw new MeetingApiError(401, "missing_token", "Not signed in.");
+      setSaving(true);
+      try {
+        const next = await saveUserSettings({ vocabulary: [...terms] }, { accessToken });
+        setSettings(next);
+        setStatus("ready");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [accessToken],
+  );
+
+  return { settings, status, saving, chooseTranscriptionLanguage, saveVocabulary };
 }

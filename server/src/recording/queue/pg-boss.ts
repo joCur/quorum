@@ -78,6 +78,8 @@ export interface JobPayloadScope {
  */
 export interface TranscribeJobPayload extends JobPayloadScope {
   language: string | null;
+  /** The user's custom vocabulary at recording time, for the same reason `language` is here. */
+  vocabulary: string[];
 }
 
 /**
@@ -161,6 +163,7 @@ export class PgBossJobQueue implements JobQueue {
     userId: string;
     sessionId: string;
     language: string | null;
+    vocabulary: string[];
   }): Promise<void> {
     const job = JobSchema.parse({
       id: input.jobId,
@@ -180,6 +183,7 @@ export class PgBossJobQueue implements JobQueue {
       userId: input.userId,
       sessionId: input.sessionId,
       language: input.language,
+      vocabulary: input.vocabulary,
     };
     const priority = await this.priorityFor(TRANSCRIBE_QUEUE, {
       tenantId: input.tenantId,

@@ -160,7 +160,7 @@ export interface UserPreferences {
   findSettings(scope: {
     tenantId: string;
     userId: string;
-  }): Promise<{ transcriptionLanguage: string | null }>;
+  }): Promise<{ transcriptionLanguage: string | null; vocabulary: string[] }>;
 }
 
 /** What one recording session has consumed. */
@@ -198,6 +198,12 @@ export interface JobQueue {
      * since changed their default to.
      */
     language: string | null;
+    /**
+     * The user's custom vocabulary as it stood when the recording was handed over. Resolved here
+     * for the same reason as the language: a job retried later must bias towards what was
+     * configured at recording time, not towards a list that has been edited since.
+     */
+    vocabulary: string[];
   }): Promise<void>;
   /**
    * Asks for a summary of an existing transcript — the "Regenerate" action.
