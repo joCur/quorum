@@ -62,7 +62,6 @@ export class JobError extends Error {
   }
 }
 
-/** Normalizes anything thrown inside a job into a `JobError`. */
 export function toJobError(error: unknown): JobError {
   if (error instanceof JobError) return error;
   const message = error instanceof Error ? error.message : String(error);

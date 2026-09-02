@@ -49,7 +49,6 @@ const DEFAULT_RELEASE_TIMEOUT_MS = 45_000;
  */
 const DEFAULT_FAULT_RELEASE_TIMEOUT_MS = 5_000;
 
-/** One human-readable reason per trigger, used as the log message. */
 const REASONS: Record<ShutdownTrigger["kind"], string> = {
   signal: "a stop was requested",
   "startup-failed": "startup failed before the worker was consuming jobs",
@@ -60,7 +59,6 @@ const REASONS: Record<ShutdownTrigger["kind"], string> = {
     "the event loop ran out of work, which a queue consumer can never legitimately do",
 };
 
-/** How the caller should give its resources back. */
 export interface ReleaseOptions {
   /**
    * Whether in-flight work may finish first. False after a fault: the process
