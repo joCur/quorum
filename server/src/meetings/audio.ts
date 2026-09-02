@@ -5,10 +5,9 @@ import type { ByteRange, StoredObject } from "../recording/types.js";
 /**
  * Playback assembly.
  *
- * A recording exists in one of two shapes, and this module is what makes the difference invisible
- * from the outside. Fresh from the recorder it is one object per chunk (ADR-002), and playback
- * concatenates them back into the stream the browser produced. Once the pipeline has repackaged
- * it (ADR-010) it is a single seekable file, and playback serves ranges of that.
+ * A recording exists in one of two shapes — one object per chunk (ADR-002) until the pipeline
+ * repackages it into a single seekable file (ADR-010) — and this module is what makes the
+ * difference invisible from the outside.
  *
  * Nothing is ever written back from here. Assembling on read is what keeps the stored objects the
  * single copy of the audio, which is also what makes the deletion cascade of ADR-001 a plain
@@ -30,10 +29,8 @@ export interface AudioLayout {
 }
 
 /**
- * Works out what to serve for a session, and from which objects.
- *
- * The repackaged file wins whenever it is there. Its mere presence is the signal, and that is
- * safe by construction rather than by hope: the pipeline writes the artifact under a staging name
+ * The repackaged file wins whenever it is there, and its mere presence is the whole signal —
+ * safe by construction rather than by hope, because the pipeline writes the artifact under a staging name
  * and only gives it this name once it has read it back and checked it (ADR-010), so an object
  * carrying this key is one that has already passed. Everything else is the chunk shape.
  *

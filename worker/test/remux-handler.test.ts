@@ -33,9 +33,7 @@ function chunksOf(recording: Uint8Array, count: number): Uint8Array[] {
 const CHUNK_COUNT = 4;
 
 /**
- * Object storage as a map, standing in for MinIO.
- *
- * It is the same store on both ports on purpose: the job reads through `AudioSource` and writes
+ * The same store is handed to both ports on purpose: the job reads through `AudioSource` and writes
  * through `RemuxStorage`, and the questions this suite asks — what is left after a failure, what
  * playback would find — are questions about the one set of objects both of them see.
  */
@@ -195,7 +193,6 @@ function deps(
   };
 }
 
-/** The staging key a run with this id owns. */
 function staging(runId: string): string {
   return stagingAudioKey(SCOPE, runId);
 }
@@ -217,8 +214,7 @@ describe("the remux job", () => {
     expect(artifact).toBeDefined();
     expect(inspectWebm(artifact as Uint8Array).hasCues).toBe(true);
 
-    // The single-copy promise of ADR-010, asserted where it is kept: nothing under the session
-    // prefix is a chunk any more, and the staged copy is gone too.
+    // The single-copy promise of ADR-010, asserted where it is kept.
     expect(store.keys.filter((key) => key.includes("/chunks/"))).toEqual([]);
     expect(store.objects.has(staging("run-fixed"))).toBe(false);
   });
@@ -360,7 +356,6 @@ describe("the remux job on a recording it should leave alone", () => {
     expect(outcome.chunksDeleted).toBe(CHUNK_COUNT + 1);
     expect(store.keys.filter((key) => key.includes("/chunks/"))).toEqual([]);
     expect(store.keys.filter((key) => key.includes(".staging"))).toEqual([]);
-    // And the artifact itself is untouched: the sweep only ever removes what it replaced.
     expect(store.objects.has(audioKey(SCOPE))).toBe(true);
   });
 
@@ -399,8 +394,6 @@ describe("the remux job on a recording it should leave alone", () => {
 
     expect(looks).toBe(2);
     expect(outcome.abandoned).toBe("meeting-deleted");
-    // Not one object left under the prefix — not the artifact, not the manifest it wrote, not
-    // the staged copy.
     expect(store.keys).toEqual([]);
     expect(events.some((event) => event.event === "job.abandoned")).toBe(true);
   });
@@ -415,8 +408,7 @@ describe("the remux job on a recording it should leave alone", () => {
       deps(store, { meetingExists: false, logger, runId: "run-fixed" }),
     );
 
-    // Nothing may come back from the dead: no artifact, no manifest pointing at one, and not
-    // even the staged object the job had already written.
+    // Nothing may come back from the dead, including the staging object it had already written.
     expect(outcome.abandoned).toBe("meeting-deleted");
     expect(store.objects.has(audioKey(SCOPE))).toBe(false);
     expect(store.objects.has(staging("run-fixed"))).toBe(false);
@@ -440,9 +432,7 @@ function concat(parts: readonly Uint8Array[]): Uint8Array {
 }
 
 /**
- * Two runs of the same repackaging, at the same time.
- *
- * This is not a hypothetical. The queues are created with pg-boss's `standard` policy, and every
+ * NOT A HYPOTHETICAL. The queues are created with pg-boss's `standard` policy, and every
  * unique index that backs a singleton key is predicated on one of the other policies — so two
  * sends of the same key become two live jobs, and a transcription that runs twice (a user's
  * retry, an operator's redrive) is exactly how that happens. The handler is what has to hold,

@@ -8,12 +8,10 @@
  * A player handed that stream reports a duration of `Infinity` and has no map from a
  * point in time to a byte offset.
  *
- * WHAT THIS DOES ABOUT IT. One parse, then one write. The audio itself is copied
- * byte for byte — every Cluster's children are moved across verbatim, so not a single
- * Opus packet is touched. Only the container's bookkeeping is rewritten: sizes are
- * declared, a Duration is computed from the block timestamps, and a Cues index is
- * built and placed *before* the clusters, so a player learns the whole map from the
- * first few kilobytes instead of having to read to the end of a long recording.
+ * TWO INVARIANTS HOLD IT TOGETHER. Every Cluster's children are moved across verbatim, so not
+ * one Opus packet is touched and "lossless" is a property of the code rather than an intention.
+ * And the Cues index is placed *before* the clusters, so a player learns the whole map from the
+ * first few kilobytes instead of reading to the end of a long recording over the network.
  *
  * WHY IT IS WRITTEN HERE RATHER THAN SHELLED OUT TO A MUXER. The operation is a few
  * hundred lines of well-specified byte pushing against a container we produce
@@ -89,7 +87,6 @@ const CUE_INTERVAL_MS = 5_000;
 export class RemuxError extends Error {}
 
 export interface RemuxResult {
-  /** The seekable file. */
   bytes: Uint8Array;
   /** Playing time of the recording, from the block timestamps. */
   durationSeconds: number;
@@ -103,11 +100,10 @@ export interface RemuxResult {
    * the reduced figure and the check passes.
    */
   sourceClusterMarks: number;
-  /** Entries in the generated index. */
   cueCount: number;
 }
 
-/** A cursor over one buffer, with every read bounds-checked. */
+/** Every read is bounds-checked against `end`, so a truncated buffer cannot walk off it. */
 class Reader {
   readonly buf: Uint8Array;
   pos: number;
@@ -243,7 +239,6 @@ function floatElement(id: number, value: number): Uint8Array {
   return writer.concat();
 }
 
-/** One cluster as the parser found it: where its children are, and when it starts. */
 interface ParsedCluster {
   timestamp: number;
   childrenFrom: number;
@@ -366,10 +361,8 @@ function parse(input: Uint8Array): Parsed {
 }
 
 /**
- * Walks one Cluster and reports where it ends.
- *
- * A live-written Cluster declares no size, so its end is found by reading its children
- * until an element turns up that belongs to the Segment rather than to the Cluster.
+ * A live-written Cluster declares no size, so its end is found by reading its children until an
+ * element turns up that belongs to the Segment rather than to the Cluster.
  */
 function parseCluster(
   input: Uint8Array,
@@ -595,12 +588,10 @@ function widthOf(first: number | undefined): number {
 }
 
 /**
- * Counts clusters by scanning for the cluster id, without using the parser above.
- *
- * The point is that it shares no code with the walk it checks. A parser that lost half a
- * recording reports the count it arrived at, and a verification that compared the artifact
- * against *that* would agree with itself no matter what was dropped. This gives the artifact a
- * number to be held to that the parser had no part in producing.
+ * SHARES NO CODE WITH THE PARSER ABOVE, deliberately. A parser that lost half a recording reports
+ * the count it arrived at, and a verification that compared the artifact against *that* would
+ * agree with itself no matter what was dropped. This gives the artifact a number to be held to
+ * that the parser had no part in producing.
  *
  * The scan can over-count: the four-byte pattern can occur inside an Opus payload by chance. It
  * is used only to compare a source against an artifact whose cluster contents are copies of that
@@ -623,20 +614,16 @@ export function scanClusterMarks(input: Uint8Array): number {
 }
 
 /**
- * Rewrites a live WebM stream as a seekable file.
- *
- * The layout it produces is deliberate. Cues sit *before* the clusters, so seeking a
- * remote recording costs one small ranged read of the head rather than a walk to the
- * tail; and every length that the index depends on is written at a fixed width, so the
- * byte positions the index names can be computed in one shot instead of by iterating
- * a layout until it stops moving.
+ * The layout is deliberate on two counts. Cues sit *before* the clusters, so seeking a remote
+ * recording costs one small ranged read of the head rather than a walk to the tail; and every
+ * length the index depends on is written at a fixed width, so the byte positions it names can be
+ * computed in one shot instead of by iterating a layout until it stops moving.
  */
 export function remuxWebm(input: Uint8Array): RemuxResult {
   const parsed = parse(input);
 
-  // Before anything else: did the walk actually read the whole recording? Everything downstream
-  // of this function ends in the chunk objects being deleted, so a partial read must stop here
-  // rather than become a short file that looks perfectly valid.
+  // Everything downstream of this function ends in the chunk objects being deleted, so a partial
+  // read has to stop here rather than become a short file that looks perfectly valid.
   switch (parsed.tail.kind) {
     case "complete":
     case "truncated":
@@ -656,15 +643,13 @@ export function remuxWebm(input: Uint8Array): RemuxResult {
       );
   }
 
-  // Audio only. A track this pipeline never produces is a stream this remuxer was never written
-  // against, and a video-bearing recording would also be large enough for the whole-file buffering
-  // below to matter.
+  // A track this pipeline never produces is a stream this remuxer was never written against, and
+  // a video-bearing recording would also be large enough for the whole-file buffering to matter.
   const foreign = parsed.tracksSummary.types.filter((type) => type !== TRACK_TYPE_AUDIO);
   if (foreign.length > 0) {
     throw new RemuxError(`the stream carries a non-audio track (type ${foreign[0] as number})`);
   }
 
-  // Info, with the Duration this pass computed.
   const durationTicks = parsed.durationTicks;
   const infoBody = new Writer();
   for (const child of parsed.infoChildren) infoBody.raw(child);
@@ -676,7 +661,6 @@ export function remuxWebm(input: Uint8Array): RemuxResult {
   info.raw(infoBodyBytes);
   const infoBytes = info.concat();
 
-  // One cue every CUE_INTERVAL_MS, and always the first cluster.
   const cueClusters: number[] = [];
   let nextCueAt = -1;
   parsed.clusters.forEach((cluster, index) => {
@@ -708,7 +692,7 @@ export function remuxWebm(input: Uint8Array): RemuxResult {
   });
   const segmentBodyLength = cursor;
 
-  // SeekHead — fixed-width positions keep its own length constant.
+  // Fixed-width positions keep the SeekHead a constant length, which the layout below needs.
   const seekHeadBody = new Writer();
   const entries: Array<[number, number]> = [
     [ID.info, seekHeadLength],
@@ -736,7 +720,6 @@ export function remuxWebm(input: Uint8Array): RemuxResult {
     throw new RemuxError("the seek head did not come out at its computed length");
   }
 
-  // Cues.
   const cuesBody = new Writer();
   for (const index of cueClusters) {
     const positions = new Writer();
@@ -765,7 +748,6 @@ export function remuxWebm(input: Uint8Array): RemuxResult {
     throw new RemuxError("the cue index did not come out at its computed length");
   }
 
-  // The file.
   const out = new Writer();
   out.raw(parsed.ebmlHeader);
   out.id(ID.segment);
@@ -801,13 +783,11 @@ export interface WebmInspection {
   hasCues: boolean;
   /** The playing time the file declares, or `null` when it declares none. */
   durationSeconds: number | null;
-  /** Clusters actually present, which is how much of the recording the file still holds. */
+  /** How much of the recording the file still holds — see `scanClusterMarks`. */
   clusterCount: number;
 }
 
 /**
- * Reads back the two properties that decide whether a file is seekable at all.
- *
  * Deliberately not a re-run of the parser above. This walks the top level of the Segment and
  * believes only what the file says about itself, the way a player does; a check that recomputed
  * the answer with the same code that wrote it would agree with itself no matter what went wrong

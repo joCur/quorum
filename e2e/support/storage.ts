@@ -61,7 +61,6 @@ export async function listKeys(prefix: string): Promise<string[]> {
   return keys.sort();
 }
 
-/** The seekable file the chunks are replaced by once the pipeline has been through them. */
 export function audioKey(scope: SessionScope): string {
   return `${sessionPrefix(scope)}/audio.webm`;
 }
@@ -98,7 +97,6 @@ export interface RecordingManifest {
   chunkKeys: string[];
   /** The repackaged file, once one exists; `null` while the recording is still its chunks. */
   audioKey: string | null;
-  /** Playing time the repackaged file declares, in seconds. */
   artifactDurationSeconds: number | null;
   /** Wall-clock pause and resume marks — where the audio-time gaps in the recording are. */
   marks: Array<{ type: "pause" | "resume"; at: string }>;
@@ -112,9 +110,6 @@ export function readManifest(scope: SessionScope): Promise<RecordingManifest | n
 }
 
 /**
- * Asserts that the recording reached durable storage whole — in whichever of the two shapes it is
- * currently in.
- *
  * A finalized recording is its chunk objects until the pipeline repackages it into one seekable
  * file (ADR-010), and there is no telling from outside which side of that a given assertion lands
  * on: on a fast machine the transcription and the repackaging both finish between the
@@ -127,8 +122,6 @@ export function readManifest(scope: SessionScope): Promise<RecordingManifest | n
  * have rewritten. So the count is taken from the manifest and then checked against something the
  * manifest had no part in producing: the chunk objects themselves while they are there, and
  * afterwards the artifact's own clusters, counted out of the bytes in the bucket.
- *
- * Returns the number of chunks the recording was made of.
  */
 export async function expectRecordingIntact(
   scope: SessionScope,
@@ -142,7 +135,6 @@ export async function expectRecordingIntact(
   const seqs = await chunkSeqs(scope);
   const expected = Array.from({ length: chunkCount }, (_value, index) => index);
   if (seqs.length === chunkCount && seqs.length > 0) {
-    // Still the shape it was recorded in: every sequence number the manifest claims, exactly once.
     expect(seqs).toEqual(expected);
     return chunkCount;
   }
@@ -162,12 +154,10 @@ export async function expectRecordingIntact(
   // Counted with a byte scan here rather than with the worker's parser, on purpose.
   const clusters = countClusters(bytes);
   expect(clusters, "clusters in the repackaged file").toBeGreaterThanOrEqual(chunkCount - 2);
-  // And it declares a length, which is the whole point of the exercise.
   expect(hasCueIndex(bytes), "a cue index in the repackaged file").toBe(true);
   return chunkCount;
 }
 
-/** Reads a stored object, or `null` when there is nothing at that key. */
 export async function readObject(key: string): Promise<Uint8Array | null> {
   try {
     const response = await client.send(
@@ -180,7 +170,6 @@ export async function readObject(key: string): Promise<Uint8Array | null> {
   }
 }
 
-/** Size in bytes of a stored object, or `null` when there is nothing at that key. */
 export async function objectSize(key: string): Promise<number | null> {
   try {
     const response = await client.send(
@@ -192,12 +181,11 @@ export async function objectSize(key: string): Promise<number | null> {
   }
 }
 
-/** Matroska cluster ids in a file, found by scanning rather than by parsing. */
+/** By scanning rather than parsing — see the note in `expectRecordingIntact`. */
 function countClusters(bytes: Uint8Array): number {
   return occurrences(bytes, [0x1f, 0x43, 0xb6, 0x75]);
 }
 
-/** Whether the file carries a Cues element — what a player seeks by. */
 function hasCueIndex(bytes: Uint8Array): boolean {
   return occurrences(bytes, [0x1c, 0x53, 0xbb, 0x6b]) > 0;
 }

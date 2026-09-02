@@ -8,7 +8,6 @@ export interface EnqueueRemuxInput {
   tenantId: string;
   userId: string;
   sessionId: string;
-  /** Playing time the transcription measured; the remux checks its own answer against it. */
   expectedDurationSeconds: number | null;
   createdAt: string;
 }
@@ -18,12 +17,11 @@ export interface RemuxEnqueuer {
   enqueue(input: EnqueueRemuxInput): Promise<void>;
 }
 
-/** The one question this enqueuer asks the database directly. */
 export interface QueueInspector {
   hasLiveQueueEntry(queue: string, jobId: string): Promise<boolean>;
 }
 
-/** The payload a given session produces — pure, so the tests can assert on it. */
+/** Exported and pure so the tests can assert on the payload without a queue. */
 export function remuxJobPayload(input: EnqueueRemuxInput): RemuxJobPayload {
   const job = JobSchema.parse({
     id: remuxJobIdFor(input.sessionId),
@@ -47,8 +45,6 @@ export function remuxJobPayload(input: EnqueueRemuxInput): RemuxJobPayload {
 }
 
 /**
- * Hands a finished recording on to be repackaged (ADR-010).
- *
  * THE SINGLETON KEY DOES NOT DEDUPLICATE ANYTHING HERE, and it is worth being explicit about
  * that because the name suggests otherwise. Every unique index pg-boss creates for singleton
  * keys is predicated on a queue policy of `short`, `singleton`, `stately`, `exclusive` or

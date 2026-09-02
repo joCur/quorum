@@ -40,15 +40,12 @@ export function manifestKey(scope: KeyScope): string {
 }
 
 /**
- * The seekable file a finalized recording is repackaged into (ADR-010).
+ * INVARIANT: once this key exists the recording is one object and the chunk prefix is empty
+ * (ADR-010).
  *
- * It replaces the chunk objects rather than joining them: once this key exists, the recording
- * is one object, and the chunk prefix is empty.
- *
- * The pipeline stages the file under a longer name and only copies it to this one after reading
- * it back, so an object carrying exactly this key is one that has already been checked. That is
- * what lets playback decide from a listing alone — and why it must match the key exactly rather
- * than by prefix.
+ * The pipeline stages the file under a longer name and copies it to this one only after reading
+ * it back, so an object carrying exactly this key has already been checked. That is what lets
+ * playback decide from a listing alone — and why it must match the key exactly, not by prefix.
  */
 export function audioKey(scope: KeyScope): string {
   return `${sessionPrefix(scope)}/audio.webm`;

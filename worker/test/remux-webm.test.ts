@@ -4,8 +4,6 @@ import { describe, expect, it } from "vitest";
 import { inspectWebm, remuxWebm, RemuxError, scanClusterMarks } from "../src/remux/webm.js";
 
 /**
- * The remuxer (ADR-010).
- *
  * The fixture is a real one: six seconds captured through Chromium's own `MediaRecorder` with a
  * one-second timeslice, its chunks concatenated exactly the way the playback endpoint
  * concatenates the stored objects. Synthetic input can be made to prove anything about a
@@ -16,11 +14,9 @@ const FIXTURE = new Uint8Array(
   readFileSync(fileURLToPath(new URL("./fixtures/incremental-recording.webm", import.meta.url))),
 );
 
-/** How many clusters a stream holds, found by scanning for the cluster id. */
 function clusterCount(input: Uint8Array): number {
   const found: number[] = [];
   for (let i = 0; i + 1 < input.byteLength; i += 1) {
-    // Cluster id, then walk its children looking for SimpleBlocks.
     if (
       input[i] === 0x1f &&
       input[i + 1] === 0x43 &&

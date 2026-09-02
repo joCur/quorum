@@ -27,27 +27,19 @@ export interface AudioSource {
   /** `null` when the session object is gone — the manifest is still enough to work. */
   loadSession(scope: KeyScope): Promise<SessionRecord | null>;
   /**
-   * The recording as one byte stream, whichever shape it is stored in.
-   *
-   * The manifest decides: it names the repackaged file once one exists (ADR-010), and until
-   * then the chunk objects are read in manifest order and concatenated. Asking the manifest
-   * rather than guessing from a listing is what lets a transcription be run again long after
-   * the chunks it originally read were replaced.
+   * The manifest decides which shape to read, not a listing (ADR-010). That is what lets a
+   * transcription run again long after the chunks it originally read were replaced.
    */
   loadAudio(manifest: RecordingManifest, scope: KeyScope): Promise<Uint8Array>;
 }
 
 /**
- * The write side of object storage, used by the remux job alone (ADR-010).
- *
- * Separate from `AudioSource` because the asymmetry is the point: everything else in this
- * worker only ever reads the recording. One job may replace it, and it is worth being able to
- * see at a glance which one.
+ * Separate from `AudioSource` because the asymmetry is the point: everything else in this worker
+ * only ever reads the recording. One job may replace it, and it is worth seeing at a glance
+ * which one (ADR-010).
  */
 export interface RemuxStorage {
-  /** Bytes at a key, or `null` when nothing is stored there. */
   readObject(key: string): Promise<Uint8Array | null>;
-  /** Every key under a prefix. Used to sweep up after a run that did not finish. */
   listKeys(prefix: string): Promise<string[]>;
   writeObject(key: string, body: Uint8Array, contentType: string): Promise<void>;
   /** Server-side copy, so the bytes that were verified are the bytes that get the final name. */
@@ -177,8 +169,6 @@ export class S3AudioSource implements AudioSource, RemuxStorage {
 
     return concatenateChunks(parts);
   }
-
-  // ---- RemuxStorage ----
 
   async readObject(key: string): Promise<Uint8Array | null> {
     return this.getBytes(key);

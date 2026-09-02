@@ -70,8 +70,6 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
 
   const scope = { tenantId: alice.tenantId, userId: alice.userId, sessionId };
 
-  // The audio is in object storage, under this tenant's and this user's prefix, with no gap —
-  // whether the pipeline has already repackaged it or not.
   const chunkCount = await expectRecordingIntact(scope, { atLeast: 4 });
 
   // The session is finalized: the manifest agrees with what was acknowledged.
@@ -139,10 +137,8 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     expect(transcript.language).toBe("de");
   }
 
-  // The audio the endpoint serves is seekable (ADR-010). By this point the pipeline has
-  // repackaged the recording, so what a player fetches is one object that declares its length
-  // and carries a cue index — the thing an incrementally written stream cannot have, and the
-  // reason a scrub bar had nothing to draw. Checked on the bytes that leave the API rather than
+  // A cue index is the thing an incrementally written stream cannot have, and the reason a
+  // scrub bar had nothing to draw (ADR-010). Checked on the bytes that leave the API rather than
   // on the object in the bucket, because the endpoint is what a player talks to.
   await waitForValue(() => objectSize(audioKey(scope)), 60_000, "the repackaged audio object");
   const audio = await page.request.get(
@@ -159,7 +155,6 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   // than a walk to the end of a long recording.
   expect(cues).toBeLessThan(served.indexOf(Buffer.from([0x1f, 0x43, 0xb6, 0x75])));
 
-  // A seek is a range request, and it has to come back as one.
   const seek = await page.request.get(
     `${stackEnv.apiUrl}/api/meetings/${transcript.meetingId}/audio`,
     {

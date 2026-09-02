@@ -95,14 +95,11 @@ export interface RemuxWorkerOptions extends RemuxHandlerDependencies, QueuePolic
 }
 
 /**
- * Binds the remux handler to pg-boss (ADR-010).
- *
- * The cheapest of the three queues by a wide margin: no backend to call, no model to wait for,
- * one pass over bytes. The retry budget is here for object storage alone — a hiccup between
- * writing the artifact and reading it back — because the other way this job fails is a container
- * the remuxer cannot read, which will read no better on the fourth attempt. A dead letter here
- * costs nobody a recording: the chunk objects go only after the artifact has been verified, so a
- * failed job leaves a meeting that plays exactly as it did before.
+ * The retry budget here is for object storage alone — a hiccup between writing the artifact and
+ * reading it back — because the other way this job fails is a container the remuxer cannot read,
+ * which will read no better on the fourth attempt. A dead letter costs nobody a recording: the
+ * chunks go only after the artifact is verified, so a failed job leaves a meeting that plays
+ * exactly as it did before (ADR-010).
  */
 export async function startRemuxWorker(options: RemuxWorkerOptions): Promise<string> {
   await createQueues(options.boss, REMUX_QUEUE, REMUX_DEAD_LETTER_QUEUE, options);

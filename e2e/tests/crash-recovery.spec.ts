@@ -177,9 +177,6 @@ test("recovers audio a crashed tab left in the local buffer", async ({ page, sig
 });
 
 /**
- * The other end of the same critical path: a reconnect that arrives too late.
- *
- * Everything above is about a recording that is still running. This is about one that is not.
  * A finalized recording is closed, and the pipeline then replaces its chunk objects with a
  * single seekable file (ADR-010) — after which a resume that rebuilt `persistedSeq` from a chunk
  * listing would read -1 and invite the client to send the whole recording again, over the top of
@@ -215,8 +212,7 @@ test("refuses a reconnect to a recording that is already finished", async ({ pag
     socket.dispose();
   }
 
-  // And the recording came through it untouched: still one unbroken sequence, or already the
-  // single object the pipeline replaces it with. A session prefix holding neither, or holding a
-  // re-sent recording written over the finished one, is what the refusal exists to prevent.
+  // A session prefix holding neither shape, or holding a re-sent recording written over the
+  // finished one, is what the refusal exists to prevent.
   await expectRecordingIntact(scope, { atLeast: 1 });
 });

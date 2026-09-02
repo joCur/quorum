@@ -100,7 +100,6 @@ afterEach(async () => {
   await app.close();
 });
 
-/** The session behind a meeting, read out of the store the way the route reads it. */
 async function sessionOf(id: string): Promise<string> {
   const found = await store.findMeeting(ACME, id);
   if (!found) throw new Error("meeting is missing");
@@ -172,7 +171,6 @@ describe("audio playback", () => {
     expect(whole.headers["content-type"]).toBe("audio/webm");
     expect(whole.rawPayload).toEqual(artifact);
 
-    // And a seek into it: the ranged read a real player makes once the file has a cue index.
     const ranged = await app.inject({
       method: "GET",
       url: `/api/meetings/${meetingId}/audio`,

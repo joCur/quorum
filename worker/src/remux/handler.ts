@@ -45,16 +45,14 @@ export interface RemuxOutcome {
    * queue reads this field to keep a deletion out of the success counters.
    */
   abandoned?: "meeting-deleted";
-  /** Bytes before and after, so the storage claim of ADR-010 is observable in the logs. */
   sourceBytes?: number;
   remuxedBytes?: number;
   durationSeconds?: number;
-  /** Chunk objects removed once the artifact was in place. */
   chunksDeleted?: number;
 }
 
 /**
- * Runs one `remux` job: chunk objects → one seekable file → the chunk objects deleted (ADR-010).
+ * Runs one `remux` job (ADR-010).
  *
  * THE ORDER IS THE WHOLE DESIGN. The artifact is written under a staging name, read back and
  * checked, and only then given the name that playback serves. The manifest is pointed at it
@@ -101,12 +99,10 @@ export async function runRemuxJob(
     const manifest = await deps.audio.loadManifest(scope);
 
     if (manifest.audioKey !== null) {
-      // A transcription that ran a second time — a user's retry, an operator's redrive — hands
-      // this job on again. There is nothing left to repackage, but there may be something left
-      // to tidy: a run that died between pointing the manifest at the artifact and deleting the
-      // chunks leaves the recording stored twice, and nothing else would ever come back for it.
-      // Sweeping here is what makes "the artifact exists, so the chunk prefix is empty" true
-      // again rather than merely usually true.
+      // A run that died between pointing the manifest at the artifact and deleting the chunks
+      // leaves the recording stored twice, and nothing else would ever come back for it. The
+      // sweep is what makes "the artifact exists, so the chunk prefix is empty" an invariant
+      // rather than something that is merely usually true.
       const swept = await sweepLeftovers(deps, scope, log);
       log.info(
         { event: "remux.skipped", reason: "already-remuxed", audioKey: manifest.audioKey, swept },
@@ -137,13 +133,11 @@ export async function runRemuxJob(
     await deps.storage.writeObject(staging, remuxed.bytes, "audio/webm");
     await verify(deps, staging, remuxed);
 
-    // THE COMMIT POINT, and the last chance to notice that somebody else reached it first.
-    // The check at the top of this function was made before a slow read of the whole recording;
-    // this one is made immediately before the copy that publishes the artifact, so the window in
-    // which two runs can both believe they are the first is a couple of storage calls wide. Both
-    // of them getting through it is still correct — the remuxer is a pure function of the same
-    // bytes, so they would publish identical files — but this is what keeps that from being the
-    // thing the design rests on.
+    // The commit point. The check at the top of this function was made before a slow read of the
+    // whole recording; re-reading immediately before the copy narrows the window in which two
+    // runs can both believe they are first to a couple of storage calls. Both getting through it
+    // is still correct — the remuxer is a pure function of the same bytes, so they would publish
+    // identical files — but that is a property to be glad of, not one to rest the design on.
     if (await alreadyRemuxed(deps, scope)) {
       log.info(
         { event: "remux.skipped", reason: "lost-race" },
@@ -152,9 +146,8 @@ export async function runRemuxJob(
       return { skipped: "lost-race" };
     }
 
-    // And a last look for the meeting itself. The deletion cascade sweeps the queue, but a job
-    // already running survives that sweep, and finishing this one would put audio back under a
-    // prefix a user asked to be emptied.
+    // The deletion cascade sweeps the queue, but a job already running survives that sweep, and
+    // finishing this one would put audio back under a prefix a user asked to be emptied.
     if (!(await deps.repository.meetingExists(payload.job.meetingId, payload.tenantId))) {
       throw new MeetingGoneError(payload.job.meetingId);
     }
@@ -169,12 +162,10 @@ export async function runRemuxJob(
     const chunkKeys = resolveChunkKeys(manifest, scope);
     await deps.storage.deleteObjects(chunkKeys);
 
-    // And once more, now that everything is written. The check before the copy narrows the
-    // window; it cannot close it, because the deletion cascade lists the session prefix and then
-    // deletes what it listed — so a cascade that listed before this job's copy carries on and
-    // removes an older set of keys, leaving the artifact and its manifest behind under a meeting
-    // that no longer exists. That is audio a user asked to be destroyed, kept forever. Asking
-    // again here and clearing the prefix ourselves is what closes it.
+    // The check before the copy narrows that window but cannot close it: the cascade lists the
+    // session prefix and then deletes what it listed, so one that listed before this job's copy
+    // removes an older set of keys and leaves the artifact and its manifest behind under a
+    // meeting that no longer exists — audio a user asked to be destroyed, kept forever.
     if (!(await deps.repository.meetingExists(payload.job.meetingId, payload.tenantId))) {
       throw new MeetingGoneError(payload.job.meetingId);
     }
@@ -200,20 +191,17 @@ export async function runRemuxJob(
     };
   } catch (error) {
     if (error instanceof MeetingGoneError) {
-      // Whatever this run had already written goes with it. The whole prefix, not just the
-      // artifact: if the cascade ran while this job was mid-flight, either side may have left
-      // the other's keys behind, and the promise ADR-001 makes is that nothing survives.
+      // The whole prefix, not just what this run wrote: if the cascade ran mid-flight, either
+      // side may have left the other's keys behind, and ADR-001 promises nothing survives.
       await clearSessionPrefix(deps, scope, log);
       logMeetingGone(log, "remux");
       return { abandoned: "meeting-deleted" };
     }
 
-    // Before calling anything a failure: did this run lose a race rather than break? A second run
-    // that finished first deleted the chunk objects this one was still reading, and the read that
-    // then failed says "a chunk the manifest promised is missing" — which is a genuine fault when
-    // it happens on its own and nothing at all when it happens because the work is already done.
-    // Without this the ordinary case of a transcription running twice dead-letters a job over a
-    // recording that is in perfect shape, and somebody gets paged for it.
+    // A run that finished first deleted the chunk objects this one was still reading, and the
+    // read that then failed says "a chunk the manifest promised is missing" — a genuine fault on
+    // its own, and nothing at all when the work is simply already done. Without this, the
+    // ordinary case of a transcription running twice dead-letters a healthy recording.
     if (await alreadyRemuxed(deps, scope).catch(() => false)) {
       log.info(
         { event: "remux.skipped", reason: "lost-race", err: error },
@@ -229,8 +217,7 @@ export async function runRemuxJob(
     );
     throw jobError;
   } finally {
-    // This run's staging object, gone whichever way the run ended. It is the one piece of litter
-    // the job can leave behind, and a per-run name means nothing else is waiting on it.
+    // A per-run name means nothing else is waiting on this object, so it can go unconditionally.
     await deps.storage.deleteObjects([staging]).catch((error: unknown) => {
       log.warn(
         { event: "remux.staging_cleanup_failed", err: error, key: staging },
@@ -241,10 +228,8 @@ export async function runRemuxJob(
 }
 
 /**
- * Removes the chunk and staging objects of a recording that already has its artifact.
- *
- * Only ever called once the manifest names a verified artifact, so the audio is safe before a
- * single key goes. Returns how many objects were swept, which is normally none.
+ * PRECONDITION: the manifest already names a verified artifact, so the audio is safe before a
+ * single key goes. Calling this any earlier would delete a recording that has no replacement.
  */
 async function sweepLeftovers(
   deps: RemuxHandlerDependencies,
@@ -269,7 +254,6 @@ async function sweepLeftovers(
   }
 }
 
-/** Empties a session's prefix, for a meeting that was deleted while this job was running. */
 async function clearSessionPrefix(
   deps: RemuxHandlerDependencies,
   scope: KeyScope,
@@ -287,7 +271,7 @@ async function clearSessionPrefix(
   }
 }
 
-/** Whether the recording already carries a verified artifact, read fresh from storage. */
+/** Read fresh every time: the point of asking is that another run may have just answered it. */
 async function alreadyRemuxed(deps: RemuxHandlerDependencies, scope: KeyScope): Promise<boolean> {
   return (await deps.audio.loadManifest(scope)).audioKey !== null;
 }
@@ -318,17 +302,13 @@ function noteDurationGap(log: WorkerLogger, measured: number, expected: number |
 }
 
 /**
- * Reads the staged artifact back out of object storage and checks it is what was written.
+ * A read from storage rather than a comparison against what is still in memory, because what is
+ * in memory is not what playback will serve. This is the step that stands between a truncated
+ * upload and a deleted set of chunks.
  *
- * A read rather than a comparison against what is still in memory, because what is in memory is
- * not what playback will serve. This is the step that stands between a truncated upload and a
- * deleted set of chunks, so it asks storage the same questions a player will — how long is it,
- * where is the index — and one more that nothing outside this worker could answer: does it still
- * hold every cluster the recording was made of.
- *
- * That last one is the integrity check the whole "verify, then delete" order rests on. A parse
- * that quietly lost half a recording would produce a file of plausible size that still opened
- * cleanly; a cluster count that no longer matches is what makes it impossible to miss.
+ * The cluster count is the integrity check the whole "verify, then delete" order rests on. A
+ * parse that quietly lost half a recording would produce a file of plausible size that still
+ * opened cleanly; a count that no longer matches is what makes it impossible to miss.
  */
 async function verify(
   deps: RemuxHandlerDependencies,

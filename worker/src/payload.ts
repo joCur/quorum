@@ -96,27 +96,21 @@ export function parseSummarizeJobPayload(data: unknown): SummarizeJobPayload {
   return parsed.data;
 }
 
-/** Queue the remux worker consumes; filled when a transcription succeeds (ADR-010). */
+/** Filled when a transcription succeeds, not when the recording is finalized (ADR-010). */
 export const REMUX_QUEUE = "remux";
 
-/** Dead-letter queue for recordings that could not be repackaged. */
 export const REMUX_DEAD_LETTER_QUEUE = "remux-dead-letter";
 
-/**
- * What the transcribe handler puts on the remux queue: the same `Job` and scope as the other
- * two, plus the playing time the transcription measured.
- *
- * The duration travels with the job because it is the only independent account of how long the
- * recording is. The remuxer derives its own from the block timestamps, and the two being far
- * apart means the parse went wrong somewhere the byte counts would not show — which is the
- * check that stands between a mangled file and the chunks being deleted.
- */
 export const RemuxJobPayloadSchema = z.object({
   job: JobSchema,
   tenantId: z.string().min(1),
   userId: z.string().min(1),
   sessionId: z.string().min(1),
-  /** Seconds of audio the transcription backend reported, or `null` when it reported none. */
+  /**
+   * What the backend decoded, carried for the log line that compares it against the container's
+   * own length. Advisory only — the silence filter makes the two legitimately differ, so nothing
+   * is refused over it (`remux/handler.ts`).
+   */
   expectedDurationSeconds: z.number().nonnegative().nullable().default(null),
 });
 

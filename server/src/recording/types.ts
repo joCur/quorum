@@ -121,10 +121,8 @@ export interface RecordingManifest {
   persistedSeq: number;
   chunkKeys: string[];
   /**
-   * The seekable file the chunks were repackaged into, once that has happened (ADR-010).
-   *
-   * The recording endpoint always writes `null`: at finalize there is nothing but chunks. The
-   * pipeline fills it in later, after it has produced the artifact and read it back.
+   * The recording endpoint always writes `null` here: at finalize there is nothing but chunks.
+   * The pipeline fills it in after it has produced the artifact and read it back (ADR-010).
    */
   audioKey: string | null;
   /**

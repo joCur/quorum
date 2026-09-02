@@ -8,12 +8,10 @@ export const JobTypeSchema = z.enum([
   "transcribe",
   "summarize",
   /**
-   * Repackaging a finalized recording into a seekable file (ADR-010).
-   *
-   * The odd one out: it is housekeeping nobody asked for and nobody needs to hear about, so
-   * unlike the other two it writes no job row and never appears on a meeting. It is named here
-   * because what travels on the queue is a `Job` like any other, and a type this schema does
-   * not know would make that payload unreadable on the far side.
+   * The odd one out (ADR-010): housekeeping nobody asked for, so unlike the other two it writes
+   * no job row and never appears on a meeting. It is named here only because what travels on the
+   * queue is a `Job` like any other, and a type this schema does not know would make that
+   * payload unreadable on the far side.
    */
   "remux",
   // Later: "diarize", "reprocess"

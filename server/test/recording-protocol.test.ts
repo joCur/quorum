@@ -474,7 +474,6 @@ describe("reconnect", () => {
     );
 
     expect(connection.closed?.code).toBe(CLOSE_POLICY_VIOLATION);
-    // The finished recording is untouched: the refused reconnect wrote nothing over it.
     expect(first.storage.objects.has(audioKey(scope))).toBe(true);
   });
 

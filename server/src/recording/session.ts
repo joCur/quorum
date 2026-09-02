@@ -527,12 +527,11 @@ export class RecordingSessionHandler {
       this.connection.close(CLOSE_POLICY_VIOLATION, `rejected audio format: ${check.reason}`);
       return false;
     }
-    // A recording that has been finalized is closed, and attaching to a closed recording is an
-    // error rather than a resume. This has to be asked before the chunk listing below, because
-    // the listing cannot answer it: once the pipeline has repackaged the chunks into a single
-    // seekable file (ADR-010) the chunk prefix is empty, and an empty prefix would rebuild
-    // `persistedSeq` as -1 — a finished recording looking exactly like one that stored nothing,
-    // and a client invited to send it all again over the top of the finished artifact.
+    // Asked before the chunk listing below, because the listing cannot answer it: once the
+    // pipeline has repackaged the chunks into a single seekable file (ADR-010) the chunk prefix
+    // is empty, and an empty prefix rebuilds `persistedSeq` as -1 — a finished recording looking
+    // exactly like one that stored nothing, and a client invited to send it all again over the
+    // top of the finished artifact.
     let finalizedManifest: RecordingManifest | null;
     try {
       finalizedManifest = await this.readManifestForAttach(record);
@@ -1034,12 +1033,9 @@ export class RecordingSessionHandler {
   }
 
   /**
-   * Reads the manifest, giving a brief storage hiccup a second and third chance.
-   *
-   * This read is new on a path that used to touch object storage twice; a blip that would once
-   * have gone unnoticed should not now cost the client a reconnect in the middle of recovering
-   * from a crash. Two quick retries is the whole of it — a backend that is genuinely down is the
-   * reconnect's problem, not this loop's.
+   * This read is new on a path that already touches object storage twice; a blip that would once
+   * have gone unnoticed should not now cost a client its reconnect mid-recovery. Two quick
+   * retries is the whole of it — a backend that is genuinely down is the reconnect's problem.
    */
   private async readManifestForAttach(record: SessionRecord): Promise<RecordingManifest | null> {
     let lastError: unknown;

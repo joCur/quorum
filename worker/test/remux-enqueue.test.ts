@@ -61,8 +61,8 @@ describe("handing a finished recording on to be repackaged", () => {
   });
 
   it("passes the duration the transcription measured, as the check on the remuxer's own", () => {
-    // The fake backend reports 4.2 s; that number is the independent account the remux job
-    // compares its parse against before it deletes anything.
+    // 4.2 s is what the fake backend reports; the job logs it against the container's own
+    // length rather than refusing on the gap.
     const dependencies = deps();
     return runTranscribeJob(transcribePayload(), 0, dependencies).then(() => {
       const enqueuer = dependencies.remux as RecordingRemuxEnqueuer;
