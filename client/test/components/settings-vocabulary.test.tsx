@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MAX_VOCABULARY_TERMS, MAX_VOCABULARY_TERM_LENGTH } from "@quorum/shared";
 import { renderWithProviders, useLanguage } from "./render";
@@ -8,7 +8,7 @@ import { renderWithProviders, useLanguage } from "./render";
  * The vocabulary section of the settings panel: a flat list, a field to add a term, a delete per
  * entry, and a limit the screen refuses to go past.
  *
- * The store is mocked because the subject is the screen's behaviour at the limit and around a
+ * The store is mocked because the subject is the screen's behavior at the limit and around a
  * failed save — the API has its own tests. What is *not* mocked is the shared decision about
  * whether a term fits: the screen and the server have to agree on that exactly, so the test runs
  * the real rule.
@@ -107,6 +107,24 @@ describe("the vocabulary section", () => {
     await addTerm("MinIO");
 
     expect(screen.getByLabelText("Add a term")).toHaveValue("MinIO");
+  });
+
+  it("does not clobber what the user typed next when a slow save fails", async () => {
+    // The failed term is worth restoring, but not at the cost of the one being typed now.
+    let reject: (error: Error) => void = () => undefined;
+    saveVocabulary.mockImplementationOnce(
+      () => new Promise((_resolve, r) => (reject = () => r(new Error("offline")))),
+    );
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.type(screen.getByLabelText("Add a term"), "MinIO");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    await user.type(screen.getByLabelText("Add a term"), "Ansible");
+    reject(new Error("offline"));
+
+    await waitFor(() => expect(failure).toHaveBeenCalled());
+    expect(screen.getByLabelText("Add a term")).toHaveValue("Ansible");
   });
 
   it("shows every stored term with a delete action of its own", async () => {

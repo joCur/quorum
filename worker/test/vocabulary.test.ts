@@ -133,6 +133,33 @@ describe("the prompt on the wire", () => {
     expect(form!.get("prompt")).toBeNull();
   });
 
+  it("trims an over-budget payload here rather than letting the backend take its head off", async () => {
+    // The caps upstream should make this impossible; the point is what happens when they did not.
+    // Front kept, tail dropped, and a warning — not the backend's silent front-trim.
+    const warnings: string[] = [];
+    const logger = {
+      ...silentLogger,
+      child: () => ({
+        ...silentLogger,
+        child: () => silentLogger,
+        warn: (fields: { event?: string }) => warnings.push(fields.event ?? ""),
+      }),
+    } as unknown as typeof silentLogger;
+    const client = new FakeTranscriptionClient();
+    const terms = Array.from({ length: 200 }, (_, i) => `Term${String(i).padStart(3, "0")}`);
+
+    await runTranscribeJob(
+      transcribePayload({ vocabulary: terms }),
+      0,
+      deps({ transcription: client, logger }),
+    );
+
+    const prompt = client.requests[0]?.prompt as string;
+    expect(prompt).toContain("Term000");
+    expect(prompt).not.toContain("Term199");
+    expect(warnings).toContain("transcription.vocabulary_over_budget");
+  });
+
   it("sends a full-sized vocabulary whole, because the backend would silently trim it", async () => {
     // faster-whisper keeps only the tail of an over-long prompt and says nothing. The caps exist
     // so that never happens; this holds the assembled worst case to what the backend will keep.

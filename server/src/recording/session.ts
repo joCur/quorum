@@ -898,11 +898,19 @@ export class RecordingSessionHandler {
    * The language is this meeting's own choice, and the user's default when the meeting made none.
    * The vocabulary has no per-meeting counterpart — it is the user's list as it stands right now.
    *
-   * Both are resolved here, when the recording is handed over, rather than when the job runs — a
-   * retry an hour later must transcribe what was asked for at the time, not what the user has
-   * changed since. The remaining links of the language chain, the deployment default and
-   * autodetect, belong to the worker: `WHISPER_LANGUAGE` is its configuration, and ADR-005 keeps
-   * the shape of the transcription request on the side that makes it.
+   * Both are resolved here, when the recording is handed over, rather than when the job runs, so
+   * that a *redelivery* of the enqueued job — a worker crash, a queue retry — transcribes what was
+   * asked for at the time rather than what the user has changed since.
+   *
+   * THAT IS NOT A UNIVERSAL RULE, AND THE ASYMMETRY IS DELIBERATE. A retry the user asks for goes
+   * through the API's transcription routes, which re-reads the vocabulary but *not* the language.
+   * A changed language would decode the whole recording as the wrong thing; a changed vocabulary
+   * only biases, and editing the list is precisely how a user fixes a term the failed attempt got
+   * wrong. Do not "fix" one of these into the other — see the matching note there.
+   *
+   * The remaining links of the language chain, the deployment default and autodetect, belong to
+   * the worker: `WHISPER_LANGUAGE` is its configuration, and ADR-005 keeps the shape of the
+   * transcription request on the side that makes it.
    *
    * A preference that cannot be read is no reason to lose a recording. The audio is already
    * safe at this point, and a meeting transcribed with a link of the chain missing, or with no

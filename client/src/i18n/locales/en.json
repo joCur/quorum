@@ -15,8 +15,8 @@
     "error": "Sign-in did not complete. Please try again.",
     "errorDeclined": "Sign-in was cancelled at the sign-in provider. Try again when you are ready.",
     "sessionExpired": "Your session ended. Sign in again to continue where you left off.",
-    "settingUp": "Setting up your workspace…",
-    "setupFailed": "Your workspace could not be set up. This usually passes — try again in a moment."
+    "settingUp": "Setting up your workspace\u2026",
+    "setupFailed": "Your workspace could not be set up. This usually passes \u2014 try again in a moment."
   },
   "landing": {
     "hero": {

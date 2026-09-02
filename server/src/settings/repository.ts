@@ -1,13 +1,6 @@
 import postgres from "postgres";
 import type { UserSettings, UserSettingsUpdate } from "@quorum/shared";
-import {
-  MAX_VOCABULARY_TERMS,
-  MAX_VOCABULARY_TERM_LENGTH,
-  UserSettingsSchema,
-  VOCABULARY_CHARACTER_BUDGET,
-  normalizeVocabulary,
-  vocabularyCharacterCount,
-} from "@quorum/shared";
+import { UserSettingsSchema, capVocabulary, normalizeVocabulary } from "@quorum/shared";
 
 /**
  * Persistence for the preferences that belong to a user (ADR-001: read and written under the
@@ -216,21 +209,8 @@ function parseSettings(row: SettingsRow | undefined): UserSettings {
     transcriptionLanguage: language.success ? language.data : null,
     // A list that no longer fits the caps is trimmed to what does rather than dropped: the terms
     // that survive still bias the transcription, and the screen shows exactly what will be sent.
-    vocabulary: vocabulary.success ? vocabulary.data : trimVocabulary(row?.vocabulary ?? []),
+    vocabulary: vocabulary.success ? vocabulary.data : capVocabulary(row?.vocabulary ?? []).kept,
   };
-}
-
-/** The longest prefix of a stored list that the current caps allow. */
-function trimVocabulary(stored: readonly string[]): string[] {
-  const kept: string[] = [];
-  for (const term of normalizeVocabulary(stored)) {
-    const next = [...kept, term];
-    if (next.length > MAX_VOCABULARY_TERMS) break;
-    if (vocabularyCharacterCount(next) > VOCABULARY_CHARACTER_BUDGET) break;
-    if (term.length > MAX_VOCABULARY_TERM_LENGTH) continue;
-    kept.push(term);
-  }
-  return kept;
 }
 
 /** The table has not been created yet, or it predates the column this store writes. */

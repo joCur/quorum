@@ -78,7 +78,11 @@ export interface JobPayloadScope {
  */
 export interface TranscribeJobPayload extends JobPayloadScope {
   language: string | null;
-  /** The user's custom vocabulary at recording time, for the same reason `language` is here. */
+  /**
+   * The user's custom vocabulary at recording time. Like `language` it is snapshotted so a
+   * redelivery is reproducible — but unlike `language` it is re-read for a user-requested retry;
+   * the transcription routes explain why.
+   */
   vocabulary: string[];
 }
 

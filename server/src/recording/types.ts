@@ -199,9 +199,12 @@ export interface JobQueue {
      */
     language: string | null;
     /**
-     * The user's custom vocabulary as it stood when the recording was handed over. Resolved here
-     * for the same reason as the language: a job retried later must bias towards what was
-     * configured at recording time, not towards a list that has been edited since.
+     * The user's custom vocabulary as it stood when the recording was handed over, so a
+     * redelivery of this job biases towards what was configured at recording time.
+     *
+     * A retry the *user* asks for deliberately does not: it re-reads the list, because editing it
+     * is how a user fixes a term the failed attempt got wrong. The language is the other way
+     * round. Both asymmetries are explained where the retry is built, in the transcription routes.
      */
     vocabulary: string[];
   }): Promise<void>;

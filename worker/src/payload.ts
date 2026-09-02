@@ -2,6 +2,14 @@ import { z } from "zod";
 import { JobSchema } from "@quorum/shared";
 import { JobError } from "./errors.js";
 
+/**
+ * Absolute bounds on the vocabulary a payload may carry — an order of magnitude above the product
+ * cap, so a version skew between the API and this worker degrades through the prompt builder
+ * rather than dead-lettering the job. See the field's own comment.
+ */
+const SANE_TERM_COUNT = 500;
+const SANE_TERM_LENGTH = 200;
+
 /** Queue name the recording endpoint enqueues on (ADR-006 §3). */
 export const TRANSCRIBE_QUEUE = "transcribe";
 
@@ -24,6 +32,9 @@ export const TranscribeJobPayloadSchema = z.object({
    * meeting's own choice, or the user's default when the meeting made none. `auto` asks for
    * detection; `null` — and an absent field, which is what a job enqueued before this existed
    * looks like — leaves the deployment default and then autodetect to this side.
+   *
+   * Unlike the vocabulary below, this is re-resolved from the session record even for a retry the
+   * user asks for: a language changed since the recording would decode it as the wrong thing.
    */
   language: z.string().nullable().default(null),
   /**
@@ -31,11 +42,19 @@ export const TranscribeJobPayloadSchema = z.object({
    * normalized and capped by the API side. Absent — which is what a job enqueued before this
    * existed looks like — is the same as an empty list.
    *
-   * Like `language`, it travels in the payload rather than being looked up when the job runs: a
-   * retry an hour later biases towards the terms that were configured at recording time, not
-   * towards a list the user has since edited.
+   * It travels in the payload rather than being looked up when the job runs, so that a redelivery
+   * of *this* job — a crash, a queue retry — biases towards what was configured when the recording
+   * was made. A retry the user asks for is deliberately different: see the note in the API's
+   * transcription routes.
+   *
+   * THE BOUNDS HERE ARE SANITY, NOT THE PRODUCT CAP. They are far above
+   * `MAX_VOCABULARY_TERMS` on purpose. The real caps live in `shared/src/vocabulary.ts` and are
+   * enforced where terms are entered; repeating them here would dead-letter a perfectly good
+   * recording whenever a newer API stores a wider list than this worker knows about, which is a
+   * worse outcome than sending a few terms too many. What these bounds do is keep a malformed or
+   * hostile payload from being unbounded work, and `buildVocabularyPrompt` trims the rest loudly.
    */
-  vocabulary: z.array(z.string()).default([]),
+  vocabulary: z.array(z.string().max(SANE_TERM_LENGTH)).max(SANE_TERM_COUNT).default([]),
 });
 
 export type TranscribeJobPayload = z.infer<typeof TranscribeJobPayloadSchema>;

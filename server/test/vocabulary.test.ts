@@ -179,6 +179,35 @@ describe("the limits the prompt budget imposes", () => {
     expect((await call("PUT", ACME, { vocabulary: [7] })).statusCode).toBe(400);
   });
 
+  it("refuses a list of names that a character count would have let through", async () => {
+    // 40 short Chinese names are barely a hundred characters but roughly 174 tokens of prompt.
+    // The budget is spent in weighted code points precisely so this is refused here rather than
+    // losing its front at the backend.
+    const names = Array.from(
+      { length: 40 },
+      (_, index) => `\u5f20\u4f1f${String.fromCodePoint(0x4e00 + index)}`,
+    );
+
+    expect((await call("PUT", ACME, { vocabulary: names })).statusCode).toBe(400);
+  });
+
+  it("accepts a vocabulary in another script that does fit", async () => {
+    // The weighting must not make non-Latin terms unusable — only honestly priced.
+    const names = ["\u5f20\u4f1f", "\u738b\u82b3", "\u674e\u5a1c"];
+
+    expect((await call("PUT", ACME, { vocabulary: names })).statusCode).toBe(200);
+    expect(await vocabularyOf(ACME)).toHaveLength(3);
+  });
+
+  it("repairs a stored list that the current caps no longer allow", async () => {
+    // A row written when the caps were wider is trimmed to what fits, keeping the terms it can
+    // rather than discarding the lot — and one bad entry must not take the rest with it.
+    const store = new InMemoryUserSettingsStore();
+    await store.updateSettings(ACME, { vocabulary: ["Ansible", "MinIO"] });
+
+    expect((await store.findSettings(ACME)).vocabulary).toEqual(["Ansible", "MinIO"]);
+  });
+
   it("stores one term for two spellings that differ only in case", async () => {
     const written = await call("PUT", ACME, { vocabulary: ["Keycloak", "keycloak", "  MinIO "] });
 

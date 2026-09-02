@@ -3,12 +3,15 @@ import {
   MAX_VOCABULARY_TERMS,
   MAX_VOCABULARY_TERM_LENGTH,
   TRANSCRIPTION_PROMPT_TOKEN_BUDGET,
-  VOCABULARY_CHARACTER_BUDGET,
+  VOCABULARY_PROMPT_BUDGET,
   VocabularySchema,
+  buildVocabularyPrompt,
   canAddVocabularyTerm,
+  capVocabulary,
+  codePointCost,
   normalizeVocabulary,
-  vocabularyCharacterCount,
   vocabularyPrompt,
+  vocabularyPromptCost,
 } from "../src/vocabulary.js";
 
 describe("normalizing a vocabulary", () => {
@@ -41,11 +44,11 @@ describe("normalizing a vocabulary", () => {
 });
 
 describe("the caps derived from the prompt budget", () => {
-  it("counts the characters the assembled list actually occupies", () => {
+  it("counts what the assembled list actually costs", () => {
     // Separators are charged for, because they are what the backend has to tokenize too.
-    expect(vocabularyCharacterCount([])).toBe(0);
-    expect(vocabularyCharacterCount(["abc"])).toBe(3);
-    expect(vocabularyCharacterCount(["abc", "de"])).toBe(7);
+    expect(vocabularyPromptCost([])).toBe(0);
+    expect(vocabularyPromptCost(["abc"])).toBe(3);
+    expect(vocabularyPromptCost(["abc", "de"])).toBe(7);
   });
 
   it("accepts a full-length list of ordinary terms", () => {
@@ -63,7 +66,7 @@ describe("the caps derived from the prompt budget", () => {
     // list of short ones, which is why the character budget exists at all.
     const long = "A".repeat(MAX_VOCABULARY_TERM_LENGTH);
     const terms = Array.from({ length: 20 }, (_, index) => `${long.slice(1)}${index}`);
-    expect(vocabularyCharacterCount(terms)).toBeGreaterThan(VOCABULARY_CHARACTER_BUDGET);
+    expect(vocabularyPromptCost(terms)).toBeGreaterThan(VOCABULARY_PROMPT_BUDGET);
     expect(VocabularySchema.safeParse(terms).success).toBe(false);
   });
 
@@ -73,13 +76,152 @@ describe("the caps derived from the prompt budget", () => {
     );
   });
 
-  it("keeps the character budget inside the token budget it was derived from", () => {
-    // The budget was measured against the tokenizer the serving backend uses; the worst corpus
-    // tried landed at 207 tokens. This guards the arithmetic that relates the two numbers, so a
-    // later widening of the character budget cannot silently outgrow the prompt window.
-    const CONSERVATIVE_CHARS_PER_TOKEN = 2;
-    expect(VOCABULARY_CHARACTER_BUDGET / CONSERVATIVE_CHARS_PER_TOKEN).toBeLessThanOrEqual(
+  it("keeps the budget inside the token window it was derived from", () => {
+    // One unit is calibrated to the worst measured Latin corpus, 0.53 tokens per code point, and
+    // the weights price every other script to that same figure. This guards the arithmetic tying
+    // the two numbers together, so widening the budget cannot silently outgrow the prompt window.
+    const WORST_TOKENS_PER_UNIT = 0.53;
+    expect(VOCABULARY_PROMPT_BUDGET * WORST_TOKENS_PER_UNIT).toBeLessThanOrEqual(
       TRANSCRIPTION_PROMPT_TOKEN_BUDGET,
+    );
+  });
+});
+
+describe("counting a budget that other scripts cannot escape", () => {
+  it("counts a Latin code point as one unit", () => {
+    expect(codePointCost("Keycloak")).toBe(8);
+    // Accented Latin is still Latin: the corpora the budget was calibrated on are full of it.
+    expect(codePointCost("Ärger")).toBe(5);
+  });
+
+  it("charges an ideographic code point five units", () => {
+    // Measured: Chinese names cost 1.45 tokens per code point against 0.53 for the worst Latin
+    // corpus. Counting them as one unit each would let a list pass every cap and still overflow
+    // the prompt window — a 40-name list is 253 tokens priced at three, and 201 priced at five.
+    expect(codePointCost("张伟")).toBe(10);
+    expect(codePointCost("회의록")).toBe(15);
+  });
+
+  it("charges other alphabetic scripts two units, not five", () => {
+    // Greek and Cyrillic measured as cheap as Latin. Pricing them like Chinese would push an
+    // ordinary word past the per-term cap and make those vocabularies unusable for no reason.
+    expect(codePointCost("И")).toBe(2);
+    expect(codePointCost("συνεδρίαση")).toBe(20);
+    expect(VocabularySchema.safeParse(["προϋπολογισμός", "Παπαδόπουλος"]).success).toBe(true);
+  });
+
+  it("counts an astral character once, not twice", () => {
+    // `String.length` says 2 for a surrogate pair, which would undercount exactly the characters
+    // that are most expensive to tokenize.
+    expect("🚀".length).toBe(2);
+    expect(codePointCost("🚀")).toBe(5);
+  });
+
+  it("refuses a list of names that would fit as characters but not as tokens", () => {
+    // 40 three-character Chinese names are 120 characters — trivially inside a character budget of
+    // 420, and roughly 174 tokens of prompt on their own. This is the case the weighting exists
+    // for: the list is refused rather than silently losing its front at the backend.
+    const names = Array.from(
+      { length: 40 },
+      (_, index) => `张伟${String.fromCodePoint(0x4e00 + index)}`,
+    );
+    expect(names.join(", ").length).toBeLessThan(VOCABULARY_PROMPT_BUDGET);
+    expect(VocabularySchema.safeParse(names).success).toBe(false);
+  });
+
+  it("measures a term's own length in the same weighted units", () => {
+    // Otherwise one entry could buy three times the room simply by being written in another
+    // script, which is the same hole one level down.
+    const twelve = "张".repeat(12);
+    expect(twelve.length).toBeLessThanOrEqual(MAX_VOCABULARY_TERM_LENGTH);
+    expect(VocabularySchema.safeParse([twelve]).success).toBe(false);
+    // Eight is still a long name in an ideographic script, so the cap stays usable.
+    expect(VocabularySchema.safeParse(["张".repeat(8)]).success).toBe(true);
+  });
+});
+
+describe("pinning the locale, so both sides agree", () => {
+  it("folds case the same way whatever locale the host runs under", () => {
+    // Under a Turkish locale `toLocaleLowerCase` turns "MINIO" into "mınio" with a dotless i. The
+    // browser would then accept the duplicate and the server would fold it away, and the term
+    // would silently never appear.
+    expect("MINIO".toLocaleLowerCase("tr")).not.toBe("minio");
+    expect(canAddVocabularyTerm(["MinIO"], "MINIO")).toEqual({ ok: false, reason: "duplicate" });
+    expect(normalizeVocabulary(["MINIO", "MinIO"])).toEqual(["MINIO"]);
+  });
+
+  it("sorts by a pinned collator rather than by the host's", () => {
+    // The screen and the prompt have to be the same order, and they run in different processes
+    // under different locales.
+    expect(normalizeVocabulary(["Zoom", "Ärger", "Arbeit"])).toEqual(["Arbeit", "Ärger", "Zoom"]);
+  });
+});
+
+describe("capping a list that got past the caps", () => {
+  it("keeps everything and drops nothing when the list is already legal", () => {
+    expect(capVocabulary(["MinIO", "Ansible"])).toEqual({
+      kept: ["Ansible", "MinIO"],
+      dropped: [],
+    });
+  });
+
+  it("skips an over-long term and keeps going", () => {
+    // The bug this replaces stopped at the first offender, so one legacy entry early in sort
+    // order discarded every valid term after it.
+    const tooLong = `A${"a".repeat(MAX_VOCABULARY_TERM_LENGTH)}`;
+    const { kept, dropped } = capVocabulary([tooLong, "MinIO", "Ansible"]);
+
+    expect(kept).toEqual(["Ansible", "MinIO"]);
+    expect(dropped).toEqual([tooLong]);
+  });
+
+  it("keeps a later term that still fits after a big one did not", () => {
+    // The budget check has to skip rather than stop: a short term further down the list can fit
+    // in the room the rejected one would have taken.
+    // Ten fillers spend 398 of the 420 units, leaving room for a two-unit term but not a
+    // forty-unit one.
+    const big = "B".repeat(MAX_VOCABULARY_TERM_LENGTH);
+    const filler = Array.from({ length: 10 }, (_, index) => `${"A".repeat(37)}${index}`);
+    const { kept } = capVocabulary([...filler, big, "zz"]);
+
+    expect(kept).toContain("zz");
+    expect(kept).not.toContain(big);
+  });
+
+  it("keeps the front of an over-long list and reports the tail", () => {
+    // Front, not tail: the backend's own trim keeps the tail, so degrading the same way would be
+    // no improvement. Alphabetical order at least makes it predictable.
+    const terms = Array.from(
+      { length: MAX_VOCABULARY_TERMS + 5 },
+      (_, i) => `Term${String(i).padStart(2, "0")}`,
+    );
+    const { kept, dropped } = capVocabulary(terms);
+
+    expect(kept).toHaveLength(MAX_VOCABULARY_TERMS);
+    expect(kept[0]).toBe("Term00");
+    expect(dropped).toHaveLength(5);
+  });
+});
+
+describe("the prompt builder's last line of defense", () => {
+  it("reports nothing dropped for a list within the caps", () => {
+    expect(buildVocabularyPrompt(["MinIO", "Ansible"])).toEqual({
+      prompt: "Ansible, MinIO.",
+      dropped: [],
+    });
+  });
+
+  it("trims a list that should never have reached it, and says what it lost", () => {
+    // A schema regression, a newer API against an older worker, a hand-enqueued job: the prompt
+    // must not silently lose its head at the backend, so it is trimmed here and reported.
+    const terms = Array.from({ length: 200 }, (_, i) => `Term${String(i).padStart(3, "0")}`);
+    const { prompt, dropped } = buildVocabularyPrompt(terms);
+
+    expect(prompt).toContain("Term000");
+    expect(prompt).not.toContain("Term199");
+    expect(dropped.length).toBeGreaterThan(0);
+    expect(vocabularyPromptCost((prompt as string).split(", "))).toBeLessThanOrEqual(
+      VOCABULARY_PROMPT_BUDGET + 1,
     );
   });
 });
@@ -159,6 +301,6 @@ describe("assembling the transcription prompt", () => {
     );
     const prompt = vocabularyPrompt(terms) as string;
     for (const term of terms) expect(prompt).toContain(term);
-    expect(prompt.length).toBeLessThanOrEqual(VOCABULARY_CHARACTER_BUDGET + 1);
+    expect(prompt.length).toBeLessThanOrEqual(VOCABULARY_PROMPT_BUDGET + 1);
   });
 });

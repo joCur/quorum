@@ -211,6 +211,14 @@ const transcriptionRoutesImpl: FastifyPluginAsync<TranscriptionRoutesOptions> = 
  * next attempt to know a term the last one got wrong. Retrying with the current list is what
  * makes that work.
  *
+ * THE ASYMMETRY IS THE POINT, AND IT IS EASY TO MISREAD. Both values are snapshotted into the job
+ * payload when a recording is handed over, so that a *redelivery* of that job — a crash, a queue
+ * retry — reproduces what was asked for then. That is a different question from what a *user*
+ * asking to retry should get, and only here are the two allowed to diverge: the language is
+ * re-derived from the session record, the vocabulary from the user's settings. The snapshot sites
+ * (`recording/session.ts`, `recording/types.ts`, the worker's `payload.ts`) carry a note pointing
+ * here; do not reconcile one side into the other without changing all four.
+ *
  * A lookup that fails costs the preference, not the retry. The remaining links of the language
  * chain — the deployment default, then autodetect — are the worker's (ADR-005), so a retry with
  * one link missing still produces a transcript.

@@ -190,7 +190,9 @@ function VocabularySection({ settings }: { settings: UserSettingsState }) {
     // is built from, and leaving it in the field invites a second, duplicate submission.
     setDraft("");
     void settings.saveVocabulary([...terms, attempt.term]).catch(() => {
-      setDraft(attempt.term);
+      // Only if the field is still empty. A slow save that fails after the user has started
+      // typing the next term must not overwrite what they are in the middle of.
+      setDraft((current) => (current === "" ? attempt.term : current));
       notify.failure(t("settings.vocabulary.saveFailed"));
     });
   }

@@ -1,4 +1,4 @@
-import { transcriptionLanguageRequest, vocabularyPrompt, type Job } from "@quorum/shared";
+import { buildVocabularyPrompt, transcriptionLanguageRequest, type Job } from "@quorum/shared";
 import type { AudioSource } from "./storage/audio-source.js";
 import type { TranscriptionClient } from "./whisper/client.js";
 import type { TranscriptRepository } from "./db/repository.js";
@@ -109,9 +109,17 @@ export async function runTranscribeJob(
     // deployment's default. `undefined` means the backend detects it (ADR-005 keeps the shape of
     // the request here, which is why the deployment default is applied here and not at enqueue).
     const language = transcriptionLanguageRequest(payload.language, deps.language);
-    // The vocabulary is already normalized and capped by the side that stored it; this only turns
-    // the list into the prompt string, and into nothing at all when the list is empty.
-    const prompt = vocabularyPrompt(payload.vocabulary);
+    // The vocabulary should already be within the caps — the settings screen and the API both
+    // enforce them. Assembling it here caps it once more because this is the last point before a
+    // backend that would trim an over-long prompt silently, and from the front. Anything dropped
+    // is a defect upstream rather than a user's doing, so it is said out loud.
+    const { prompt, dropped } = buildVocabularyPrompt(payload.vocabulary);
+    if (dropped.length > 0) {
+      log.warn(
+        { event: "transcription.vocabulary_over_budget", dropped: dropped.length },
+        "the vocabulary in the job payload exceeded the prompt budget; the terms that did not fit were left out",
+      );
+    }
     const response = await deps.transcription.transcribe({
       audio,
       filename: descriptor.filename,
