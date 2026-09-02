@@ -129,6 +129,12 @@ that replaces the chunk objects.
 - The remux is **lossless repackaging only** — stream copy, never a re-encode. Machine output stays
   immutable in the sense ADR-003 means it: the audio is bit-identical, only the container's
   bookkeeping is rewritten.
+- The repackaging is done by **a remuxer written into the pipeline, not by an external binary**.
+  The operation is a few hundred lines against a container this product produces itself, and the
+  end-to-end runner starts the worker as an ordinary host process — so a native dependency would
+  have to be installed on every developer machine and every CI runner before the suite could run
+  at all, on top of being carried in three images. Neither cost buys anything the in-process pass
+  does not already do.
 - **Reattach must refuse a session that has a manifest.** Today `attach` rebuilds `persistedSeq`
   from a chunk listing, and an empty listing yields `-1`. Once chunks can legitimately be gone, a
   late reconnect to a finalized session would look like a recording that never stored anything and
@@ -139,6 +145,32 @@ Only the container is in scope here. Switching the client from the whole-file bl
 `<audio>` source needs a short-lived scoped playback token, because a media element cannot carry an
 `Authorization` header and a presigned storage URL is ruled out by ADR-001. That is a separate
 decision; this one is its precondition.
+
+## What the verification can and cannot be held to
+
+The first draft of this decision named three checks on the staged artifact: a Cues element, a
+Duration, and a duration matching the one the transcription reported. The first two stand. **The
+third is unsound and is not part of the decision.**
+
+The transcription backend reports the length of what it *decoded*, and the silence filter is on by
+default — so for a recording with long quiet stretches, the speech is honestly far shorter than the
+container. Refusing on that gap would discard good repackagings of exactly the recordings the
+filter exists for. The comparison is worth logging and worth nothing as a verdict.
+
+What replaces it has to be independent of the parser that produced the artifact, because the
+failure being guarded against is that parser going wrong. A parser that drops half a recording
+produces a file of plausible size that opens cleanly and reports the reduced figure as its own
+answer; a check that asked it how many clusters it wrote would agree with itself. So the artifact
+is held to a count taken from the *source* bytes by a scan that shares no code with the parser, and
+the same scan is run over the artifact as it reads back out of storage. The two must agree exactly
+before a single chunk object is deleted.
+
+The same reasoning settles what happens when the parser cannot read its input to the end. A walk
+that stops early has read part of a recording, and repackaging part of one and then deleting the
+rest is the single outcome this decision must never produce. Stopping early is therefore an error
+that keeps the chunks, not a shorter file — with one exception, an element at the very end whose
+header is intact and whose body is cut short, which is what a crash between two chunk writes
+leaves behind and which is real audio up to the cut.
 
 ## Consequences
 
@@ -154,10 +186,16 @@ decision; this one is its precondition.
 - A recording exists in two shapes for a while: chunk objects until the pipeline has been through
   it, one object afterwards. Both readers must handle both, and the E2E coverage of the core path
   and of deletion has to assert both shapes rather than only the one it happens to catch.
-- The pipeline depends on a remuxing tool. Stream-copy WebM remuxing is a small, well-specified
-  operation and a dedicated EBML pass in the worker is a plausible alternative to a binary
-  dependency; which of the two to build is an implementation question, not a decision this ADR
-  needs to make.
+- Nothing new has to be installed anywhere. The remuxer is part of the worker, so the images, the
+  compose files and the end-to-end runner are unchanged by this decision.
+- The remuxer reads WebM. A recording in another container — Ogg, or the fragmented MP4 a Safari
+  recorder produces — is left in the shape it already plays in, and so is a stream carrying a
+  video track, which nothing here records. Each of those is a recording that keeps its chunk
+  objects and its `Infinity` duration.
+- A recording that arrives as two concatenated streams, which is what a recorder restarted
+  mid-session produces, is refused rather than repackaged. Merging two timelines is a different
+  problem from repackaging one, and swallowing the second stream as payload would lose half a
+  meeting.
 - Recordings finalized before this lands keep their chunk objects and keep playing. Whether they
   are converted by a backfill or simply left alone is a follow-up question, not part of this
   decision.
