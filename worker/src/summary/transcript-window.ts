@@ -56,18 +56,28 @@ function timestamp(seconds: number): string {
 
 /**
  * One line per segment: a timestamp, the speaker if diarization has named one,
- * and the text. `editedText` wins over `text` where a user has corrected the
- * machine output — the overlay of ADR-003 §2 is the better source, and reading
- * it here does not violate the immutability of `text`.
+ * and the machine's own text.
+ *
+ * THE OVERLAY IS DELIBERATELY NOT READ HERE. User corrections live in a table
+ * the API server owns, which this package cannot see (ADR-011 §1) — and the two
+ * `edited*` fields inside a stored transcript document are not a second source
+ * of truth: ADR-011 §3 makes the rows the only one, so a segment with no row
+ * reads as uncorrected however the document was written. Honoring them here
+ * would make the pipeline disagree with the API about what a transcript says,
+ * and only for documents old enough to carry them — the worst kind of
+ * disagreement to own.
+ *
+ * A summary in this cut is therefore always written from the original wording.
+ * That is not a gap being papered over: it is what the meeting screen tells the
+ * reader as soon as the transcript carries any correction.
  *
  * Returns `null` for a segment with no words in it; silence should not cost
  * tokens.
  */
 export function renderSegment(segment: Segment, speakerLabels: Map<string, string>): string | null {
-  const body = (segment.editedText ?? segment.text).trim();
+  const body = segment.text.trim();
   if (body.length === 0) return null;
-  const speakerId = segment.editedSpeakerId ?? segment.speakerId;
-  const speaker = speakerId ? speakerLabels.get(speakerId) : undefined;
+  const speaker = segment.speakerId ? speakerLabels.get(segment.speakerId) : undefined;
   return `[${timestamp(segment.start)}]${speaker ? ` ${speaker}:` : ""} ${body}`;
 }
 

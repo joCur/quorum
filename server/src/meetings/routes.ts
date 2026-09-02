@@ -1,11 +1,26 @@
 import { Readable } from "node:stream";
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
 import { z } from "zod";
-import { RenameMeetingRequestSchema, type MeetingDetail, type MeetingList } from "@quorum/shared";
+import {
+  normalizeSegmentOverlay,
+  RenameMeetingRequestSchema,
+  SetSegmentCorrectionRequestSchema,
+  type MeetingDetail,
+  type MeetingList,
+  type Segment,
+  type SegmentCorrectionResponse,
+  type Transcript,
+} from "@quorum/shared";
 import type { RecordingStorage } from "../recording/types.js";
 import { audioContentType, audioLayout, resolveRange, slicesForRange } from "./audio.js";
-import { DEFAULT_MEETING_LIMIT, MAX_MEETING_LIMIT, type MeetingStore } from "./repository.js";
+import {
+  DEFAULT_MEETING_LIMIT,
+  MAX_MEETING_LIMIT,
+  type CorrectionOutcome,
+  type MeetingScope,
+  type MeetingStore,
+} from "./repository.js";
 
 export interface MeetingRoutesOptions {
   store: MeetingStore;
@@ -24,6 +39,10 @@ const ListQuerySchema = z.object({
 
 const MeetingParamsSchema = z.object({
   meetingId: z.string().uuid(),
+});
+
+const SegmentParamsSchema = MeetingParamsSchema.extend({
+  segmentId: z.string().uuid(),
 });
 
 /**
@@ -115,6 +134,83 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
       renamed.title === null ? "cleared a meeting's name" : "renamed a meeting",
     );
     return renamed;
+  });
+
+  /**
+   * Correcting one transcript segment, and taking the correction back off (ADR-003 §2, ADR-011).
+   *
+   * PUT rather than PATCH: the request carries the whole overlay, both fields always present, and
+   * writing it twice with the same body leaves the same single row. `DELETE` is the reset — it
+   * removes the row, and the machine output underneath was never touched, so the original comes
+   * back without anything having had to keep a copy of it.
+   *
+   * Everything is decided against the *active* transcript: a segment id from an older one is not a
+   * segment of this meeting today, and is a 404 like any other id the caller has no business with.
+   */
+  const correctionPath = `${prefix}/:meetingId/transcript/segments/:segmentId/correction`;
+
+  app.put(correctionPath, async (request, reply) => {
+    const context = request.requireContext();
+    const params = SegmentParamsSchema.safeParse(request.params);
+    if (!params.success) return reply.code(404).send(segmentNotFound());
+
+    const input = SetSegmentCorrectionRequestSchema.safeParse(request.body);
+    if (!input.success) {
+      return reply.code(400).send({
+        error: "invalid_request",
+        message: "This correction could not be read.",
+      });
+    }
+
+    const scope = { tenantId: context.tenantId, userId: context.userId };
+    const target = await findSegment(options.store, scope, params.data);
+    if (!target) return reply.code(404).send(segmentNotFound());
+
+    // A speaker the transcript does not know is a client bug, not a correction: `editedSpeakerId`
+    // references `Transcript.speakers[].id` (ADR-003 §7), and a dangling one would render as no
+    // speaker at all while the segment claimed to be corrected.
+    const requested = input.data.editedSpeakerId;
+    if (requested !== null && !target.transcript.speakers.some((one) => one.id === requested)) {
+      return reply.code(400).send({
+        error: "unknown_speaker",
+        message: "This transcript has no such speaker.",
+      });
+    }
+
+    const overlay = normalizeSegmentOverlay(target.segment, input.data);
+    const ref = {
+      meetingId: params.data.meetingId,
+      transcriptId: target.transcript.id,
+      segmentId: params.data.segmentId,
+    };
+    // Typing the machine's own words back in is not a correction, and neither is clearing the
+    // field. Both land here as "no overlay", and storing none is what keeps the corrected marker
+    // and the reset control honest (ADR-011 §2).
+    const outcome =
+      overlay === null
+        ? await options.store.clearSegmentCorrection(scope, ref)
+        : await options.store.setSegmentCorrection(scope, ref, overlay);
+
+    return answerCorrection(request, reply, target.segment, ref, outcome);
+  });
+
+  app.delete(correctionPath, async (request, reply) => {
+    const context = request.requireContext();
+    const params = SegmentParamsSchema.safeParse(request.params);
+    if (!params.success) return reply.code(404).send(segmentNotFound());
+
+    const scope = { tenantId: context.tenantId, userId: context.userId };
+    const target = await findSegment(options.store, scope, params.data);
+    if (!target) return reply.code(404).send(segmentNotFound());
+
+    const ref = {
+      meetingId: params.data.meetingId,
+      transcriptId: target.transcript.id,
+      segmentId: params.data.segmentId,
+    };
+    const outcome = await options.store.clearSegmentCorrection(scope, ref);
+
+    return answerCorrection(request, reply, target.segment, ref, outcome);
   });
 
   /**
@@ -224,6 +320,77 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
     return reply.code(204).send();
   });
 };
+
+/**
+ * Turns what the store did into what the caller is told.
+ *
+ * The response is built from the outcome and never from the request: a write the store refused
+ * must not come back described as one it made. That is not a hypothetical — the transcript can be
+ * replaced by a reprocessing between the read that resolved it and the write, and answering 200
+ * with the requested text would leave the user looking at a correction that is not stored anywhere.
+ *
+ * The two log events are kept apart on purpose: "somebody corrected a passage" and "somebody put a
+ * passage back" are different questions to ask a log, and one event with a boolean makes both
+ * queries awkward.
+ */
+function answerCorrection(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  segment: Segment,
+  ref: { meetingId: string; transcriptId: string; segmentId: string },
+  outcome: CorrectionOutcome,
+): SegmentCorrectionResponse | FastifyReply {
+  if (outcome.kind === "transcript-replaced") {
+    request.log.info(
+      { event: "transcript.segment.correction_stale", ...ref },
+      "refused a correction against a transcript that is no longer the active one",
+    );
+    return reply.code(409).send({
+      error: "transcript_replaced",
+      message: "This meeting has a newer transcript. Reload it and make the correction again.",
+    });
+  }
+
+  const stored = outcome.kind === "stored" ? outcome.correction : null;
+  request.log.info(
+    { event: stored ? "transcript.segment.corrected" : "transcript.segment.reset", ...ref },
+    stored ? "corrected a transcript segment" : "reset a transcript segment",
+  );
+
+  return {
+    segment: {
+      ...segment,
+      editedText: stored?.editedText ?? null,
+      editedSpeakerId: stored?.editedSpeakerId ?? null,
+    },
+  };
+}
+
+/**
+ * The segment a correction is about, inside the meeting's active transcript.
+ *
+ * One lookup answers three questions at once — is this the caller's meeting, does it have a
+ * transcript, and does that transcript contain this segment — and all three failures are the same
+ * 404. Telling them apart would say which meeting ids and which segment ids exist.
+ */
+async function findSegment(
+  store: MeetingStore,
+  scope: MeetingScope,
+  params: { meetingId: string; segmentId: string },
+): Promise<{ transcript: Transcript; segment: Segment } | null> {
+  const found = await store.findMeeting(scope, params.meetingId);
+  const transcript = found?.transcript;
+  if (!transcript) return null;
+  const segment = transcript.segments.find((one) => one.id === params.segmentId);
+  return segment ? { transcript, segment } : null;
+}
+
+function segmentNotFound(): { error: string; message: string } {
+  return {
+    error: "segment_not_found",
+    message: "No such segment exists in this meeting's transcript.",
+  };
+}
 
 function notFound(): { error: string; message: string } {
   return { error: "meeting_not_found", message: "No meeting with this id exists." };

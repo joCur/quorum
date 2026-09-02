@@ -1,4 +1,5 @@
 export * from "./transcript.js";
+export * from "./transcript-correction.js";
 export * from "./recording-protocol.js";
 export * from "./websocket-auth.js";
 export * from "./summary.js";

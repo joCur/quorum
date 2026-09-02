@@ -42,7 +42,12 @@ function meeting(overrides: Partial<Meeting> = {}): Meeting {
 }
 
 function detail(overrides: Partial<Meeting> = {}): MeetingDetail {
-  return { meeting: meeting(overrides), transcript: null, summaries: [], jobs: [] };
+  return {
+    meeting: meeting(overrides),
+    transcript: null,
+    summaries: [],
+    jobs: [],
+  };
 }
 
 function segment(overrides: Partial<Segment> = {}): Segment {
