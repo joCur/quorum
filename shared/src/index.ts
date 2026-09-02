@@ -8,3 +8,5 @@ export * from "./job.js";
 export * from "./meeting.js";
 export * from "./meeting-title.js";
 export * from "./limits.js";
+export * from "./transcription-language.js";
+export * from "./user-settings.js";

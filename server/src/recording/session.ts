@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   ClientMessageSchema,
+  TranscriptionLanguageSchema,
+  resolveTranscriptionLanguage,
   type ClientMessage,
   type LimitErrorCode,
   type ServerMessage,
@@ -27,6 +29,7 @@ import type {
   RecordingContext,
   RecordingStorage,
   SessionRecord,
+  UserPreferences,
 } from "./types.js";
 
 /**
@@ -86,6 +89,12 @@ export interface SessionDeps {
    * still records, it just produces nothing to list.
    */
   meetings?: MeetingRegistry | undefined;
+  /**
+   * The user's defaults, read when a recording is handed to the pipeline. Optional: without one
+   * the transcription language chain simply has one link fewer — the meeting's own choice, and
+   * then whatever the worker is configured with.
+   */
+  preferences?: UserPreferences | undefined;
   /**
    * Where the abuse and cost limits of the acting user come from. Defaults to the static resolver
    * over `DEFAULT_USER_LIMITS`, so an instance that passes nothing is protected rather than
@@ -282,6 +291,7 @@ export class RecordingSessionHandler {
       userId: context.userId,
       meetingTitle: message.meetingTitle,
       summaryTemplateId: message.summaryTemplateId,
+      language: this.transcriptionChoice(message.language),
       audioFormat: message.audioFormat,
       createdAt: this.timestamp(),
       marks: [],
@@ -764,6 +774,7 @@ export class RecordingSessionHandler {
     }
     const newId = this.deps.newId ?? randomUUID;
     const jobId = newId();
+    const language = await this.transcriptionLanguage(session.record);
     try {
       await this.deps.storage.putManifest(session.record, {
         sessionId: session.record.sessionId,
@@ -783,6 +794,7 @@ export class RecordingSessionHandler {
         tenantId: session.record.tenantId,
         userId: session.record.userId,
         sessionId: session.record.sessionId,
+        language,
       });
     } catch (error) {
       this.fail("failed to finalize session", error);
@@ -875,6 +887,65 @@ export class RecordingSessionHandler {
         "failed to index the meeting; the recording continues",
       );
     }
+  }
+
+  /**
+   * The language the transcription job is asked for: this meeting's own choice, and the user's
+   * default when the meeting made none.
+   *
+   * Resolved here, when the recording is handed over, rather than when the job runs — a retry an
+   * hour later must transcribe what was asked for at the time, not what the user has changed
+   * their default to since. The remaining links, the deployment default and autodetect, belong to
+   * the worker: `WHISPER_LANGUAGE` is its configuration, and ADR-005 keeps the shape of the
+   * transcription request on the side that makes it.
+   *
+   * A preference that cannot be read is no reason to lose a recording. The audio is already
+   * safe at this point, and a meeting transcribed with one link of the chain missing is worth
+   * incomparably more than a finalize that fails over a lookup.
+   */
+  private async transcriptionLanguage(record: SessionRecord): Promise<string | null> {
+    let userDefault: string | null = null;
+    try {
+      const settings = await this.deps.preferences?.findSettings({
+        tenantId: record.tenantId,
+        userId: record.userId,
+      });
+      userDefault = settings?.transcriptionLanguage ?? null;
+    } catch (error) {
+      this.log?.warn(
+        { event: "transcription.language_default_unreadable", err: error },
+        "could not read the user's default transcription language; leaving it to the pipeline",
+      );
+    }
+    // Both links go through the chain function rather than through a truthiness check, so a value
+    // that only looks like a statement — a blank string — falls through to the next link here
+    // instead of short-circuiting the chain and then evaporating at the worker.
+    return resolveTranscriptionLanguage(record.language, userDefault);
+  }
+
+  /**
+   * The language a `session.start` claims, kept only when it is one this build offers.
+   *
+   * The protocol schema checks the shape and deliberately not the value: refusing the socket that
+   * carries the audio over a language tag would cost a recording. But an unrecognized tag must not
+   * travel either — it short-circuits the chain, is sent verbatim as the transcription request's
+   * `language`, and then either walks the job into the dead-letter queue on a backend that rejects
+   * it or becomes the transcript's language label on one that quietly ignores it. Dropping it to
+   * "no statement" costs the choice and keeps the recording, and the warning says which tag was
+   * dropped.
+   */
+  private transcriptionChoice(language: string | null): string | null {
+    const stated = language?.trim();
+    // Absent and blank are both "said nothing", and neither is worth a line in the log — only a
+    // client that named something this build cannot honor is.
+    if (!stated) return null;
+    const known = TranscriptionLanguageSchema.safeParse(stated);
+    if (known.success) return known.data;
+    this.log?.warn(
+      { event: "transcription.language_unknown", language },
+      "the recording asked for a language this build does not offer; falling back to the chain",
+    );
+    return null;
   }
 
   private ack(): void {

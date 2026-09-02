@@ -75,11 +75,17 @@ function rejection() {
   };
 }
 
-/** Fixed response in the `verbose_json` shape, with the word timestamps ADR-003 requires. */
-function transcription() {
+/**
+ * Fixed response in the `verbose_json` shape, with the word timestamps ADR-003 requires.
+ *
+ * The language is echoed back from the request the way a real backend does: asked for one, it
+ * reports that one; asked for none, it reports what it "detected". That is what lets a test hold
+ * the pipeline to storing the language the transcription was actually made in.
+ */
+function transcription(fields) {
   return {
     task: "transcribe",
-    language: "en",
+    language: fields?.language ?? "en",
     duration: 4,
     text: "This is a mock transcription produced by the end-to-end suite.",
     segments: [
@@ -213,7 +219,7 @@ const server = createServer((request, response) => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify(transcription()));
+      response.end(JSON.stringify(transcription(lastTranscriptionFields)));
     });
     return;
   }

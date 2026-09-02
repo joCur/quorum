@@ -50,6 +50,11 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   await signIn(devUsers.alice);
   await page.goto("/record");
 
+  // This meeting is held in German, said on the stage before capture starts. Detection reads the
+  // first half minute of audio and guesses wrong on a recording that opens without speech, which
+  // is the failure the per-meeting choice exists to prevent.
+  await page.getByLabel("Spoken language").selectOption("de");
+
   // Consent comes before the microphone, every single time.
   await startRecording(page);
 
@@ -122,6 +127,12 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   if (stackEnv.whisperMode === "mock") {
     const fields = await lastTranscriptionFields();
     expect(fields.vad_filter).toBe("true");
+    // And it asked for the language the stage was showing. This is the whole chain seen from its
+    // far end: a select on the recording screen, through the session record and the job payload,
+    // into the request the worker makes.
+    expect(fields.language).toBe("de");
+    // What the meeting says it is in is what the transcription was made in, not a global default.
+    expect(transcript.language).toBe("de");
   }
 
   // And the user can read both. Everything above is the pipeline seen from behind it; the core

@@ -14,6 +14,15 @@ import { renderWithProviders, stubRecordingSession, useLanguage } from "./render
  */
 const startSpy = vi.hoisted(() => vi.fn());
 
+vi.mock("@/features/settings/use-user-settings", () => ({
+  useUserSettings: () => ({
+    settings: { transcriptionLanguage: null },
+    status: "ready",
+    saving: false,
+    chooseTranscriptionLanguage: async () => undefined,
+  }),
+}));
+
 vi.mock("@/features/templates/use-templates", () => ({
   useTemplates: () => ({
     templates: [],
@@ -86,7 +95,7 @@ describe("choosing what kind of meeting is being recorded", () => {
     await user.click(screen.getByTestId("capture-mode-online"));
     await user.click(startButton());
 
-    expect(startSpy).toHaveBeenCalledWith(null, null, null, "online");
+    expect(startSpy).toHaveBeenCalledWith(null, null, null, "online", null);
   });
 
   it("remembers the mode, because the way someone meets rarely changes by the day", async () => {

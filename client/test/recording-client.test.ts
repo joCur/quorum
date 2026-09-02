@@ -63,7 +63,7 @@ async function harness(
 /** Opens the socket and completes the handshake. */
 async function startSession(context: Harness): Promise<void> {
   const started = context.client.start(
-    { meetingTitle: "Weekly sync", summaryTemplateId: null },
+    { meetingTitle: "Weekly sync", summaryTemplateId: null, language: "de" },
     AUDIO_FORMAT,
   );
   context.factory.latest().open();
@@ -83,6 +83,9 @@ describe("recording client — handshake", () => {
     expect(start).toMatchObject({
       type: "session.start",
       meetingTitle: "Weekly sync",
+      // What the recorder chose before capture travels with the handshake, so the pipeline
+      // transcribes the meeting in the language the screen was showing.
+      language: "de",
       audioFormat: AUDIO_FORMAT,
     });
     expect(context.client.status.sessionId).toBe(SESSION_ID);

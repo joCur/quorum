@@ -39,6 +39,12 @@ export interface SessionRecord {
    * updated: it describes what was asked for at capture time.
    */
   summaryTemplateId: string | null;
+  /**
+   * Language chosen for this meeting before recording started, or `null` when the recorder made
+   * no choice. Written once at `session.start` alongside the template, and never updated, for the
+   * same reason: it describes what was asked for at capture time.
+   */
+  language: string | null;
   audioFormat: AudioFormat;
   createdAt: string;
   /** Wall-clock marks for pause/resume (ADR-002/ADR-003 audio-time mapping). */
@@ -143,6 +149,20 @@ export interface MeetingRegistry {
   ): Promise<AccountUsage>;
 }
 
+/**
+ * The part of the user's preferences the recording endpoint reads.
+ *
+ * Narrow on purpose, like `MeetingRegistry`: the session handler resolves one meeting's
+ * transcription language and has no business seeing, let alone writing, the rest of a user's
+ * settings.
+ */
+export interface UserPreferences {
+  findSettings(scope: {
+    tenantId: string;
+    userId: string;
+  }): Promise<{ transcriptionLanguage: string | null }>;
+}
+
 /** What one recording session has consumed. */
 export interface RecordingUsage {
   /** Bytes of audio persisted for this session. */
@@ -167,6 +187,17 @@ export interface JobQueue {
     tenantId: string;
     userId: string;
     sessionId: string;
+    /**
+     * Language to transcribe in, as far as this side of the system can say: the meeting's own
+     * choice, or the user's default when the meeting made none. `null` leaves the remaining links
+     * of the chain — the deployment default, then autodetect — to the worker, which is where that
+     * configuration lives (ADR-005).
+     *
+     * It travels in the payload rather than being looked up when the job runs, so a job that is
+     * retried an hour later transcribes what was asked for at the time and not what the user has
+     * since changed their default to.
+     */
+    language: string | null;
   }): Promise<void>;
   /**
    * Asks for a summary of an existing transcript — the "Regenerate" action.

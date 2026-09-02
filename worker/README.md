@@ -208,7 +208,7 @@ Four tables, created with `CREATE TABLE IF NOT EXISTS` under an advisory lock on
 | `WHISPER_API_KEY`            | unset                       | Bearer token; self-hosted backends need none                  |
 | `WHISPER_MODEL_AUTO_INSTALL` | `true`                      | Install `WHISPER_MODEL` on the backend before consuming jobs  |
 | `WHISPER_MODEL_INSTALL_TIMEOUT_MS` | `2700000`             | Budget for waiting on the backend plus that download          |
-| `WHISPER_LANGUAGE`           | unset                       | BCP-47 hint; unset means the backend detects the language     |
+| `WHISPER_LANGUAGE`           | unset                       | Fallback BCP-47 hint, below the meeting's and the user's choice |
 | `WHISPER_VAD_FILTER`         | `true`                      | Send `vad_filter=true`; silence is skipped, not transcribed   |
 | `WHISPER_TIMEOUT_MS`         | `1800000`                   | Whole-request timeout for one transcription                   |
 | `SUMMARY_BASE_URL`           | `https://openrouter.ai/api/v1` | OpenAI-compatible chat base URL, including `/v1`           |

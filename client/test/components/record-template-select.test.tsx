@@ -13,6 +13,15 @@ import { renderWithProviders, stubRecordingSession, useLanguage } from "./render
 const templatesState = vi.hoisted(() => ({ current: null as TemplatesState | null }));
 const startSpy = vi.hoisted(() => vi.fn());
 
+vi.mock("@/features/settings/use-user-settings", () => ({
+  useUserSettings: () => ({
+    settings: { transcriptionLanguage: null },
+    status: "ready",
+    saving: false,
+    chooseTranscriptionLanguage: async () => undefined,
+  }),
+}));
+
 vi.mock("@/features/templates/use-templates", () => ({
   useTemplates: () => templatesState.current,
 }));
@@ -141,7 +150,7 @@ describe("record screen template choice", () => {
     // The template travels as an explicit id rather than as "send nothing", the prefilled default
     // included: what the screen showed when the recording started is what the summary is made
     // with, even if the default changes afterwards.
-    expect(startSpy).toHaveBeenCalledWith("Weekly sync", MINE, null, "in-person");
+    expect(startSpy).toHaveBeenCalledWith("Weekly sync", MINE, null, "in-person", null);
   });
 
   it("sends no template when the user has none to choose from", async () => {
@@ -156,6 +165,6 @@ describe("record screen template choice", () => {
     );
 
     // Nothing was shown, so nothing is claimed; the server applies its own default.
-    expect(startSpy).toHaveBeenCalledWith(null, null, null, "in-person");
+    expect(startSpy).toHaveBeenCalledWith(null, null, null, "in-person", null);
   });
 });

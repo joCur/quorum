@@ -17,6 +17,15 @@ import { renderWithProviders, stubRecordingSession, useLanguage } from "./render
  * is which screen shows what, for a session in a given phase.
  */
 
+vi.mock("@/features/settings/use-user-settings", () => ({
+  useUserSettings: () => ({
+    settings: { transcriptionLanguage: null },
+    status: "ready",
+    saving: false,
+    chooseTranscriptionLanguage: async () => undefined,
+  }),
+}));
+
 vi.mock("@/features/templates/use-templates", () => ({
   useTemplates: () => ({
     status: "ready",

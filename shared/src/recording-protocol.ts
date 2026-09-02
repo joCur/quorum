@@ -51,6 +51,17 @@ export const SessionStartSchema = z.object({
    * would go stale rather than make the value trustworthy.
    */
   summaryTemplateId: z.string().uuid().nullable().default(null),
+  /**
+   * Language this meeting is transcribed in — the first link of the chain in
+   * `transcription-language.ts`. `auto` asks for detection; `null` — and an absent field, which
+   * parses to `null` — is no statement at all and falls through to the user's default and then to
+   * the deployment default.
+   *
+   * Not validated against the offered list here: the picker is a product decision that changes
+   * faster than the sessions still in flight, and a tag this server does not recognize is refused
+   * by the transcription backend rather than by the socket that carries the audio.
+   */
+  language: z.string().max(35).nullable().default(null),
   clientInfo: z.object({
     platform: z.string(), // e.g. "web-desktop" | "web-mobile"
     userAgent: z.string(),

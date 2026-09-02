@@ -46,15 +46,28 @@ export const TRANSCRIBE_QUEUE = "transcribe";
 export const SUMMARIZE_QUEUE = "summarize";
 
 /**
- * Payload placed on the queue: the `Job` from `shared/src/job.ts` plus the
+ * What every job payload carries: the `Job` from `shared/src/job.ts` plus the
  * tenant/user/session scope the worker needs to locate the audio in object
  * storage (ADR-001 scoping).
  */
-export interface TranscribeJobPayload {
+export interface JobPayloadScope {
   job: Job;
   tenantId: string;
   userId: string;
   sessionId: string;
+}
+
+/**
+ * Payload placed on the transcription queue.
+ *
+ * `language` is what the user side of the chain resolved to — the meeting's own
+ * choice, or the user's default — and `null` when neither said anything. The
+ * worker completes it with the deployment default and then autodetect. It
+ * travels here rather than being looked up when the job runs, so a retry
+ * transcribes what was asked for at the time.
+ */
+export interface TranscribeJobPayload extends JobPayloadScope {
+  language: string | null;
 }
 
 /**
@@ -66,7 +79,7 @@ export interface TranscribeJobPayload {
  * must name the exact transcript it was derived from, not "whichever is active
  * now". The worker validates this shape on the way in.
  */
-export interface SummarizeJobPayload extends TranscribeJobPayload {
+export interface SummarizeJobPayload extends JobPayloadScope {
   transcriptId: string;
   templateId: string;
 }
@@ -137,6 +150,7 @@ export class PgBossJobQueue implements JobQueue {
     tenantId: string;
     userId: string;
     sessionId: string;
+    language: string | null;
   }): Promise<void> {
     const job = JobSchema.parse({
       id: input.jobId,
@@ -155,6 +169,7 @@ export class PgBossJobQueue implements JobQueue {
       tenantId: input.tenantId,
       userId: input.userId,
       sessionId: input.sessionId,
+      language: input.language,
     };
     const priority = await this.priorityFor(TRANSCRIBE_QUEUE, {
       tenantId: input.tenantId,
