@@ -1,9 +1,5 @@
 import { z } from "zod";
 
-/**
- * The async job API (ADR-002): create a job → status via polling/SSE → fetch the result.
- */
-
 export const JobTypeSchema = z.enum([
   "transcribe",
   "summarize",
@@ -14,7 +10,6 @@ export const JobTypeSchema = z.enum([
    * payload unreadable on the far side.
    */
   "remux",
-  // Later: "diarize", "reprocess"
 ]);
 
 export const JobStatusSchema = z.enum(["queued", "running", "succeeded", "failed", "canceled"]);
@@ -53,18 +48,15 @@ export const JOB_ERROR_CODES = [
   "TRANSCRIPTION_RESPONSE_INVALID",
   /** The mapped result does not satisfy the transcript schema. */
   "TRANSCRIPT_INVALID",
-  /** Writing the transcript to PostgreSQL failed. */
   "TRANSCRIPT_PERSIST_FAILED",
   /** The job payload on the queue is not a payload we understand. */
   "JOB_PAYLOAD_INVALID",
 
-  // ---- Seekable playback (ADR-010) ----
   /** The recording could not be repackaged: the container is not the shape the remuxer reads. */
   "REMUX_FAILED",
   /** The repackaged file was produced but did not pass its read-back check, so it was discarded. */
   "REMUX_VERIFICATION_FAILED",
 
-  // ---- Summary pipeline (ADR-004, ADR-005) ----
   /** The transcript the summarize job refers to does not exist (any more). */
   "TRANSCRIPT_NOT_FOUND",
   /** The transcript carries no usable text, so there is nothing to summarize. */
@@ -79,10 +71,7 @@ export const JOB_ERROR_CODES = [
   "SUMMARY_RESPONSE_INVALID",
   /** The mapped result does not satisfy the summary schema. */
   "SUMMARY_INVALID",
-  /** Writing the summary to PostgreSQL failed. */
   "SUMMARY_PERSIST_FAILED",
-
-  /** Anything we did not anticipate. */
   "INTERNAL_ERROR",
 ] as const;
 
@@ -152,7 +141,6 @@ export const JobSchema = z.object({
   meetingId: z.string().uuid(),
   type: JobTypeSchema,
   status: JobStatusSchema,
-  /** 0..1, optional, for a progress indicator */
   progress: z.number().min(0).max(1).nullable().default(null),
   /**
    * A uniform error format across the whole API.
@@ -163,7 +151,7 @@ export const JobSchema = z.object({
    */
   error: z
     .object({
-      code: z.string(), // machine-readable, one of JOB_ERROR_CODES
+      code: z.string(),
       message: z.string(), // developer-facing English; never rendered to a user
     })
     .nullable()

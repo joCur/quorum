@@ -22,9 +22,8 @@
 
 /** How far the assertion may fall short of the truth before it is treated as an understatement. */
 export interface DurationTolerance {
-  /** Seconds of shortfall that are never flagged, however short the recording. */
   readonly absoluteSeconds: number;
-  /** Shortfall as a fraction of the true duration that is never flagged. */
+  /** Fraction of the true duration, applied instead of the absolute term when it is larger. */
   readonly relative: number;
 }
 
@@ -53,7 +52,6 @@ export const DEFAULT_DURATION_TOLERANCE: DurationTolerance = {
   relative: 0.05,
 };
 
-/** Whether a reconciliation found the assertion believable. */
 export type DurationReconciliationOutcome =
   /** One of the two numbers is missing, so there is nothing to compare. */
   | "unknown"
@@ -64,15 +62,11 @@ export type DurationReconciliationOutcome =
 
 export interface DurationReconciliation {
   outcome: DurationReconciliationOutcome;
-  /** What the client claimed it recorded, or `null` when it claimed nothing. */
   assertedSeconds: number | null;
-  /** What the audio turned out to contain, or `null` when the truth is unknown. */
   trueSeconds: number | null;
-  /** How far the assertion fell short: positive means the client understated. Zero when unknown. */
+  /** Positive means the client understated. Zero when there was nothing to compare. */
   shortfallSeconds: number;
-  /** The shortfall a recording of this length is allowed before it is flagged. Zero when unknown. */
   toleratedSeconds: number;
-  /** The number a quota should charge for this recording. */
   billableSeconds: number;
 }
 

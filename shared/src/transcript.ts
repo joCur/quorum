@@ -1,16 +1,15 @@
 import { z } from "zod";
 
 /**
- * Transcript-Schema (ADR-003)
- * Grundprinzipien: stabile Segment-IDs, immutabler Maschinen-Output,
- * Meeting→Transcript 1:n, Wort-Timestamps ab Tag 1.
+ * Transcript invariants (ADR-003): segment ids are stable, machine output is immutable,
+ * meeting → transcript is 1:n, and word timestamps are stored from day one.
  */
 
 export const TRANSCRIPT_SCHEMA_VERSION = 1;
 
 export const WordSchema = z.object({
   word: z.string(),
-  /** Sekunden relativ zum Aufnahmestart */
+  /** Seconds relative to the start of the recording. */
   start: z.number().nonnegative(),
   end: z.number().nonnegative(),
 });
@@ -19,7 +18,6 @@ export const SpeakerSchema = z.object({
   id: z.string().uuid(),
   /** Display name, renameable by the user ("Speaker 1" → "Jonas") */
   label: z.string(),
-  /** Later: a reference to a stored speaker profile for re-identification */
   profileId: z.string().uuid().nullable().default(null),
 });
 

@@ -10,10 +10,6 @@ import { JobSchema } from "./job.js";
  * and a client that could name a job id could name someone else's.
  */
 
-/**
- * Answer to an accepted retry: the job as it now stands on the queue, so the caller can show that
- * work has restarted and then follow it in the meeting's job list.
- */
 export const TranscriptionJobAcceptedSchema = z.object({
   job: JobSchema,
 });

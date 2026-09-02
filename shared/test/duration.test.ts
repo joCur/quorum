@@ -5,7 +5,6 @@ import {
   reconcileRecordedDuration,
 } from "../src/duration.js";
 
-/** An hour of meeting, in the shape the two numbers arrive in. */
 const HOUR = 3600;
 
 describe("reconcileRecordedDuration", () => {
