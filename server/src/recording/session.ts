@@ -296,6 +296,7 @@ export class RecordingSessionHandler {
       audioFormat: message.audioFormat,
       createdAt: this.timestamp(),
       marks: [],
+      recordedSeconds: 0,
     };
     if (!this.claimSessionSlot(context, record.sessionId)) return;
     try {
@@ -366,16 +367,54 @@ export class RecordingSessionHandler {
   }
 
   /**
-   * Writes what the session has consumed into the meeting index.
+   * Writes the session record back to storage, keeping the assertion recoverable.
+   *
+   * Best-effort on purpose: the record is metadata about a recording whose audio is already
+   * safe, so a failed write costs at most the precision of the assertion after a reconnect —
+   * never a chunk, and never the session. The chunk path must not die on it.
+   */
+  private async persistSessionRecord(session: ActiveSession): Promise<void> {
+    try {
+      await this.deps.storage.putSession(session.record);
+    } catch (error) {
+      this.log?.warn(
+        { event: "session.metadata.write_failed", err: error },
+        "failed to persist session metadata; a reconnect may assert less audio than was recorded",
+      );
+    }
+  }
+
+  /**
+   * Raises the session's asserted audio time to a chunk's offset.
+   *
+   * Monotonic, and mirrored onto the session record so that every write of that record carries
+   * the current value — which is what a reconnect reads back. The offset is the *start* of the
+   * chunk, so the assertion trails the recording by one chunk; that is the direction to be wrong
+   * in for a quota, and the exact length arrives with the transcript later anyway.
+   */
+  private countRecordedSeconds(session: ActiveSession, timestampOffset: number): void {
+    if (!Number.isFinite(timestampOffset) || timestampOffset <= session.recordedSeconds) return;
+    session.recordedSeconds = timestampOffset;
+    session.record.recordedSeconds = timestampOffset;
+  }
+
+  /**
+   * Writes what the session has consumed into the meeting index, and into the session record.
    *
    * Best-effort, like the rest of the indexing this handler does: a quota that could not be
    * updated must not cost the user their recording. Because the store keeps the larger of the two
    * values, a lost flush is repaired by the next one.
+   *
+   * The session record is written here too, on the same cadence, because it is what a reconnect
+   * rebuilds the asserted duration from. Doing it per chunk would put an object write on the hot
+   * path; doing it only at finalize would lose the assertion of every session whose connection
+   * dies. A flush interval of it is the most a crash can cost.
    */
   private async flushUsage(session: ActiveSession): Promise<void> {
+    session.chunksSinceUsageFlush = 0;
+    await this.persistSessionRecord(session);
     const recordUsage = this.deps.meetings?.recordUsage;
     if (!recordUsage || !this.deps.meetings) return;
-    session.chunksSinceUsageFlush = 0;
     try {
       await recordUsage.call(
         this.deps.meetings,
@@ -506,10 +545,13 @@ export class RecordingSessionHandler {
       // the two values, and the finalize replaces both with what storage actually holds.
       audioBytes: 0,
       // Audio time is not re-derivable from what storage holds — chunk lengths are the client's,
-      // not the server's. It is rebuilt from the offsets of the chunks that arrive next, which are
-      // absolute audio time, so the recorded-duration limit is back in force from the first chunk
-      // after the reconnect. Until then the lifetime ceiling is what bounds the session.
-      recordedSeconds: 0,
+      // not the server's — so the session record carries it across the reconnect. Starting from
+      // zero here would do more than weaken the limit: the manifest of a session finalized right
+      // after a reattach would assert almost no audio, which reads downstream as a client that
+      // understated a whole recording. The offsets of the chunks that arrive next raise it
+      // further; they are absolute audio time, so the limit is fully back in force with the first
+      // of them.
+      recordedSeconds: record.recordedSeconds,
       pausedSince: pausedSinceFromMarks(record.marks),
       chunksSinceUsageFlush: 0,
     };
@@ -699,10 +741,13 @@ export class RecordingSessionHandler {
       );
       return;
     }
-    // The offset is audio time, so the recorded-duration limit is decided on the chunk that would
-    // cross it rather than one chunk later. Everything already persisted still becomes a meeting.
+    // The offset is audio time, and it counts before anything else looks at the frame: a chunk
+    // this connection has already seen is still evidence of how far the recording has come, and a
+    // re-delivered one after a reconnect is exactly the case where the assertion has to catch up.
+    // Deciding the limit here also means it is decided on the chunk that would cross it rather
+    // than one chunk later. Everything already persisted still becomes a meeting.
+    this.countRecordedSeconds(session, meta.timestampOffset);
     if (meta.timestampOffset > this.limits.maxRecordedSeconds) {
-      session.recordedSeconds = Math.max(session.recordedSeconds, meta.timestampOffset);
       if (await this.stopIfPastDeadline(session)) return;
     }
     // Duplicates are idempotent: a reconnecting client may re-send chunks it has
@@ -720,10 +765,6 @@ export class RecordingSessionHandler {
     // Only now — after a successful write — does the chunk count as persisted.
     session.ahead.add(meta.seq);
     session.audioBytes += payload.length;
-    // The offset is the start of the chunk, so this understates the recording by one chunk. That
-    // is the direction to be wrong in for a quota, and the exact length arrives with the
-    // transcript later anyway.
-    session.recordedSeconds = Math.max(session.recordedSeconds, meta.timestampOffset);
     session.chunksSinceUsageFlush += 1;
     if (session.chunksSinceUsageFlush >= this.limits.usageFlushChunks) {
       await this.flushUsage(session);
@@ -787,6 +828,7 @@ export class RecordingSessionHandler {
         persistedSeq: session.persistedSeq,
         chunkKeys,
         marks: session.record.marks,
+        recordedSeconds: session.recordedSeconds,
         finalizedAt: this.timestamp(),
       });
       await this.deps.queue.enqueueTranscribe({

@@ -1,4 +1,5 @@
 export * from "./transcript.js";
+export * from "./transcript-correction.js";
 export * from "./recording-protocol.js";
 export * from "./websocket-auth.js";
 export * from "./summary.js";
@@ -9,6 +10,7 @@ export * from "./job.js";
 export * from "./meeting.js";
 export * from "./meeting-title.js";
 export * from "./limits.js";
+export * from "./duration.js";
 export * from "./transcription-language.js";
 export * from "./vocabulary.js";
 export * from "./user-settings.js";

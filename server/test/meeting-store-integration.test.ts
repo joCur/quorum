@@ -2,7 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { PgBoss } from "pg-boss";
 import { MIGRATIONS as WORKER_MIGRATIONS } from "@quorum/worker/db-schema";
-import { TRANSCRIPT_SCHEMA_VERSION, type AudioFormat, type Transcript } from "@quorum/shared";
+import {
+  hasCorrections,
+  TRANSCRIPT_SCHEMA_VERSION,
+  type AudioFormat,
+  type Transcript,
+} from "@quorum/shared";
 import { PostgresMeetingStore } from "../src/meetings/repository.js";
 import { TRANSCRIBE_QUEUE } from "../src/recording/queue/pg-boss.js";
 
@@ -43,6 +48,9 @@ const RETRO = uuid("1", 2);
 const OPEN = uuid("1", 3);
 const FOREIGN = uuid("1", 4);
 const OTHER_USERS = uuid("1", 5);
+
+/** Decoded length of the weekly sync's audio, far above the duration its client asserted. */
+const TRANSCRIBED_SECONDS = 3600;
 
 let store: PostgresMeetingStore;
 let sql: postgres.Sql;
@@ -149,14 +157,20 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
     await sql`
       INSERT INTO transcripts (
         id, job_id, meeting_id, tenant_id, user_id, session_id, schema_version, model,
-        model_version, language, is_active, recorded_at, created_at, transcript
+        model_version, language, is_active, recorded_at, created_at, duration_seconds, transcript
       ) VALUES (
         ${transcriptId}, ${uuid("4", 1)}, ${WEEKLY}, ${tenantId}, ${"user-1"}, ${WEEKLY},
         ${TRANSCRIPT_SCHEMA_VERSION}, ${"whisper"}, ${"large-v3"}, ${"de"}, true,
-        ${transcript.recordedAt}, ${transcript.createdAt},
+        ${transcript.recordedAt}, ${transcript.createdAt}, ${TRANSCRIBED_SECONDS},
         ${sql.json(transcript as unknown as postgres.JSONValue)}
       )
     `;
+
+    // What each meeting claimed while it was recording. The weekly sync claimed a fraction of
+    // what its audio turned out to contain; the others have no transcript to check them against.
+    await store.recordUsage(ACME, WEEKLY, { audioBytes: 1_000, recordedSeconds: 60 });
+    await store.recordUsage(ACME, RETRO, { audioBytes: 2_000, recordedSeconds: 900 });
+    await store.recordUsage(ACME, OPEN, { audioBytes: 500, recordedSeconds: 120 });
     await sql`
       INSERT INTO jobs (
         id, meeting_id, tenant_id, user_id, session_id, type, status, progress, error,
@@ -175,12 +189,63 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
   }, 30_000);
 
   afterAll(async () => {
+    await sql`DELETE FROM transcript_corrections WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql`DELETE FROM jobs WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql`DELETE FROM summaries WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql`DELETE FROM transcripts WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql`DELETE FROM meetings WHERE tenant_id LIKE ${tenantId + "%"}`;
     await sql.end({ timeout: 5 });
     await store.close();
+  });
+
+  describe("usage accounting", () => {
+    it("charges a transcribed meeting for its audio and an untranscribed one for its claim", async () => {
+      const usage = await store.readUsage(ACME, "2026-08-01T00:00:00Z");
+
+      expect(usage.storageBytes).toBe(3_500);
+      // The weekly sync counts as the hour its audio really was, not as the minute it claimed.
+      expect(usage.monthRecordedSeconds).toBe(TRANSCRIBED_SECONDS + 900 + 120);
+    });
+
+    it("counts nothing for a user with no meetings of their own", async () => {
+      const usage = await store.readUsage({ tenantId, userId: "user-3" }, "2026-08-01T00:00:00Z");
+
+      expect(usage).toEqual({ storageBytes: 0, monthRecordedSeconds: 0 });
+    });
+
+    it("shows the duration it bills", async () => {
+      // The weekly sync's segments stop at 42 seconds while its audio was measured at an hour —
+      // the shape a silence-filtered recording has. The list must not report the shorter one.
+      const [, weekly] = await store.listMeetings(ACME);
+      expect(weekly?.id).toBe(WEEKLY);
+      expect(weekly?.durationSeconds).toBe(TRANSCRIBED_SECONDS);
+    });
+
+    it("does not give a measurement back when a newer transcript has none", async () => {
+      // Reprocessing: a second, active transcript whose backend reported no duration.
+      const reprocessed = uuid("6", 1);
+      const transcript = transcriptFor(WEEKLY, reprocessed);
+      await sql`UPDATE transcripts SET is_active = false WHERE meeting_id = ${WEEKLY}`;
+      await sql`
+        INSERT INTO transcripts (
+          id, job_id, meeting_id, tenant_id, user_id, session_id, schema_version, model,
+          model_version, language, is_active, recorded_at, created_at, duration_seconds, transcript
+        ) VALUES (
+          ${reprocessed}, ${uuid("6", 2)}, ${WEEKLY}, ${tenantId}, ${"user-1"}, ${WEEKLY},
+          ${TRANSCRIPT_SCHEMA_VERSION}, ${"whisper"}, ${"large-v3"}, ${"de"}, true,
+          ${transcript.recordedAt}, ${"2026-08-29T11:00:00Z"}, ${null},
+          ${sql.json(transcript as unknown as postgres.JSONValue)}
+        )
+      `;
+      try {
+        const usage = await store.readUsage(ACME, "2026-08-01T00:00:00Z");
+        // Still the measured hour, not the minute the client claimed.
+        expect(usage.monthRecordedSeconds).toBe(TRANSCRIBED_SECONDS + 900 + 120);
+      } finally {
+        await sql`DELETE FROM transcripts WHERE id = ${reprocessed}`;
+        await sql`UPDATE transcripts SET is_active = true WHERE meeting_id = ${WEEKLY}`;
+      }
+    });
   });
 
   it("lists only the caller's own meetings, newest first", async () => {
@@ -199,7 +264,9 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
       status: "summarizing",
       hasAudio: true,
       language: "de",
-      durationSeconds: 97.25,
+      // The measured length of the audio, which is also what the quota charges — not the 97.25
+      // seconds at which this transcript's last segment ends.
+      durationSeconds: TRANSCRIBED_SECONDS,
     });
     expect(byId.get(RETRO)).toMatchObject({
       status: "failed",
@@ -232,6 +299,153 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
     expect(detail?.transcript?.segments).toHaveLength(2);
     expect(detail?.summaries).toEqual([]);
     expect(detail?.jobs.map((job) => job.type)).toEqual(["transcribe"]);
+  });
+
+  /**
+   * Corrections as their own rows (ADR-011).
+   *
+   * The in-memory store answers the route tests; what only real PostgreSQL can show is that the
+   * overlay is upserted rather than duplicated, that it never reaches the transcript document,
+   * and that the scope holds in the statements themselves.
+   */
+  describe("transcript corrections", () => {
+    const TRANSCRIPT = uuid("3", 1);
+    const FIRST_SEGMENT = uuid("2", 1);
+    const SECOND_SEGMENT = uuid("2", 2);
+    const ref = { meetingId: WEEKLY, transcriptId: TRANSCRIPT, segmentId: FIRST_SEGMENT };
+
+    beforeEach(async () => {
+      await sql`DELETE FROM transcript_corrections WHERE transcript_id = ${TRANSCRIPT}`;
+    });
+
+    it("shows the correction on read, over machine output the write never touched", async () => {
+      await store.setSegmentCorrection(ACME, ref, {
+        editedText: "Guten Morgen zusammen.",
+        editedSpeakerId: null,
+      });
+
+      const detail = await store.findMeeting(ACME, WEEKLY);
+      expect(detail?.transcript?.segments[0]?.editedText).toBe("Guten Morgen zusammen.");
+      expect(detail?.transcript?.segments[0]?.text).toBe("Guten Morgen.");
+      expect(hasCorrections(detail?.transcript as Transcript)).toBe(true);
+
+      // The stored document is the worker's, and a correction is not allowed to have edited it.
+      const [stored] = await sql<{ transcript: { segments: { editedText: string | null }[] } }[]>`
+        SELECT transcript FROM transcripts WHERE id = ${TRANSCRIPT}
+      `;
+      expect(stored?.transcript.segments[0]?.editedText).toBeNull();
+    });
+
+    it("replaces the overlay instead of adding a second row", async () => {
+      await store.setSegmentCorrection(ACME, ref, { editedText: "First", editedSpeakerId: null });
+      await store.setSegmentCorrection(ACME, ref, { editedText: "Second", editedSpeakerId: null });
+
+      const rows = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM transcript_corrections
+         WHERE transcript_id = ${TRANSCRIPT} AND segment_id = ${FIRST_SEGMENT}
+      `;
+      expect(rows[0]?.count).toBe(1);
+      expect((await store.findMeeting(ACME, WEEKLY))?.transcript?.segments[0]?.editedText).toBe(
+        "Second",
+      );
+    });
+
+    it("brings the original back when the correction is cleared", async () => {
+      await store.setSegmentCorrection(ACME, ref, {
+        editedText: "Guten Morgen zusammen.",
+        editedSpeakerId: null,
+      });
+      await store.clearSegmentCorrection(ACME, ref);
+
+      const detail = await store.findMeeting(ACME, WEEKLY);
+      expect(detail?.transcript?.segments[0]?.editedText).toBeNull();
+      expect(detail?.transcript?.segments[0]?.text).toBe("Guten Morgen.");
+      expect(hasCorrections(detail?.transcript as Transcript)).toBe(false);
+    });
+
+    it("answers with the row it wrote, not with the request", async () => {
+      const outcome = await store.setSegmentCorrection(ACME, ref, {
+        editedText: "Guten Morgen zusammen.",
+        editedSpeakerId: null,
+      });
+
+      expect(outcome.kind).toBe("stored");
+      if (outcome.kind !== "stored") throw new Error("expected the correction to be stored");
+      expect(outcome.correction.segmentId).toBe(FIRST_SEGMENT);
+      expect(outcome.correction.editedText).toBe("Guten Morgen zusammen.");
+      expect(Date.parse(outcome.correction.updatedAt)).not.toBeNaN();
+    });
+
+    it("carries corrections on several segments at once", async () => {
+      await store.setSegmentCorrection(ACME, ref, { editedText: "Older", editedSpeakerId: null });
+      await store.setSegmentCorrection(
+        ACME,
+        { ...ref, segmentId: SECOND_SEGMENT },
+        { editedText: "Newer", editedSpeakerId: null },
+      );
+
+      const detail = await store.findMeeting(ACME, WEEKLY);
+      expect(detail?.transcript?.segments.map((one) => one.editedText)).toEqual(["Older", "Newer"]);
+    });
+
+    /**
+     * The reprocessing race, run against real PostgreSQL: the transcript stops being the active
+     * one, and the write that was aimed at it is refused rather than stored where nothing looks.
+     */
+    it("refuses a correction against a transcript that is no longer active", async () => {
+      await sql`UPDATE transcripts SET is_active = false WHERE id = ${TRANSCRIPT}`;
+      try {
+        expect(
+          await store.setSegmentCorrection(ACME, ref, {
+            editedText: "Too late.",
+            editedSpeakerId: null,
+          }),
+        ).toEqual({ kind: "transcript-replaced" });
+        expect(await store.clearSegmentCorrection(ACME, ref)).toEqual({
+          kind: "transcript-replaced",
+        });
+      } finally {
+        await sql`UPDATE transcripts SET is_active = true WHERE id = ${TRANSCRIPT}`;
+      }
+    });
+
+    it("does not show one tenant's corrections to another", async () => {
+      await store.setSegmentCorrection(ACME, ref, { editedText: "Ours", editedSpeakerId: null });
+
+      // The foreign tenant cannot even see the meeting, and its own write lands on its own row.
+      expect(await store.findMeeting(OTHER_TENANT, WEEKLY)).toBeNull();
+      await store.setSegmentCorrection(OTHER_TENANT, ref, {
+        editedText: "Theirs",
+        editedSpeakerId: null,
+      });
+      expect((await store.findMeeting(ACME, WEEKLY))?.transcript?.segments[0]?.editedText).toBe(
+        "Ours",
+      );
+      await sql`DELETE FROM transcript_corrections WHERE tenant_id = ${OTHER_TENANT.tenantId}`;
+    });
+
+    /**
+     * One correction per segment, last writer wins, the author recorded on the row (ADR-011 §6).
+     * A second member of the tenant corrects the same passage and the segment still reads one
+     * way — theirs — rather than the two overlays a per-user key would leave behind.
+     */
+    it("keeps one row per segment when a second member of the tenant corrects it", async () => {
+      await store.setSegmentCorrection(ACME, ref, { editedText: "Ours", editedSpeakerId: null });
+      await store.setSegmentCorrection({ tenantId, userId: "user-2" }, ref, {
+        editedText: "Theirs, written second",
+        editedSpeakerId: null,
+      });
+
+      expect((await store.findMeeting(ACME, WEEKLY))?.transcript?.segments[0]?.editedText).toBe(
+        "Theirs, written second",
+      );
+      const rows = await sql<{ count: number; user_id: string }[]>`
+        SELECT count(*)::int AS count, max(user_id) AS user_id FROM transcript_corrections
+         WHERE transcript_id = ${TRANSCRIPT} AND segment_id = ${FIRST_SEGMENT}
+      `;
+      expect(rows[0]?.count).toBe(1);
+      expect(rows[0]?.user_id).toBe("user-2");
+    });
   });
 
   describe("deletion cascade", () => {
@@ -296,6 +510,13 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
           ${"2026-08-25T10:08:00Z"}, ${sql.json({ id: DOOMED_SUMMARY })}
         )
       `;
+
+      // The user's own words about this meeting go with it, like everything else (ADR-011 §7).
+      await store.setSegmentCorrection(
+        ACME,
+        { meetingId: DOOMED, transcriptId: DOOMED_TRANSCRIPT, segmentId: uuid("2", 1) },
+        { editedText: "Guten Morgen zusammen.", editedSpeakerId: null },
+      );
     }, 30_000);
 
     afterAll(async () => {
@@ -315,6 +536,10 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
       `;
       // Guards the assertion below against passing because there was never anything to delete.
       expect(queuedBefore[0]?.count).toBe(1);
+      const correctedBefore = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM transcript_corrections WHERE meeting_id = ${DOOMED}
+      `;
+      expect(correctedBefore[0]?.count).toBe(1);
 
       expect(await store.deleteMeeting(ACME, DOOMED)).toBe(true);
 
@@ -323,6 +548,7 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
         ["meetings", "id"],
         ["transcripts", "meeting_id"],
         ["summaries", "meeting_id"],
+        ["transcript_corrections", "meeting_id"],
         ["jobs", "meeting_id"],
       ] as const) {
         const rows = (await sql.unsafe(
@@ -580,6 +806,14 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
       const meetings = await bare.listMeetings(ACME);
       expect(meetings.map((meeting) => meeting.status)).toEqual(["recording"]);
       expect((await bare.findMeeting(ACME, uuid("5", 1)))?.jobs).toEqual([]);
+
+      // The quota is enforced from the assertion alone until the pipeline table it reconciles
+      // against exists — an unreadable transcript must never read as an unlimited allowance.
+      await bare.recordUsage(ACME, uuid("5", 1), { audioBytes: 42, recordedSeconds: 300 });
+      expect(await bare.readUsage(ACME, "2026-08-01T00:00:00Z")).toEqual({
+        storageBytes: 42,
+        monthRecordedSeconds: 300,
+      });
     } finally {
       await bare.close();
       await sql.unsafe(`DROP SCHEMA ${schema} CASCADE`);

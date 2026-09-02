@@ -193,6 +193,10 @@ services:
       # from sending the model into a repetition loop. Set to false to transcribe
       # everything, hallucination risk included.
       WHISPER_VAD_FILTER: ${WHISPER_VAD_FILTER:-true}
+      # How far a recording's asserted duration may fall short of the audio it produced before
+      # the job flags the gap. The larger of the two allowances applies.
+      DURATION_TOLERANCE_SECONDS: ${DURATION_TOLERANCE_SECONDS:-60}
+      DURATION_TOLERANCE_RATIO: ${DURATION_TOLERANCE_RATIO:-0.05}
       # Summary: OpenAI-compatible — OpenRouter today, LM Studio/vLLM/Ollama tomorrow (ADR-005).
       SUMMARY_BASE_URL: ${SUMMARY_BASE_URL}
       SUMMARY_API_KEY: ${SUMMARY_API_KEY}

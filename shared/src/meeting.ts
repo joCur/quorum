@@ -82,9 +82,13 @@ export const MeetingListSchema = z.object({
  */
 export const MeetingDetailSchema = z.object({
   meeting: MeetingSchema,
+  /** The active transcript with the user's corrections already applied (ADR-011 §3). */
   transcript: TranscriptSchema.nullable(),
   summaries: z.array(SummarySchema),
   jobs: z.array(JobSchema),
+  // No separate "corrected at": the corrections are on the segments, and whether the transcript
+  // carries any is the only question anything asks (`hasCorrections`, ADR-011). A timestamp beside
+  // them would be a second fact about the same rows for every writer to keep true.
 });
 
 /**

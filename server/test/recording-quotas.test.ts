@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TRANSCRIPT_SCHEMA_VERSION, type Transcript } from "@quorum/shared";
 import {
   DEFAULT_USER_LIMITS,
   StaticUserLimitsResolver,
@@ -92,6 +93,36 @@ async function seedMeeting(
     audioBytes: input.audioBytes,
     recordedSeconds: input.recordedSeconds,
   });
+}
+
+/** A transcript whose last segment ends after `seconds` — the reconciled duration of a meeting. */
+function transcriptOf(meetingId: string, seconds: number): Transcript {
+  return {
+    id: `11111111-1111-4111-8111-11111111111${meetingId.slice(-1)}`,
+    meetingId,
+    schemaVersion: TRANSCRIPT_SCHEMA_VERSION,
+    isActive: true,
+    model: "whisper",
+    modelVersion: "large-v3",
+    language: "en",
+    recordedAt: "2026-08-02T09:00:00.000Z",
+    createdAt: "2026-08-02T09:30:00.000Z",
+    speakers: [],
+    segments: [
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        start: 0,
+        end: seconds,
+        text: "The whole meeting.",
+        editedText: null,
+        confidence: 0.9,
+        speakerId: null,
+        editedSpeakerId: null,
+        language: null,
+        words: null,
+      },
+    ],
+  };
 }
 
 describe("month window", () => {
@@ -194,6 +225,85 @@ describe("monthly recording quota", () => {
       recordedSeconds: TEST_LIMITS.maxMonthlyRecordedSeconds - 1,
     });
     expect(await start(createFixture({ meetings }))).not.toBeNull();
+  });
+
+  it("charges a transcribed meeting for the audio it produced, not for what was asserted", async () => {
+    const meetings = new InMemoryMeetingStore();
+    // The client claimed a minute; the transcript proves the audio filled the whole allowance.
+    await seedMeeting(meetings, {
+      id: "meeting-1",
+      createdAt: "2026-08-02T09:00:00.000Z",
+      audioBytes: 10,
+      recordedSeconds: 60,
+    });
+    meetings.setPipeline("meeting-1", {
+      transcript: transcriptOf("meeting-1", 60),
+      transcriptDurationSeconds: TEST_LIMITS.maxMonthlyRecordedSeconds,
+    });
+    const fixture = createFixture({ meetings });
+
+    expect(await start(fixture)).toBeNull();
+    expect(fixture.connection.closed).toEqual({
+      code: CLOSE_POLICY_VIOLATION,
+      reason: "limit.monthly_hours_quota_exceeded",
+    });
+  });
+
+  it("bills the measured duration, not the last segment's end", async () => {
+    // With the silence filter on, a recording that ends in quiet has a last segment well before
+    // the end of its audio. The store must bill what the backend measured, exactly as the SQL
+    // store bills its `duration_seconds` column.
+    const meetings = new InMemoryMeetingStore();
+    await seedMeeting(meetings, {
+      id: "meeting-1",
+      createdAt: "2026-08-02T09:00:00.000Z",
+      audioBytes: 10,
+      recordedSeconds: 60,
+    });
+    meetings.setPipeline("meeting-1", {
+      transcript: transcriptOf("meeting-1", 30),
+      transcriptDurationSeconds: TEST_LIMITS.maxMonthlyRecordedSeconds,
+    });
+
+    const fixture = createFixture({ meetings });
+    expect(await start(fixture)).toBeNull();
+    // And the list shows the number that was billed, not a shorter one.
+    const [listed] = await meetings.listMeetings(SCOPE);
+    expect(listed?.durationSeconds).toBe(TEST_LIMITS.maxMonthlyRecordedSeconds);
+  });
+
+  it("does not hand a measured duration back when a later transcript has none", async () => {
+    const meetings = new InMemoryMeetingStore();
+    await seedMeeting(meetings, {
+      id: "meeting-1",
+      createdAt: "2026-08-02T09:00:00.000Z",
+      audioBytes: 10,
+      recordedSeconds: 60,
+    });
+    meetings.setPipeline("meeting-1", {
+      transcript: transcriptOf("meeting-1", 30),
+      transcriptDurationSeconds: TEST_LIMITS.maxMonthlyRecordedSeconds,
+    });
+    // Reprocessed by a backend that reports no duration: the earlier measurement stands.
+    meetings.setPipeline("meeting-1", { transcript: transcriptOf("meeting-1", 30) });
+
+    const fixture = createFixture({ meetings });
+    expect(await start(fixture)).toBeNull();
+    expect(fixture.connection.closed?.reason).toBe("limit.monthly_hours_quota_exceeded");
+  });
+
+  it("still charges the assertion while a meeting waits for its transcript", async () => {
+    const meetings = new InMemoryMeetingStore();
+    await seedMeeting(meetings, {
+      id: "meeting-1",
+      createdAt: "2026-08-02T09:00:00.000Z",
+      audioBytes: 10,
+      recordedSeconds: TEST_LIMITS.maxMonthlyRecordedSeconds,
+    });
+    const fixture = createFixture({ meetings });
+
+    expect(await start(fixture)).toBeNull();
+    expect(fixture.connection.closed?.reason).toBe("limit.monthly_hours_quota_exceeded");
   });
 });
 
