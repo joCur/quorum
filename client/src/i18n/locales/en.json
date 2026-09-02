@@ -421,7 +421,20 @@
       "retryUnavailable": "The transcription could not be started right now. Please try again in a moment.",
       "jumpTo": "Jump to {{time}}",
       "uncertain": "Low transcription confidence",
-      "uncertainShort": "uncertain"
+      "uncertainShort": "uncertain",
+      "correction": {
+        "edit": "Correct the passage at {{time}}",
+        "label": "Corrected text",
+        "speaker": "Speaker",
+        "speakerNone": "No speaker",
+        "original": "Recorded as:",
+        "save": "Save",
+        "cancel": "Discard",
+        "marker": "Corrected",
+        "reset": "Restore the original wording",
+        "failed": "This correction could not be saved.",
+        "tooLong": "A corrected passage can be at most {{max}} characters long."
+      }
     },
     "summary": {
       "working": "Your summary is next — it starts as soon as the transcript is done.",
@@ -434,7 +447,8 @@
       "regenerate": "Regenerate",
       "regenerating": "Writing…",
       "previousVersion": "Previous version — the new one replaces it as soon as it is written.",
-      "alreadyRunning": "A summary of this meeting is already being written."
+      "alreadyRunning": "A summary of this meeting is already being written.",
+      "fromOriginalWording": "This summary is based on the original wording, before your corrections."
     }
   }
 }

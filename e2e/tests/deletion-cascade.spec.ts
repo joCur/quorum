@@ -10,6 +10,7 @@ import {
 import { devUsers, stackEnv } from "../support/env.js";
 import { fetchToken } from "../support/keycloak.js";
 import {
+  countCorrections,
   countQueueRows,
   countRowsForSession,
   findSummary,
@@ -54,6 +55,19 @@ test("deletes a meeting and everything derived from it", async ({ page, signIn }
 
   const meetingUrl = `${stackEnv.apiUrl}/api/meetings/${meetingId}`;
   const asAlice = { authorization: `Bearer ${alice.accessToken}` };
+
+  // A correction, so the cascade has one to take with it. Corrections are the user's own words
+  // about the meeting — the last thing a deletion may leave lying around (ADR-011 §7).
+  const detail = await page.request.get(meetingUrl, { headers: asAlice });
+  const segments = ((await detail.json()) as { transcript: { segments: { id: string }[] } })
+    .transcript.segments;
+  const corrected = await page.request.put(
+    `${meetingUrl}/transcript/segments/${segments[0]?.id ?? ""}/correction`,
+    { headers: asAlice, data: { editedText: "Corrected before deletion.", editedSpeakerId: null } },
+  );
+  expect(corrected.status()).toBe(200);
+  // Guards the assertion after the delete against passing because there was never a row.
+  expect(await countCorrections(meetingId)).toBe(1);
 
   // Another tenant cannot delete it, and is told nothing about whether it exists.
   const intruder = await page.request.delete(meetingUrl, {
@@ -105,6 +119,7 @@ test("deletes a meeting and everything derived from it", async ({ page, signIn }
   expect(await countRowsForSession("transcripts", sessionId)).toBe(0);
   expect(await countRowsForSession("summaries", sessionId)).toBe(0);
   expect(await countRowsForSession("jobs", sessionId)).toBe(0);
+  expect(await countCorrections(meetingId)).toBe(0);
   // Including pg-boss's own rows: a job left in the queue would write a transcript for a meeting
   // that no longer exists.
   expect(await countQueueRows(meetingId)).toBe(0);

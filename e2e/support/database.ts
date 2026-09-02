@@ -227,6 +227,38 @@ export async function countRowsForSession(
 }
 
 /**
+ * The user's corrections to a meeting's transcript (ADR-011).
+ *
+ * Keyed by meeting rather than by session: the overlay table is the API server's, and it records
+ * which transcript and which segment a correction belongs to, not which recording produced them.
+ */
+export async function countCorrections(meetingId: string): Promise<number> {
+  if (!(await tableExists("transcript_corrections"))) return 0;
+  const rows = await sql<{ count: string }[]>`
+    SELECT count(*) AS count FROM transcript_corrections WHERE meeting_id = ${meetingId}::uuid
+  `;
+  return Number.parseInt(rows[0]?.count ?? "0", 10);
+}
+
+/**
+ * The machine output as it is stored, straight out of the transcript document.
+ *
+ * This is what makes "immutable" checkable rather than merely asserted about the screen: a
+ * correction changes what is shown and must leave this string exactly as the worker wrote it.
+ */
+export async function storedSegmentText(sessionId: string): Promise<string | null> {
+  if (!(await tableExists("transcripts"))) return null;
+  const rows = await sql<{ text: string | null }[]>`
+    SELECT transcript->'segments'->0->>'text' AS text
+      FROM transcripts
+     WHERE session_id = ${sessionId}::uuid AND is_active
+     ORDER BY created_at DESC
+     LIMIT 1
+  `;
+  return rows[0]?.text ?? null;
+}
+
+/**
  * The worker creates its tables on start. Querying one before that would fail rather than return
  * nothing, which is a different — and misleading — failure for a polling assertion.
  */
