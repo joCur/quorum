@@ -227,7 +227,7 @@ export async function countRowsForSession(
 }
 
 /**
- * The user's corrections to a meeting's transcript (ADR-010).
+ * The user's corrections to a meeting's transcript (ADR-011).
  *
  * Keyed by meeting rather than by session: the overlay table is the API server's, and it records
  * which transcript and which segment a correction belongs to, not which recording produced them.

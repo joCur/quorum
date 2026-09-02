@@ -19,8 +19,9 @@ import {
 } from "../support/database.js";
 
 /**
- * Critical path: the core loop, continued past the transcript — a user correcting what the
- * machine heard (CLAUDE.md path 1, ADR-003 §2, ADR-010).
+ * Critical path: the core recording loop — record, stream, persist, transcribe, summarize —
+ * continued past the transcript, where a user corrects what the machine heard (ADR-003 §2,
+ * ADR-011).
  *
  * The correction is made in the browser and then checked in the two places that decide whether it
  * is real: the row in the overlay table, and the transcript document, which has to come out of the
@@ -123,7 +124,7 @@ test("corrects a transcript segment, keeps the original, and marks the summary",
   await expect(page.getByText(CORRECTED)).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Corrected", { exact: true })).toBeVisible();
 
-  // One overlay row, and the machine's own words untouched underneath it (ADR-010 §1).
+  // One overlay row, and the machine's own words untouched underneath it (ADR-011 §1).
   expect(await countCorrections(meetingId)).toBe(1);
   expect(await storedSegmentText(sessionId)).toBe(SPOKEN);
 

@@ -57,7 +57,7 @@ test("deletes a meeting and everything derived from it", async ({ page, signIn }
   const asAlice = { authorization: `Bearer ${alice.accessToken}` };
 
   // A correction, so the cascade has one to take with it. Corrections are the user's own words
-  // about the meeting — the last thing a deletion may leave lying around (ADR-010 section 7).
+  // about the meeting — the last thing a deletion may leave lying around (ADR-011 §7).
   const detail = await page.request.get(meetingUrl, { headers: asAlice });
   const segments = ((await detail.json()) as { transcript: { segments: { id: string }[] } })
     .transcript.segments;

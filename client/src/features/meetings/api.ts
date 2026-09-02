@@ -157,7 +157,7 @@ export async function renameMeeting(
 }
 
 /**
- * Corrects one transcript segment (ADR-003 §2, ADR-010).
+ * Corrects one transcript segment (ADR-003 §2, ADR-011).
  *
  * The whole overlay goes in every request, both fields always present: the server stores what it
  * is sent, so a correction that mentioned only the text would be read as "and no speaker
