@@ -85,6 +85,41 @@ export async function runSummarizeJob(
   log.info({ event: "job.started" }, "summary job started");
 
   try {
+    // THE MONEY CHECK. A second queue entry for this job id is an ordinary event: the summarize
+    // id is derived from the transcript and the template, so a transcribe job that runs again
+    // over a transcript it already produced enqueues the very same id — and pg-boss's `standard`
+    // policy deduplicates nothing, whatever the singleton key suggests. `saveSummary` recognizes
+    // the replay too, but the model call sits in between, and that call is this job's entire
+    // cost. So the stored summary is looked for first, and finding one makes the run a no-op
+    // rather than a second invoice for an answer we already have.
+    const existing = await deps.repository.findSummaryIdForJob(payload.job.id, payload.tenantId);
+    if (existing) {
+      const replayed: Job = {
+        ...payload.job,
+        status: "succeeded",
+        progress: 1,
+        error: null,
+        resultId: existing,
+        startedAt,
+        finishedAt: now().toISOString(),
+      };
+      await deps.repository.saveJob(replayed, scope, attempt);
+      log.info(
+        { event: "job.succeeded", summaryId: existing, created: false },
+        "summary already existed; the replay called no model",
+      );
+      return {
+        summaryId: existing,
+        created: false,
+        sectionCount: 0,
+        repaired: false,
+        transcriptTruncated: false,
+        // A replay makes no second offer of a name — the same rule `saveSummary` applies when it
+        // recognizes one, and the reason the check above can stand in for it.
+        appliedTitle: null,
+      };
+    }
+
     const transcript = await loadTranscript(payload, deps);
     const template = await deps.repository.loadTemplate(payload.templateId, payload.tenantId);
     if (!template) {

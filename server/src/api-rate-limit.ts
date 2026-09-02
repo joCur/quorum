@@ -33,20 +33,20 @@ export interface ApiRateLimitOptions {
  *   exempt anyway.
  * - The numbers come from the per-user limits resolver, per request, so a plan tier changes them
  *   without touching this file.
- * - A route that costs a model call declares `config: { rateLimit: app.expensiveRateLimit }` and is
- *   then metered against the much smaller summary allowance. Regenerate is the only such route
- *   today: every call to it buys a model call, while the rest of the API reads rows the pipeline
- *   already produced.
+ * - A route that buys pipeline work declares `config: { rateLimit: app.expensiveRateLimit }` and
+ *   is then metered against the much smaller allowance. Two routes are of that kind today —
+ *   regenerating a summary, which buys a model call, and retrying a transcription, which buys GPU
+ *   time — while the rest of the API reads rows the pipeline has already produced.
  *
  * - Exceeding the limit answers `429` with the machine-readable `limit.request_rate_exceeded`
  *   code, like every other limit in this system, so the client renders the text through i18n.
  *
  * ONE BUCKET PER ALLOWANCE, WHICH IS THE WHOLE POINT: `@fastify/rate-limit` keeps a single counter
- * per key for every route that has no `config.rateLimit` of its own, and only a route-level config
- * object gets a counter of its own. Deriving a smaller `max` for the expensive route from the
+ * per key for every route that has no `config.rateLimit` of its own, and every route-level config
+ * object gets a counter of its own. Deriving a smaller `max` for an expensive route from the
  * shared counter would not give it a smaller allowance — it would refuse it as soon as the user's
  * ordinary browsing had spent ten requests of any kind. Reading a meeting list must not use up the
- * right to ask for a summary, so the expensive route gets its own counter instead of a lower
+ * right to ask for a summary, so an expensive route gets its own counter instead of a lower
  * ceiling on everyone else's.
  */
 const apiRateLimitImpl: FastifyPluginAsync<ApiRateLimitOptions> = async (app, options) => {

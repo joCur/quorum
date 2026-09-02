@@ -383,6 +383,7 @@
       "audioUnavailable": "The audio of this recording could not be opened. It is still stored — please try again later.",
       "audioEmpty": "This recording contains no audio.",
       "audioUnreadable": "The audio of this recording could not be read, so there is no transcript.",
+      "audioTooLong": "This recording is too long to transcribe in one go. The audio is safe and can still be played back.",
       "transcriptionUnavailable": "Transcribing is not possible right now. The audio is safe — please try again in a few minutes.",
       "transcriptionFailed": "This recording could not be transcribed. The audio is safe and can still be played back.",
       "transcriptNotSaved": "The transcript could not be saved. The audio is safe — please try again later.",
@@ -412,6 +413,12 @@
     "transcript": {
       "working": "Transcribing your meeting — usually a few minutes. Feel free to leave; we'll keep at it.",
       "failed": "Transcription failed",
+      "retry": "Try again",
+      "retrying": "Starting…",
+      "alreadyRunning": "This meeting is already being transcribed.",
+      "nothingToRetry": "There is no failed transcription left to run again.",
+      "retryPointless": "Another attempt would end the same way, so there is nothing to try again.",
+      "retryUnavailable": "The transcription could not be started right now. Please try again in a moment.",
       "jumpTo": "Jump to {{time}}",
       "uncertain": "Low transcription confidence",
       "uncertainShort": "uncertain"

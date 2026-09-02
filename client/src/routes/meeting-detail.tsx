@@ -3,7 +3,7 @@ import { ArrowLeft, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import type { MeetingDetail } from "@quorum/shared";
+import { isRetryableJobErrorCode, type MeetingDetail } from "@quorum/shared";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -12,11 +12,12 @@ import { DeleteMeetingDialog } from "@/components/meetings/delete-meeting-dialog
 import { MeetingTitleField } from "@/components/meetings/meeting-title-field";
 import { PipelineStepper } from "@/components/meetings/pipeline-stepper";
 import { RegenerateSummary } from "@/components/meetings/regenerate-summary";
+import { RetryTranscription } from "@/components/meetings/retry-transcription";
 import { SummaryAttribution, SummaryView } from "@/components/meetings/summary-view";
 import { TranscriptView } from "@/components/meetings/transcript-view";
 import { formatMeetingDate, formatMeetingDuration, meetingLabel } from "@/features/meetings/format";
 import { asLimitCode, limitMessageKey } from "@/features/limits/messages";
-import { failedJobId, failureMessageKey } from "@/features/meetings/failure";
+import { failedJob, failedJobId, failureMessageKey } from "@/features/meetings/failure";
 import { isPipelineComplete } from "@/features/meetings/pipeline";
 import { useMeeting } from "@/features/meetings/use-meeting";
 import { useMeetingAudio } from "@/features/meetings/use-meeting-audio";
@@ -178,7 +179,12 @@ function MeetingDetailScreen({
           )}
         >
           <ColumnHeading id="transcript-heading">{t("meeting.view.transcript")}</ColumnHeading>
-          <TranscriptPanel detail={detail} currentTime={currentTime} onSeek={seek} />
+          <TranscriptPanel
+            detail={detail}
+            currentTime={currentTime}
+            onSeek={seek}
+            onReload={onReload}
+          />
         </section>
 
         {/*
@@ -283,13 +289,16 @@ function TranscriptPanel({
   detail,
   currentTime,
   onSeek,
+  onReload,
 }: {
   detail: MeetingDetail;
   currentTime: number;
   onSeek: (seconds: number) => void;
+  onReload: () => void;
 }) {
   const { t } = useTranslation();
   const failure = detail.meeting.failure;
+  const job = failedJob(detail, "transcribe");
 
   return (
     <div>
@@ -297,7 +306,19 @@ function TranscriptPanel({
         <FailurePanel
           title={t("meeting.transcript.failed")}
           code={failure.code}
-          jobId={failedJobId(detail, "transcribe")}
+          jobId={job?.id ?? null}
+          // Offered only where another attempt could end differently. The taxonomy is the
+          // pipeline's own (`shared/src/job.ts`), so the action appears exactly where the server
+          // would accept it: no dead control, and no refusal the user could not have foreseen.
+          action={
+            isRetryableJobErrorCode(failure.code) ? (
+              <RetryTranscription
+                meetingId={detail.meeting.id}
+                failedAt={job?.finishedAt ?? null}
+                onReload={onReload}
+              />
+            ) : null
+          }
         />
       ) : detail.transcript ? (
         <TranscriptView transcript={detail.transcript} currentTime={currentTime} onSeek={onSeek} />
@@ -409,15 +430,21 @@ function WaitingPanel({ message }: { message: string }) {
  * written for logs and may quote a backend verbatim, which is neither the user's language nor
  * anything the product talks about (ADR-005). The code and the job reference stay reachable one
  * click down, where support can ask for them without the screen leading with them.
+ *
+ * `action` is the way out, where there is one. It sits between the sentence and the technical
+ * details, because that is the order the reader needs them in: what happened, what to do about
+ * it, and only then the reference a support request would quote.
  */
 function FailurePanel({
   title,
   code,
   jobId,
+  action = null,
 }: {
   title: string;
   code: string;
   jobId: string | null;
+  action?: React.ReactNode;
 }) {
   const { t } = useTranslation();
 
@@ -425,6 +452,7 @@ function FailurePanel({
     <Card className="flex flex-col gap-2 p-5">
       <h2 className="font-semibold text-destructive">{title}</h2>
       <p className="text-sm text-muted-foreground">{t(failureMessageKey(code))}</p>
+      {action}
       <details className="text-xs text-muted-foreground">
         <summary className="cursor-pointer select-none">{t("meeting.failure.details")}</summary>
         <p className="mt-1 font-mono">{t("meeting.failure.detailsCode", { code })}</p>

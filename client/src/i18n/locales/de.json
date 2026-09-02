@@ -383,6 +383,7 @@
       "audioUnavailable": "Das Audio dieser Aufnahme konnte nicht geöffnet werden. Es ist weiterhin gespeichert — bitte versuche es später noch einmal.",
       "audioEmpty": "Diese Aufnahme enthält kein Audio.",
       "audioUnreadable": "Das Audio dieser Aufnahme konnte nicht gelesen werden, deshalb gibt es kein Transkript.",
+      "audioTooLong": "Diese Aufnahme ist zu lang, um sie am Stück zu transkribieren. Das Audio ist sicher und lässt sich weiterhin abspielen.",
       "transcriptionUnavailable": "Transkribieren ist im Moment nicht möglich. Das Audio ist sicher — bitte versuche es in einigen Minuten noch einmal.",
       "transcriptionFailed": "Diese Aufnahme konnte nicht transkribiert werden. Das Audio ist sicher und lässt sich weiterhin abspielen.",
       "transcriptNotSaved": "Das Transkript konnte nicht gespeichert werden. Das Audio ist sicher — bitte versuche es später noch einmal.",
@@ -412,6 +413,12 @@
     "transcript": {
       "working": "Dein Meeting wird transkribiert — meist dauert das ein paar Minuten. Du kannst ruhig weggehen, wir machen weiter.",
       "failed": "Transkription fehlgeschlagen",
+      "retry": "Erneut versuchen",
+      "retrying": "Wird gestartet…",
+      "alreadyRunning": "Dieses Meeting wird bereits transkribiert.",
+      "nothingToRetry": "Es gibt keine fehlgeschlagene Transkription mehr, die wiederholt werden könnte.",
+      "retryPointless": "Ein weiterer Versuch würde genauso enden — hier gibt es nichts zu wiederholen.",
+      "retryUnavailable": "Die Transkription konnte gerade nicht gestartet werden. Bitte versuche es in einem Moment noch einmal.",
       "jumpTo": "Zu {{time}} springen",
       "uncertain": "Geringe Erkennungssicherheit",
       "uncertainShort": "unsicher"

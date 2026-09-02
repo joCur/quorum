@@ -67,10 +67,11 @@ export interface UserLimits {
   /** Length of that window, in seconds. */
   readonly apiWindowSeconds: number;
   /**
-   * Requests to the regenerate endpoint per window.
+   * Requests per window to a route that buys pipeline work — regenerating a summary, retrying a
+   * transcription — each metered on a counter of its own.
    *
-   * Its own, much smaller number because it is the one route that costs a model call per request:
-   * the rest of the API reads rows the pipeline already produced.
+   * Its own, much smaller number because those are the requests that cost something to serve: the
+   * rest of the API reads rows the pipeline already produced.
    */
   readonly apiSummaryRequestsPerWindow: number;
 }

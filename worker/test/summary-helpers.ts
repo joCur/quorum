@@ -174,6 +174,10 @@ export class InMemorySummaryRepository implements SummaryRepository {
     return this.meetings.has(meetingId);
   }
 
+  async findSummaryIdForJob(jobId: string): Promise<string | null> {
+    return this.byJob.get(jobId) ?? null;
+  }
+
   async saveSummary(summary: Summary, scope: JobScope, jobId: string): Promise<SaveSummaryResult> {
     this.onBeforeSaveSummary?.();
     // The real repository checks and inserts in one transaction; here the

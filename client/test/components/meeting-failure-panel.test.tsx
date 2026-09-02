@@ -10,6 +10,7 @@ import {
   type SummaryTemplateView,
   SUMMARY_SCHEMA_VERSION,
 } from "@quorum/shared";
+import type * as MeetingsApi from "@/features/meetings/api";
 import type { MeetingDetailState } from "@/features/meetings/use-meeting";
 import type { TemplatesState } from "@/features/templates/use-templates";
 import { renderWithProviders, useLanguage } from "./render";
@@ -36,6 +37,10 @@ const templateSections = [
 ];
 
 let currentDetail: MeetingDetail;
+
+/** Stands in for the retry request, so the panel's action can be driven without a server. */
+const retryTranscription = vi.hoisted(() => vi.fn());
+const reload = vi.hoisted(() => vi.fn());
 
 function failedJob(overrides: Partial<Job> = {}): Job {
   return {
@@ -128,10 +133,21 @@ vi.mock("@/features/meetings/use-meeting", () => ({
     status: "ready",
     errorCode: null,
     deleting: false,
-    reload: vi.fn(),
+    reload,
     remove: vi.fn(),
     rename: vi.fn(),
   }),
+}));
+
+vi.mock("@/features/auth/auth-provider", () => ({
+  useAuth: () => ({ accessToken: "stub" }),
+}));
+
+// Only the request is replaced. `MeetingApiError` stays the real one, because the panel's copy
+// for a refusal is chosen from the code it carries.
+vi.mock("@/features/meetings/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof MeetingsApi>()),
+  retryTranscription,
 }));
 
 vi.mock("@/features/meetings/use-meeting-audio", () => ({
@@ -164,6 +180,7 @@ vi.mock("@/features/templates/use-regenerate", () => ({
   }),
 }));
 
+const { MeetingApiError } = await import("@/features/meetings/api");
 const { MeetingDetailRoute } = await import("@/routes/meeting-detail");
 
 function renderDetail() {
@@ -178,6 +195,8 @@ function renderDetail() {
 describe("failed stage", () => {
   beforeEach(async () => {
     await useLanguage("en");
+    retryTranscription.mockReset();
+    reload.mockReset();
   });
 
   afterEach(async () => {
@@ -249,5 +268,140 @@ describe("failed stage", () => {
       screen.getByText(/Diese Aufnahme konnte nicht transkribiert werden\./),
     ).toBeInTheDocument();
     expect(screen.queryByText(RAW_MESSAGE)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The way out of a failed transcription.
+ *
+ * The action is offered exactly where the server would accept it, which is the property worth
+ * holding: a button that is guaranteed to be refused invites the user to keep pressing something
+ * that cannot work.
+ */
+describe("retrying a failed transcription", () => {
+  const UNAVAILABLE = { code: "TRANSCRIPTION_UNAVAILABLE", message: RAW_MESSAGE };
+
+  beforeEach(async () => {
+    await useLanguage("en");
+    retryTranscription.mockReset();
+    reload.mockReset();
+  });
+
+  afterEach(async () => {
+    await useLanguage("en");
+  });
+
+  function renderRetryableFailure() {
+    currentDetail = detailWithFailure({ stage: "transcribe", ...UNAVAILABLE }, [
+      failedJob({ error: UNAVAILABLE }),
+    ]);
+    return renderDetail();
+  }
+
+  it("offers the action for a failure another attempt could survive", () => {
+    renderRetryableFailure();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+
+  it("does not offer it for a failure repeating cannot undo", () => {
+    currentDetail = detailWithFailure(
+      { stage: "transcribe", code: "AUDIO_DECODE_FAILED", message: RAW_MESSAGE },
+      [failedJob({ error: { code: "AUDIO_DECODE_FAILED", message: RAW_MESSAGE } })],
+    );
+    renderDetail();
+
+    expect(screen.getByText(/could not be read/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  });
+
+  it("does not offer it for a code this build does not know", () => {
+    currentDetail = detailWithFailure(
+      { stage: "transcribe", code: "SOMETHING_NEW", message: RAW_MESSAGE },
+      [failedJob({ error: { code: "SOMETHING_NEW", message: RAW_MESSAGE } })],
+    );
+    renderDetail();
+
+    expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+  });
+
+  it("asks for the transcription again and refreshes the meeting", async () => {
+    retryTranscription.mockResolvedValue({ job: failedJob({ status: "queued", error: null }) });
+    renderRetryableFailure();
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(retryTranscription).toHaveBeenCalledWith(MEETING_ID, { accessToken: "stub" });
+    // The reload is the whole follow-up: an accepted retry changes the meeting's own state, so
+    // the screen only has to ask again and the detail timer takes over from there.
+    expect(reload).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Starting…" })).toBeDisabled();
+  });
+
+  /**
+   * The deadlock the held flag produced.
+   *
+   * A retry of a job that fails again quickly can be back in the failed state before the reload
+   * that followed the click returns. The panel then never unmounts, and a `pending` flag that is
+   * only cleared on refusal would leave the button disabled on "Starting…" with no way back. The
+   * wait is a question about the data instead: it lasts while the failure on screen is the one
+   * that was clicked on, and a newer one ends it.
+   */
+  it("offers the action again when the retried job has failed once more", async () => {
+    let resolveRetry: (value: unknown) => void = () => undefined;
+    retryTranscription.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRetry = resolve;
+      }),
+    );
+    const { rerender } = renderRetryableFailure();
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(screen.getByRole("button", { name: "Starting…" })).toBeDisabled();
+
+    // The reload comes back with a *newer* failure of the same job — the retry ran and failed.
+    currentDetail = detailWithFailure({ stage: "transcribe", ...UNAVAILABLE }, [
+      failedJob({ error: UNAVAILABLE, finishedAt: "2026-08-29T10:20:00.000Z" }),
+    ]);
+    resolveRetry({ job: failedJob({ status: "queued", error: null }) });
+    rerender(
+      <Routes>
+        <Route path="/meetings/:meetingId" element={<MeetingDetailRoute />} />
+      </Routes>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+
+  it("says why a refusal happened, in the user's own terms", async () => {
+    retryTranscription.mockRejectedValue(
+      new MeetingApiError(409, "transcription_in_progress", "This meeting is already running."),
+    );
+    renderRetryableFailure();
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This meeting is already being transcribed.",
+    );
+    // Nothing changed, so the action is offered again rather than left disabled.
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+  });
+
+  it("names the limit when the retry allowance is spent", async () => {
+    retryTranscription.mockRejectedValue(
+      new MeetingApiError(429, "limit.request_rate_exceeded", "Too many requests."),
+    );
+    renderRetryableFailure();
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Too many requests in a short time/);
+  });
+
+  it("speaks German to a German browser", async () => {
+    await useLanguage("de");
+    renderRetryableFailure();
+
+    expect(screen.getByRole("button", { name: "Erneut versuchen" })).toBeEnabled();
   });
 });

@@ -15,6 +15,8 @@ import {
   type MeetingRecord,
   type MeetingScope,
   type MeetingStore,
+  type RequeueOutcome,
+  type RequeueTarget,
 } from "./repository.js";
 
 interface StoredMeeting extends MeetingRecord {
@@ -146,6 +148,59 @@ export class InMemoryMeetingStore implements MeetingStore {
     };
   }
 
+  /**
+   * Test seam: the job ids the queue still holds an entry for.
+   *
+   * The SQL store asks pg-boss's own tables; there is nothing to ask here, so the answer is set
+   * from outside. It is not an ornament — the two states that make the retry guard necessary,
+   * a `failed` row that pg-boss is still going to repeat and a `queued` row stranded by a crash,
+   * are only distinguishable through this.
+   */
+  setLiveQueueEntries(jobIds: Iterable<string>): void {
+    this.liveQueueEntries = new Set(jobIds);
+  }
+
+  private liveQueueEntries: ReadonlySet<string> = new Set();
+  /** When this store last moved a job row — the stand-in for `jobs.updated_at`. */
+  private readonly jobWrittenAt = new Map<string, string>();
+
+  /** The same decision the SQL implementation makes, in the same order. */
+  async requeueFailedJob(scope: MeetingScope, target: RequeueTarget): Promise<RequeueOutcome> {
+    const job = this.findJob(scope, target.meetingId, target.jobId);
+    if (!job || job.status === "succeeded" || job.status === "canceled") return "nothing-to-retry";
+    if (this.liveQueueEntries.has(target.jobId)) return "in-progress";
+
+    const previous = { ...job };
+    job.status = "queued";
+    job.error = null;
+    job.progress = null;
+    job.resultId = null;
+    job.startedAt = null;
+    job.finishedAt = null;
+    this.jobWrittenAt.set(job.id, new Date().toISOString());
+    try {
+      await target.enqueue();
+      // The enqueue is what creates the entry the next caller will see, exactly as it does in
+      // PostgreSQL — which is what makes a second retry of this job refuse rather than duplicate.
+      this.liveQueueEntries = new Set(this.liveQueueEntries).add(job.id);
+    } catch (error) {
+      // The transaction of the SQL implementation, by hand: an enqueue that did not happen
+      // leaves the row exactly as it was found.
+      Object.assign(job, previous);
+      this.jobWrittenAt.delete(job.id);
+      throw error;
+    }
+    return "requeued";
+  }
+
+  private findJob(scope: MeetingScope, meetingId: string, jobId: string): Job | undefined {
+    const meeting = this.meetings.get(meetingId);
+    if (!meeting || meeting.tenantId !== scope.tenantId || meeting.userId !== scope.userId) {
+      return undefined;
+    }
+    return (this.pipelines.get(meetingId)?.jobs ?? []).find((job) => job.id === jobId);
+  }
+
   async deleteMeeting(scope: MeetingScope, meetingId: string): Promise<boolean> {
     const meeting = this.meetings.get(meetingId);
     if (!meeting || meeting.tenantId !== scope.tenantId || meeting.userId !== scope.userId) {
@@ -170,8 +225,8 @@ export class InMemoryMeetingStore implements MeetingStore {
     const transcript = pipeline.transcript ?? null;
     const state = deriveMeetingState({
       finalizedAt: meeting.finalizedAt,
-      transcribe: latestStage(pipeline.jobs, "transcribe"),
-      summarize: latestStage(pipeline.jobs, "summarize"),
+      transcribe: latestStage(pipeline.jobs, "transcribe", this.jobWrittenAt),
+      summarize: latestStage(pipeline.jobs, "summarize", this.jobWrittenAt),
       hasTranscript: transcript !== null,
       hasSummary: (pipeline.summaries ?? []).length > 0,
     });
@@ -193,11 +248,23 @@ export class InMemoryMeetingStore implements MeetingStore {
   }
 }
 
-function latestStage(jobs: Job[] | undefined, type: Job["type"]): StageState | null {
+function latestStage(
+  jobs: Job[] | undefined,
+  type: Job["type"],
+  writtenAt: ReadonlyMap<string, string>,
+): StageState | null {
   const matches = (jobs ?? []).filter((job) => job.type === type);
   const job = matches[matches.length - 1];
   if (!job) return null;
-  return { status: job.status, progress: job.progress, error: job.error };
+  return {
+    status: job.status,
+    progress: job.progress,
+    error: job.error,
+    // The SQL store reads `jobs.updated_at`; there is no such column here, so the row's own
+    // timestamps stand in — which is what they are, since the pipeline writes the row exactly
+    // when it sets them. A row this store moved itself carries its own mark.
+    updatedAt: writtenAt.get(job.id) ?? job.finishedAt ?? job.startedAt ?? job.createdAt,
+  };
 }
 
 function transcriptDuration(transcript: Transcript): number | null {

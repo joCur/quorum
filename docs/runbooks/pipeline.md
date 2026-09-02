@@ -40,23 +40,28 @@ without burning retries, because repeating it cannot change the outcome).
 
 Consumed from the `transcribe` queue; failures land on `transcribe-dead-letter`.
 
-| Code                             | Retried | Why                                            |
-| -------------------------------- | ------- | ---------------------------------------------- |
-| `TRANSCRIPTION_UNAVAILABLE`      | yes     | Backend booting, overloaded, 5xx, 429, timeout |
-| `AUDIO_FETCH_FAILED`             | yes     | Object storage hiccup                          |
-| `TRANSCRIPT_PERSIST_FAILED`      | yes     | Database blip                                  |
-| `INTERNAL_ERROR`                 | yes     | Unclassified — assumed transient                |
-| `MANIFEST_NOT_FOUND`             | no      | The session was never finalized                 |
-| `AUDIO_EMPTY`                    | no      | Nothing was recorded                            |
-| `AUDIO_DECODE_FAILED`            | no      | The backend refused these bytes (400/415/422)   |
-| `TRANSCRIPTION_REJECTED`         | no      | Model not installed or misnamed, 401, 413       |
-| `TRANSCRIPTION_RESPONSE_INVALID` | no      | Backend answered in a shape we do not accept    |
-| `TRANSCRIPT_INVALID`             | no      | Result fails the schema                         |
-| `JOB_PAYLOAD_INVALID`            | no      | The queued payload is not one we understand     |
+"Retried" is what the worker does by itself, with nothing changed. "User retry" is what the
+meeting screen offers a person who is saying that something has changed since — the two differ on
+purpose, and the section below the summary table explains where and why.
+
+| Code                             | Retried | User retry | Why                                            |
+| -------------------------------- | ------- | ---------- | ---------------------------------------------- |
+| `TRANSCRIPTION_UNAVAILABLE`      | yes     | yes        | Backend booting, overloaded, 5xx, 429, timeout |
+| `AUDIO_FETCH_FAILED`             | yes     | yes        | Object storage hiccup                          |
+| `TRANSCRIPT_PERSIST_FAILED`      | yes     | yes        | Database blip                                  |
+| `INTERNAL_ERROR`                 | yes     | yes        | Unclassified — assumed transient                |
+| `TRANSCRIPTION_REJECTED`         | no      | yes        | Model not installed or misnamed, 401/403        |
+| `TRANSCRIPTION_RESPONSE_INVALID` | no      | yes        | Backend answered in a shape we do not accept    |
+| `MANIFEST_NOT_FOUND`             | no      | no         | The session was never finalized                 |
+| `AUDIO_EMPTY`                    | no      | no         | Nothing was recorded                            |
+| `AUDIO_DECODE_FAILED`            | no      | no         | The backend refused these bytes (400/415/422)   |
+| `AUDIO_TOO_LARGE`                | no      | no         | The recording exceeds what the backend takes (413) |
+| `TRANSCRIPT_INVALID`             | no      | no         | Result fails the schema                         |
+| `JOB_PAYLOAD_INVALID`            | no      | no         | The queued payload is not one we understand     |
 
 The retry budget exists mainly for a Whisper container that is slow to load a model.
 
-`TRANSCRIPTION_REJECTED` on every attempt is almost always the model, not the audio: Whisper
+`TRANSCRIPTION_REJECTED` is almost always the model, not the audio: Whisper
 serves only models it has downloaded, and answers `404 Model '…' is not installed locally` for a
 model that was never installed or for a short name where a full ID belongs
 (`Systran/faster-whisper-small`, not `small`). The worker installs its configured model on startup
@@ -87,6 +92,48 @@ The cost profile is inverted from transcription: a transcription retry spends lo
 summary retry spends money. So the budget covers backend outages and rate limits only — anything
 the model itself got wrong is terminal on the first try, because paying four times for the same
 wrong answer helps nobody.
+
+No "User retry" column here, because there is no user retry: a summary of an existing transcript
+is asked for through Regenerate, which is the same request with a template chosen. Such a column
+would have to answer a cost question — replaying an oversized prompt buys the same answer again —
+and answering it before anything consumes the answer would only be a guess.
+
+### The user's own retry
+
+A dead-lettered transcription is no longer an operator-only problem. The meeting screen offers
+"Try again" on a failed transcription, and `POST /api/meetings/:meetingId/transcription/retry`
+puts that same job back on the `transcribe` queue with a fresh budget — the replay the redrive
+below performs, narrowed to one job and scoped to the person who owns the meeting.
+
+**What is offered.** The "User retry" columns above are the whole rule, and the rule behind them
+is what the failure is about. A failure about the recording or the payload — nothing was recorded,
+no decoder takes these bytes, the audio is larger than the backend accepts, the session was never
+finalized — is permanent by nature, because the input does not change. Everything else is about
+the machinery around it, and machinery is what changes between two attempts. That is why the two
+columns differ on `TRANSCRIPTION_REJECTED` and `TRANSCRIPTION_RESPONSE_INVALID`: the worker will
+not repeat them now, with nothing changed, but a person pressing the button after you installed
+the missing model is telling us something has. The split lives in `isRetryableJobErrorCode`
+(`shared/src/job.ts`); a code given a new verdict wants a look at `worker/src/errors.ts` and at
+this table too.
+
+**What stops a second run.** A job row saying `failed` does **not** mean nobody is running the
+job: the worker writes that row on every attempt, including the ones pg-boss is still going to
+repeat after its backoff. And `singletonKey` deduplicates nothing — both queues run under
+pg-boss's `standard` policy, which none of the unique indexes behind that key applies to. So the
+retry decides against the queue rather than against the row: inside the transaction that moves the
+row, it refuses when `pgboss.job` still holds an entry for that job id in a state below
+`completed`. The same check reads the opposite case for free — a `queued` row with no entry behind
+it is stranded, not busy, and is handed back rather than left waiting for ever.
+
+The row move and the queue insert are one step, so neither can happen without the other, and an
+accepted retry also deletes the job's parked entry on `transcribe-dead-letter` — otherwise the
+next bulk redrive below would replay a job the user has already had run again.
+
+While the retry is queued or running, the meeting reports `queued`/`transcribing` rather than the
+state its previous run left behind: a reprocessing job is visible in the app even on a meeting
+that already has a transcript and a summary. A `queued` or `running` row is believed for six
+hours; past that it is treated as the leftover of a worker that died mid-job, so a stuck row
+cannot tell a finished meeting for ever that it is still being worked on.
 
 ### Idempotency — which jobs are safe to replay
 

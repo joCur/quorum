@@ -1,5 +1,6 @@
 import {
   JOB_ERROR_CODES,
+  type Job,
   type JobErrorCode,
   type MeetingDetail,
   type MeetingFailure,
@@ -22,6 +23,7 @@ const MESSAGE_KEYS = {
   AUDIO_FETCH_FAILED: "meeting.failure.audioUnavailable",
   AUDIO_EMPTY: "meeting.failure.audioEmpty",
   AUDIO_DECODE_FAILED: "meeting.failure.audioUnreadable",
+  AUDIO_TOO_LARGE: "meeting.failure.audioTooLong",
   TRANSCRIPTION_UNAVAILABLE: "meeting.failure.transcriptionUnavailable",
   TRANSCRIPTION_REJECTED: "meeting.failure.transcriptionFailed",
   TRANSCRIPTION_RESPONSE_INVALID: "meeting.failure.transcriptionFailed",
@@ -64,6 +66,11 @@ export function failureMessageKey(code: string): FailureMessageKey {
  * Null is a normal answer: the job rows are the pipeline's, and a stage can be reported as failed
  * from the meeting's own state before — or without — a row of its own being readable.
  */
+export function failedJob(detail: MeetingDetail, stage: MeetingFailure["stage"]): Job | null {
+  return detail.jobs.find((entry) => entry.type === stage && entry.status === "failed") ?? null;
+}
+
+/** Convenience over {@link failedJob} for the support reference the panel prints. */
 export function failedJobId(detail: MeetingDetail, stage: MeetingFailure["stage"]): string | null {
-  return detail.jobs.find((job) => job.type === stage && job.status === "failed")?.id ?? null;
+  return failedJob(detail, stage)?.id ?? null;
 }
