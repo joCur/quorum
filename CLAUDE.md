@@ -6,6 +6,16 @@
 - All user-facing strings go through **i18n** — never hard-coded German (or any other language) in code. German is a translation catalog, not a value in source.
 - (Chat communication with the PO remains German.)
 
+## Comment policy
+
+- **A comment must carry a non-obvious "why", or it must not exist.** Legitimate comments state a
+  constraint the code cannot show: the reason behind a workaround or bug fix, an invariant, a
+  deliberate departure from an obvious alternative. Comments that restate what the code does in
+  natural language are noise — they cost reading time on every visit and drift from the code.
+- Keep comment density low. A file where explanatory prose rivals the code in line count is a
+  review finding, not a style choice.
+- Do not sweep existing comments in a feature PR; trim only what the change already touches.
+
 ## Git & PR process
 
 - **NEVER push to main directly, no exceptions.** Every change lands as a pull request. A ruleset enforces this: main accepts only approved, squash-merged pull requests whose required checks are green, and it refuses deletions and non-fast-forward pushes.
