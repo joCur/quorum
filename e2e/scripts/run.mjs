@@ -97,6 +97,9 @@ const whisperBaseUrl =
   whisperMode === "real"
     ? `http://127.0.0.1:${ports.WHISPER_PORT}/v1`
     : `http://127.0.0.1:${mockWhisperPort}/v1`;
+// One name for the stub's model, shared by the worker and the stub: the worker checks on startup
+// that its configured model is installed, so the two have to agree.
+const mockWhisperModel = "mock-tiny";
 
 // The issuer as the browser sees it. Both Keycloak (`KC_HOSTNAME`) and the API's public issuer
 // check carry the port, so they follow this run's Keycloak port rather than the template's.
@@ -132,8 +135,9 @@ let tearingDown = false;
  */
 const backgroundDeath = deferred();
 /**
- * Cleared once the stack is up and answering. While it is set, a failure is a failure of the
- * stack itself, and the containers are the only witnesses — see `captureStackLogs`.
+ * Cleared once the stack is up, answering, and has accepted this run's setup. While it is set, a
+ * failure is a failure of the stack itself, and the containers are the only witnesses — see
+ * `captureStackLogs`.
  */
 let startingTheStack = true;
 let exitCode = 0;
@@ -174,18 +178,22 @@ async function main() {
     await waitForHttp(`${s3Endpoint}/minio/health/live`, "MinIO");
     if (whisperMode === "real") await waitForHttp(`${whisperBaseUrl}/models`, "Whisper", 300_000);
   });
-  startingTheStack = false;
 
   await step("allowing this run's app origin in Keycloak", allowClientOrigin);
 
   if (whisperMode === "real") {
-    // speaches serves only models it already has on disk, and answers 404 for anything else
-    // rather than fetching it mid-transcription. Pulling it here means the download happens once,
-    // outside any test's timeout, and is cached in the `whisper-models` volume afterwards.
+    // The worker installs its configured model on startup, so this step is not what makes the run
+    // work — it is what keeps the download out of the suite's clock. Pulling it here means a cold
+    // model volume costs time before the first test rather than inside it; the worker then finds
+    // the model present and starts consuming immediately.
     await step("downloading the Whisper model", () =>
       fetchOk(`${whisperBaseUrl}/models/${stack.WHISPER_MODEL}`, { method: "POST" }, 900_000),
     );
   }
+  // Everything above this line is the stack: containers coming up, and the two setup calls that
+  // only a container can refuse. Everything below is the host — builds, the worker, the browser —
+  // where a compose log has nothing to say. See `captureStackLogs`.
+  startingTheStack = false;
 
   await step("building the workspaces", () =>
     run("pnpm", ["--filter", "@quorum/shared", "--filter", "@quorum/worker", "run", "build"], {
@@ -198,7 +206,11 @@ async function main() {
     await assertPortFree(mockWhisperPort, "the mock backend");
     background("mock-backend", process.execPath, [resolve(here, "mock-whisper.mjs")], {
       cwd: e2eDir,
-      env: { ...process.env, MOCK_WHISPER_PORT: String(mockWhisperPort) },
+      env: {
+        ...process.env,
+        MOCK_WHISPER_PORT: String(mockWhisperPort),
+        MOCK_WHISPER_MODEL: mockWhisperModel,
+      },
     });
     await waitForHttp(`http://127.0.0.1:${mockWhisperPort}/v1/models`, "the mock backend", 30_000);
   });
@@ -216,7 +228,7 @@ async function main() {
         S3_ACCESS_KEY: stack.MINIO_ROOT_USER,
         S3_SECRET_KEY: stack.MINIO_ROOT_PASSWORD,
         WHISPER_BASE_URL: whisperBaseUrl,
-        WHISPER_MODEL: whisperMode === "real" ? stack.WHISPER_MODEL : "mock-tiny",
+        WHISPER_MODEL: whisperMode === "real" ? stack.WHISPER_MODEL : mockWhisperModel,
         // Summaries always go to the stub: the stack ships no LLM, and ADR-005 makes the endpoint
         // the only thing that varies, so a real one would only add a network dependency.
         SUMMARY_BASE_URL: `http://127.0.0.1:${mockWhisperPort}/v1`,
@@ -226,6 +238,12 @@ async function main() {
         // timeout, so the worker retries fast and gives up early here.
         WORKER_RETRY_LIMIT: "2",
         WORKER_RETRY_DELAY_SECONDS: "2",
+        // Same reasoning for the startup model check. The shipped budget is sized for downloading
+        // large-v3 over a slow line; here the model is either already in the volume or served by
+        // the stub, so anything that takes longer than a minute is wedged. Failing fast turns that
+        // into a dead worker the run reports, instead of specs timing out one by one against a
+        // process whose whisper.model.* lines are invisible at this log level.
+        WHISPER_MODEL_INSTALL_TIMEOUT_MS: "60000",
       },
     });
   });
@@ -330,8 +348,8 @@ function captureStackLogs() {
       ...servicesThatFailed().map((service) => [`${service}.log`, logsOf(service)]),
     ];
     const written = wanted
-      .filter(([name, args]) => writeCommandOutput(directory, name, args))
-      .map(([name]) => name);
+      .map(([name, args]) => writeCommandOutput(directory, name, args))
+      .filter((label) => label !== null);
 
     if (written.length === 0) {
       console.error("[e2e] the stack left no logs behind — it never got as far as a container");
@@ -352,7 +370,10 @@ function captureStackLogs() {
  * A one-shot service that did its job exits 0 and is correctly not named here.
  */
 function servicesThatFailed() {
-  const output = capture("docker", [...composeArgs, "ps", "--all", "--format", "json"]);
+  // `composeArgs` names the compose files by relative path, so this has to run where they are.
+  const output = capture("docker", [...composeArgs, "ps", "--all", "--format", "json"], {
+    cwd: repoRoot,
+  });
   if (output === null) return [];
   const failed = new Set();
   for (const line of output.split("\n")) {
@@ -374,7 +395,14 @@ function servicesThatFailed() {
   return [...failed];
 }
 
-/** Writes a command's output (both streams — the interesting part is often on stderr). */
+/**
+ * Writes one command's output — both streams, because the interesting part is often on stderr —
+ * and returns how it should be described, or null when there was nothing to write.
+ *
+ * A command that failed still leaves its file: when the Docker daemon has gone away, its complaint
+ * IS the evidence. What must not happen is announcing a captured log that is really a page of
+ * client errors, so the exit status travels with the name and lands in the file too.
+ */
 function writeCommandOutput(directory, name, args) {
   const result = spawnSync("docker", args, {
     cwd: repoRoot,
@@ -383,10 +411,22 @@ function writeCommandOutput(directory, name, args) {
     // of one megabyte would truncate it into uselessness.
     maxBuffer: 64 * 1024 * 1024,
   });
+
+  let failure = null;
+  if (result.error !== undefined) failure = `docker did not run: ${result.error.message}`;
+  else if (result.status !== 0) failure = `docker exited ${result.signal ?? result.status}`;
+
   const body = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-  if (body.trim() === "") return false;
-  writeFileSync(resolve(directory, name), body);
-  return true;
+  if (failure === null) {
+    if (body.trim() === "") return null;
+    writeFileSync(resolve(directory, name), body);
+    return name;
+  }
+  writeFileSync(
+    resolve(directory, name),
+    `${body}\n[e2e] this capture is incomplete: ${failure}\n`,
+  );
+  return `${name} — incomplete, ${failure}`;
 }
 
 async function teardown() {
@@ -677,8 +717,8 @@ async function assertVolumesMatchCredentials() {
 }
 
 /** Synchronous command output, or null when the command is missing or fails. */
-function capture(command, args) {
-  const result = spawnSync(command, args, { encoding: "utf8" });
+function capture(command, args, options = {}) {
+  const result = spawnSync(command, args, { encoding: "utf8", ...options });
   if (result.error || result.status !== 0) return null;
   return result.stdout;
 }

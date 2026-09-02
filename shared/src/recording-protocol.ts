@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeUserTitle } from "./meeting-title.js";
 
 /**
  * The chunk streaming protocol, client ↔ server (ADR-002)
@@ -27,7 +28,17 @@ export const AudioFormatSchema = z.object({
  */
 export const SessionStartSchema = z.object({
   type: z.literal("session.start"),
-  meetingTitle: z.string().nullable().default(null),
+  /**
+   * The name the user typed, normalized here rather than trusted: our own client trims the
+   * field, but the protocol is the boundary, and a title of spaces has to reach the meeting row
+   * as "unnamed" — otherwise it is a name to the database, an empty line to the reader, and a
+   * reason to refuse the title the summary would have suggested.
+   */
+  meetingTitle: z
+    .string()
+    .nullable()
+    .default(null)
+    .transform((title) => normalizeUserTitle(title)),
   audioFormat: AudioFormatSchema,
   /**
    * Template this meeting's first summary is made with. `null` — and an absent
@@ -40,6 +51,17 @@ export const SessionStartSchema = z.object({
    * would go stale rather than make the value trustworthy.
    */
   summaryTemplateId: z.string().uuid().nullable().default(null),
+  /**
+   * Language this meeting is transcribed in — the first link of the chain in
+   * `transcription-language.ts`. `auto` asks for detection; `null` — and an absent field, which
+   * parses to `null` — is no statement at all and falls through to the user's default and then to
+   * the deployment default.
+   *
+   * Not validated against the offered list here: the picker is a product decision that changes
+   * faster than the sessions still in flight, and a tag this server does not recognize is refused
+   * by the transcription backend rather than by the socket that carries the audio.
+   */
+  language: z.string().max(35).nullable().default(null),
   clientInfo: z.object({
     platform: z.string(), // e.g. "web-desktop" | "web-mobile"
     userAgent: z.string(),

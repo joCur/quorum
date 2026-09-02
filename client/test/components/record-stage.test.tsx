@@ -14,6 +14,15 @@ import { renderWithProviders, stubRecordingSession, useLanguage } from "./render
  * the REC pill and the level bars are red while capture is live and neutral when it is not.
  */
 
+vi.mock("@/features/settings/use-user-settings", () => ({
+  useUserSettings: () => ({
+    settings: { transcriptionLanguage: null },
+    status: "ready",
+    saving: false,
+    chooseTranscriptionLanguage: async () => undefined,
+  }),
+}));
+
 vi.mock("@/features/templates/use-templates", () => ({
   useTemplates: () => ({
     status: "ready",

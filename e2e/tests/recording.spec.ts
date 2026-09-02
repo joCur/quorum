@@ -31,6 +31,12 @@ import {
 import { chunkSeqs, readManifest } from "../support/storage.js";
 
 /**
+ * The meeting name the stub summary backend suggests (`e2e/scripts/mock-whisper.mjs`). Repeated
+ * here rather than imported: that module starts a server when it is loaded.
+ */
+const STUB_SUMMARY_TITLE = "Stub meeting about the release";
+
+/**
  * Critical path: recording → chunk streaming → persistence → transcript (CLAUDE.md).
  *
  * The browser records from Chromium's synthetic microphone, and every claim the UI makes is
@@ -43,6 +49,11 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
 
   await signIn(devUsers.alice);
   await page.goto("/record");
+
+  // This meeting is held in German, said on the stage before capture starts. Detection reads the
+  // first half minute of audio and guesses wrong on a recording that opens without speech, which
+  // is the failure the per-meeting choice exists to prevent.
+  await page.getByLabel("Spoken language").selectOption("de");
 
   // Consent comes before the microphone, every single time.
   await startRecording(page);
@@ -122,6 +133,12 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   if (stackEnv.whisperMode === "mock") {
     const fields = await lastTranscriptionFields();
     expect(fields.vad_filter).toBe("true");
+    // And it asked for the language the stage was showing. This is the whole chain seen from its
+    // far end: a select on the recording screen, through the session record and the job payload,
+    // into the request the worker makes.
+    expect(fields.language).toBe("de");
+    // What the meeting says it is in is what the transcription was made in, not a global default.
+    expect(transcript.language).toBe("de");
   }
 
   // And the user can read both. Everything above is the pipeline seen from behind it; the core
@@ -134,19 +151,52 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     // The stub transcription backend says one known sentence, so with it the screen can be held to
     // showing the words that were transcribed rather than merely to showing something.
     await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 30_000 });
+
+    // Nobody named this recording, so the summary named it. The stub suggests a fixed title, and
+    // the meeting carries it instead of the "Untitled" placeholder. Asserted against the stub
+    // only: a real backend picks its own words.
+    //
+    // No reload: the name is written in the same transaction as the summary, so the very read
+    // that showed the summary above carries it. A screen that had to be refreshed by hand to
+    // learn its own title is the bug this asserts is absent.
+    await expect(page.getByRole("heading", { name: STUB_SUMMARY_TITLE })).toBeVisible();
+
+    // And in the list, on this meeting's own row — every recording the suite makes gets the same
+    // stub name, so the row is addressed by the meeting it links to.
+    await page.goto("/meetings");
+    await expect(page.locator(`a[href="/meetings/${transcript.meetingId}"]`)).toContainText(
+      STUB_SUMMARY_TITLE,
+      { timeout: 30_000 },
+    );
+
+    // A generated name is a suggestion, so it can be corrected. The rename is what makes that
+    // true, and it is the reason the machine is allowed to write the field at all.
+    await page.goto(`/meetings/${transcript.meetingId}`);
+    await page.getByRole("button", { name: "Rename meeting" }).click();
+    const field = page.getByRole("textbox", { name: "Meeting title" });
+    await field.fill("Named by hand");
+    await page.getByRole("button", { name: "Save name" }).click();
+    await expect(page.getByRole("heading", { name: "Named by hand" })).toBeVisible();
+
+    await page.goto("/meetings");
+    await expect(page.locator(`a[href="/meetings/${transcript.meetingId}"]`)).toContainText(
+      "Named by hand",
+    );
   }
 });
 
 /**
- * Critical path, unhappy end: the pipeline fails and the screen has to say so in the user's own
- * terms.
+ * Critical path, unhappy end: the pipeline fails, the screen says so in the user's own terms, and
+ * the user gets out of it without an operator.
  *
  * The stub backend is told to refuse the next transcription, so a real job fails for a real
- * reason. What is asserted is what the user is left with: a translated sentence about their
+ * reason. What is asserted first is what the user is left with: a translated sentence about their
  * recording, the developer-facing string the pipeline logged nowhere on the page, and the code
- * available a click down for support.
+ * available a click down for support. Then the second half of the same story — the retry that
+ * turns that dead end back into a transcript, which until it existed only an operator redrive
+ * could do.
  */
-test("says a recording could not be transcribed, in the user's language", async ({
+test("says a recording could not be transcribed, and transcribes it on a retry", async ({
   page,
   signIn,
 }) => {
@@ -210,6 +260,33 @@ test("says a recording could not be transcribed, in the user's language", async 
 
   // And the failure costs nothing that succeeded: the audio is still there to play.
   await expect(page.getByRole("group", { name: "Playback" })).toBeVisible();
+
+  // The way out is on the panel, because this failure is about the backend rather than about the
+  // recording: the stub refused once and answers normally from here, which is the shape of the
+  // real case this exists for — an operator installs the model the backend was missing and the
+  // user asks again.
+  const retry = page.getByRole("button", { name: "Try again" });
+  await expect(retry).toBeVisible();
+  await retry.click();
+
+  // The meeting stops reporting a failure the moment the retry is accepted — the job row is back
+  // on the queue, and the screen has to stop offering an action the user has already taken.
+  await expect(page.getByText("Transcription failed")).toHaveCount(0, { timeout: 30_000 });
+
+  // And the retry is a real run of the real pipeline: the transcript row appears, scoped to this
+  // user, and the words reach the screen the user is already looking at. The stub backend is the
+  // only one this case runs against, so its one known sentence is what the screen has to show.
+  const transcript = await waitForValue(
+    () => findTranscript(sessionId),
+    60_000,
+    "the transcript row the retry produced",
+  );
+  expect(transcript.tenantId).toBe(alice.tenantId);
+  expect(transcript.userId).toBe(alice.userId);
+  expect(transcript.meetingId).toBe(manifest?.meetingId);
+  expect(transcript.isActive).toBe(true);
+
+  await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 60_000 });
 });
 
 /**

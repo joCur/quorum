@@ -16,6 +16,13 @@ import { createServer } from "node:http";
 const port = Number.parseInt(process.env.MOCK_WHISPER_PORT ?? "8123", 10);
 
 /**
+ * The model this stub claims to have on disk. It has to match the worker's `WHISPER_MODEL`,
+ * because the worker verifies on startup that the configured model is installed and would
+ * otherwise try to download it here.
+ */
+const MODEL_ID = process.env.MOCK_WHISPER_MODEL ?? "mock-tiny";
+
+/**
  * Armed by a test through `POST /control/reject-transcription`, spent by the next transcription
  * request.
  *
@@ -35,6 +42,9 @@ let rejectNextTranscription = false;
  * this side — that the worker asked the backend for the behavior it is configured for.
  */
 let lastTranscriptionFields = null;
+
+/** The meeting name the stub suggests; the suite asserts on it verbatim. */
+const STUB_SUMMARY_TITLE = "Stub meeting about the release";
 
 /** Field names worth recording — everything else in the body is the audio itself. */
 const OBSERVED_FIELDS = ["model", "response_format", "language", "vad_filter"];
@@ -61,23 +71,26 @@ function observedFields(body) {
 /** The shape a real OpenAI-compatible backend answers with when it does not have the model. */
 function rejection() {
   return {
-    detail:
-      "Model 'mock-tiny' is not installed locally. Install it or pick a model that is available.",
+    detail: `Model '${MODEL_ID}' is not installed locally. Install it or pick a model that is available.`,
   };
 }
 
 /**
  * Fixed response in the `verbose_json` shape, with the word timestamps ADR-003 requires.
  *
- * `duration` is a constant and has nothing to do with the audio the suite submitted: this mock
- * never decodes anything. A spec may therefore assert that a duration reaches the database, but
+ * The language is echoed back from the request the way a real backend does: asked for one, it
+ * reports that one; asked for none, it reports what it "detected". That is what lets a test hold
+ * the pipeline to storing the language the transcription was actually made in.
+ *
+ * `duration`, by contrast, is a constant with nothing to do with the audio the suite submitted:
+ * this mock never decodes anything. A spec may assert that a duration reaches the database, but
  * never that it equals what was recorded — and no quota assertion may be built on this number.
  * Checking a measured duration against a real recording needs the `real` whisper mode.
  */
-function transcription() {
+function transcription(fields) {
   return {
     task: "transcribe",
-    language: "en",
+    language: fields?.language ?? "en",
     duration: 4,
     text: "This is a mock transcription produced by the end-to-end suite.",
     segments: [
@@ -111,6 +124,10 @@ function transcription() {
  * The prompt names each section as `sectionId: "<id>"` and its shape as `Format: "<format>"`, and
  * the mapping keeps only sections it asked for. Echoing the requested ids back is therefore the
  * one thing a stub has to get right for the pipeline to produce a stored summary.
+ *
+ * The envelope also carries the suggested meeting title, which is the one part of a summary that
+ * leaves the summary: a recording nobody named takes it as its own name. A fixed string, so a
+ * test can hold the meeting list to showing it.
  */
 function summary(prompt) {
   const sections = [];
@@ -126,7 +143,7 @@ function summary(prompt) {
       sections.push({ sectionId, content: columns.length === 0 ? [] : [row] });
     }
   }
-  return { sections };
+  return { title: STUB_SUMMARY_TITLE, sections };
 }
 
 /** The raw bytes of a request, for the multipart body the transcription endpoint receives. */
@@ -207,11 +224,25 @@ const server = createServer((request, response) => {
         return;
       }
       response.writeHead(200, { "content-type": "application/json" });
-      response.end(JSON.stringify(transcription()));
+      response.end(JSON.stringify(transcription(lastTranscriptionFields)));
     });
     return;
   }
-  if (request.url === "/health" || request.url === "/v1/models") {
+  if (request.url === "/v1/models") {
+    // The worker checks this listing on startup and installs the configured model when it is
+    // missing, so the stub answers in the real shape and claims the model the run gives it.
+    // Anything else would either send the worker into a download this endpoint cannot perform, or
+    // hide the check behind its "backend has no model listing" fallback.
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(
+      JSON.stringify({
+        object: "list",
+        data: [{ id: MODEL_ID, object: "model", owned_by: "quorum-e2e" }],
+      }),
+    );
+    return;
+  }
+  if (request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({ status: "ok" }));
     return;

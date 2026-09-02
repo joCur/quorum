@@ -1,5 +1,15 @@
-import { MeetingDetailSchema, MeetingListSchema } from "@quorum/shared";
-import type { Meeting, MeetingDetail } from "@quorum/shared";
+import {
+  MeetingDetailSchema,
+  MeetingListSchema,
+  MeetingSchema,
+  TranscriptionJobAcceptedSchema,
+} from "@quorum/shared";
+import type {
+  Meeting,
+  MeetingDetail,
+  RenameMeetingRequest,
+  TranscriptionJobAccepted,
+} from "@quorum/shared";
 import { apiUrl } from "@/env";
 import { reportUnauthorized } from "@/features/auth/session-expiry";
 
@@ -45,11 +55,15 @@ interface RequestOptions {
 
 async function call(
   path: string,
-  options: RequestOptions & { method?: string },
+  options: RequestOptions & { method?: string; body?: string },
 ): Promise<Response> {
   const response = await fetch(apiUrl(path), {
     method: options.method ?? "GET",
-    headers: { authorization: `Bearer ${options.accessToken}` },
+    headers: {
+      authorization: `Bearer ${options.accessToken}`,
+      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    ...(options.body === undefined ? {} : { body: options.body }),
     ...(options.signal ? { signal: options.signal } : {}),
   });
   if (!response.ok) throw await toApiError(response);
@@ -100,6 +114,43 @@ export async function fetchMeeting(
 
 export async function deleteMeeting(meetingId: string, options: RequestOptions): Promise<void> {
   await call(`/api/meetings/${meetingId}`, { ...options, method: "DELETE" });
+}
+
+/**
+ * Asks for a failed transcription to be run again.
+ *
+ * No request body: which job is replayed is the server's to work out from the meeting's rows,
+ * under the caller's own scope. The answer is that job as it now stands on the queue.
+ */
+export async function retryTranscription(
+  meetingId: string,
+  options: RequestOptions,
+): Promise<TranscriptionJobAccepted> {
+  const response = await call(`/api/meetings/${meetingId}/transcription/retry`, {
+    ...options,
+    method: "POST",
+  });
+  return TranscriptionJobAcceptedSchema.parse(await response.json());
+}
+
+/**
+ * Renames a meeting, or clears its name when the title is empty.
+ *
+ * Clearing is a real request rather than a no-op: it returns the meeting to unnamed, the state in
+ * which a later summary may suggest a name of its own.
+ */
+export async function renameMeeting(
+  meetingId: string,
+  title: string,
+  options: RequestOptions,
+): Promise<Meeting> {
+  const body: RenameMeetingRequest = { title };
+  const response = await call(`/api/meetings/${meetingId}`, {
+    ...options,
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  return MeetingSchema.parse(await response.json());
 }
 
 /** URL of a meeting's audio stream. The request itself carries the access token. */

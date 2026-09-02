@@ -82,6 +82,7 @@ Server (`quorum-server`):
 | `meeting.index_failed`           | warn  | The meeting row could not be written; recording continued         |
 | `meeting.finalize_index_failed`  | warn  | The meeting could not be marked finalized; audio and job are safe |
 | `meeting.deleted`                | info  | A meeting and everything derived from it were removed             |
+| `meeting.renamed`                | info  | A user set or cleared a meeting's name; `cleared` says which      |
 | `limit.session_duration_exceeded` | info | A recording hit the duration cap and was finalized server-side     |
 | `limit.parallel_sessions_exceeded` | info | A recording was refused: the user is already at the session cap   |
 | `limit.chunk_rate_exceeded`      | info  | A connection was closed for sending chunks too fast               |
@@ -112,13 +113,40 @@ Worker (`quorum-worker`):
 | `duration.unmeasured`       | warn  | A duration was asserted but the audio produced none to check it against |
 | `summary.enqueued`          | info  | The follow-up summary job was placed on the queue                 |
 | `summary.enqueue_failed`    | error | Transcript is persisted but the summary job could not be queued   |
+| `summary.title.applied`     | info  | Whether the meeting took the name the summary suggested for it    |
 | `job.succeeded`             | info  | The artifact is persisted                                        |
 | `job.failed`                | error | The attempt failed; see `code` and `retryable`                    |
 | `job.settled`               | error | The queue outcome: retried, or moved to the dead-letter queue      |
 | `job.abandoned`             | info  | The meeting was deleted mid-run; nothing was written. Not an incident |
 | `job.state.persist_failed`  | error | The failure itself could not be recorded in the database          |
 | `session.metadata.missing`  | warn  | Session object is gone; the manifest timestamp was used instead    |
-| `worker.stopping`           | info  | Graceful shutdown began                                           |
+| `worker.stopping`           | warn / error | The process is shutting down; `reason` says why. See below |
+| `worker.shutdown-failed`    | warn / error | The release did not finish; same split as `worker.stopping` |
+| `worker.shutdown-trigger-ignored` | debug / error | A second trigger arrived during a shutdown; `error` when it carried one |
+
+### The worker's exit contract
+
+A queue consumer stops for exactly one legitimate reason: somebody asked it to. That split is the
+whole point of `worker.stopping`, and it is visible in three places at once — the level, the
+`reason` field and the exit status.
+
+| `reason`                                                                                             | Level | Exit | Meaning                                                        |
+| ---------------------------------------------------------------------------------------------------- | ----- | ---- | -------------------------------------------------------------- |
+| `signal`                                                                                             | warn  | 0    | `SIGINT`/`SIGTERM`; in-flight jobs are allowed to finish first |
+| `startup-failed`, `uncaught-exception`, `unhandled-rejection`, `queue-stopped`, `event-loop-drained` | error | 70   | Nobody asked; the queue is stopped without draining            |
+
+`warn` for the requested case rather than `info` is deliberate: the end-to-end harness runs the
+worker at `warn`, and this is the one line that separates "someone stopped it" from "it vanished".
+Exit `70` is sysexits `EX_SOFTWARE` rather than a bare `1`, which every unhandled throw already
+returns — and above all it is not `0`, because a supervisor reads `0` as "this process was
+finished" and a worker never is. `event-loop-drained` is the case worth knowing about: a Node
+process whose loop empties exits `0` printing nothing at all, so without this guard a worker that
+silently stopped consuming looked exactly like one that had completed its work.
+
+`worker.shutdown-failed` follows the same split. During a `compose down` the database and the
+worker are signalled at the same moment, so a pool close that loses its connection is the ordinary
+shape of a correct teardown — on a requested stop it is a `warn` and the exit stays `0`. After a
+fault it is an `error` and the exit stays `70`.
 
 ## Metrics
 

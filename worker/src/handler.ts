@@ -1,8 +1,9 @@
 import {
   reconcileRecordedDuration,
+  transcriptionLanguageRequest,
+  type DurationReconciliation,
   type DurationTolerance,
   type Job,
-  type DurationReconciliation,
 } from "@quorum/shared";
 import type { AudioSource } from "./storage/audio-source.js";
 import type { TranscriptionClient } from "./whisper/client.js";
@@ -22,7 +23,11 @@ export interface TranscribeHandlerDependencies {
   transcription: TranscriptionClient;
   repository: TranscriptRepository;
   logger: WorkerLogger;
-  /** Language hint forwarded to the backend; omitted means auto-detect. */
+  /**
+   * Deployment default for the transcription language (`WHISPER_LANGUAGE`) — the third link of
+   * the chain in `shared/src/transcription-language.ts`, below the meeting's own choice and the
+   * user's default, which arrive in the payload. Unset means the chain ends in autodetect.
+   */
   language?: string | undefined;
   /**
    * Enqueues the follow-up summary job. Omitted, the pipeline stops at the
@@ -112,15 +117,20 @@ export async function runTranscribeJob(
       "audio assembled from chunk manifest",
     );
 
+    // The last two links of the chain: what the API side resolved for this meeting, then this
+    // deployment's default. `undefined` means the backend detects it (ADR-005 keeps the shape of
+    // the request here, which is why the deployment default is applied here and not at enqueue).
+    const language = transcriptionLanguageRequest(payload.language, deps.language);
     const response = await deps.transcription.transcribe({
       audio,
       filename: descriptor.filename,
       contentType: descriptor.contentType,
-      language: deps.language,
+      language,
     });
     log.info(
       {
         event: "transcription.completed",
+        requestedLanguage: language ?? null,
         language: response.language,
         durationSeconds: response.duration,
         segmentCount: response.segments?.length ?? 0,
@@ -145,6 +155,10 @@ export async function runTranscribeJob(
       model: deps.transcription.model,
       recordedAt,
       createdAt: now().toISOString(),
+      // What the meeting ends up saying its language is has to be what the transcription was
+      // actually done in. A backend that echoes no language back would otherwise leave a
+      // recording we deliberately transcribed as German labeled "undetermined".
+      ...(language ? { fallbackLanguage: language } : {}),
     });
 
     const saved = await deps.repository.saveTranscript(

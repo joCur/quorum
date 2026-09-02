@@ -8,6 +8,10 @@
  * them. Consolidating all of it into one migration owner is a follow-up — see the note in
  * `worker/src/db/schema.ts`, which says the same thing from the other side.
  *
+ * ONE EXCEPTION TO "THE SERVER IS THE ONLY WRITER": the summary worker writes `meetings.title`,
+ * and only where it is empty, to give a recording nobody named the name its summary suggested
+ * (ADR-009). Every other column, and every insert and delete, is the server's alone.
+ *
  * WHY A MEETINGS TABLE AT ALL: before this table, a meeting existed only as a `session.json`
  * object in storage plus whatever rows the pipeline had produced. Listing meetings would have
  * meant a prefix listing plus one object read per meeting, and searching would have meant

@@ -1,12 +1,17 @@
 import * as React from "react";
 import { LogOut } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { TRANSCRIPTION_LANGUAGES, type TranscriptionLanguage } from "@quorum/shared";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Select } from "@/components/ui/select";
 import { useAuth } from "@/features/auth/auth-provider";
+import { useUserSettings } from "@/features/settings/use-user-settings";
 import { THEME_PREFERENCES, useTheme, type ThemePreference } from "@/features/theme/theme-provider";
 import { SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/i18n";
 import { APP_VERSION } from "@/env";
+import { notify } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 
 const THEME_LABEL_KEYS = {
@@ -21,9 +26,9 @@ const LANGUAGE_LABELS = {
 } as const satisfies Record<SupportedLanguage, string>;
 
 /**
- * Settings screen: the account, appearance, language, and what this build is.
+ * Settings screen: appearance, language, transcription, the account, and what this build is.
  *
- * One panel of rows rather than four cards. These are four short settings, not four subjects — a
+ * One panel of rows rather than a card each. These are short settings, not separate subjects — a
  * card apiece gave each the weight of a section and made the screen a stack of near-empty boxes.
  * The uppercase row label names its group, so nothing is lost by dropping the headings.
  */
@@ -31,6 +36,7 @@ export function SettingsRoute() {
   const { t, i18n } = useTranslation();
   const { preference, setPreference } = useTheme();
   const { user, signOut } = useAuth();
+  const settings = useUserSettings();
   const [signingOut, setSigningOut] = React.useState(false);
   const activeLanguage = i18n.resolvedLanguage ?? "en";
 
@@ -62,6 +68,42 @@ export function SettingsRoute() {
             render={(language) => LANGUAGE_LABELS[language]}
             onChoose={(language) => void i18n.changeLanguage(language)}
           />
+        </Row>
+
+        {/* The language meetings are recorded in — a different thing from the language of this
+            screen, which is why it is its own row rather than a second control under the one
+            above. It is only a default: every recording can still say otherwise before it
+            starts. */}
+        <Row label={t("settings.transcription.title")}>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="transcription-language">{t("settings.transcription.label")}</Label>
+            <Select
+              id="transcription-language"
+              className="max-w-xs"
+              disabled={settings.status === "loading" || settings.saving}
+              value={settings.settings.transcriptionLanguage ?? ""}
+              onChange={(event) => {
+                const chosen =
+                  event.target.value === "" ? null : (event.target.value as TranscriptionLanguage);
+                // The select keeps showing what is stored, so a failed save leaves it on the old
+                // value rather than on a choice that was never written. Saying so is what keeps
+                // that from reading as the setting quietly refusing to move.
+                void settings
+                  .chooseTranscriptionLanguage(chosen)
+                  .catch(() => notify.failure(t("settings.transcription.saveFailed")));
+              }}
+            >
+              {/* "Not chosen" is a state of its own, not a synonym for detection: it leaves the
+                  choice to however this installation is configured. */}
+              <option value="">{t("settings.transcription.unset")}</option>
+              {TRANSCRIPTION_LANGUAGES.map((language) => (
+                <option key={language} value={language}>
+                  {t(`transcriptionLanguages.${language}`)}
+                </option>
+              ))}
+            </Select>
+            <p className="text-sm text-muted-foreground">{t("settings.transcription.help")}</p>
+          </div>
         </Row>
 
         <Row label={t("settings.about.title")}>

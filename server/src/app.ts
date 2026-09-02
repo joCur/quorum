@@ -8,7 +8,10 @@ import { meetingRoutes } from "./meetings/routes.js";
 import type { MeetingStore } from "./meetings/repository.js";
 import { templateRoutes } from "./templates/routes.js";
 import { summaryRoutes } from "./summaries/routes.js";
+import { transcriptionRoutes } from "./transcription/routes.js";
+import { userSettingsRoutes } from "./settings/routes.js";
 import type { SummaryTemplateStore } from "./templates/repository.js";
+import type { UserSettingsStore } from "./settings/repository.js";
 import { JwtRecordingContextProvider } from "./recording/jwt-context-provider.js";
 import type { JobQueue, RecordingContextProvider, RecordingStorage } from "./recording/types.js";
 import type { ServerMetrics } from "./observability/metrics.js";
@@ -41,6 +44,14 @@ export interface BuildServerOptions {
    * and a test written against it would be testing a fiction.
    */
   templates?: SummaryTemplateStore;
+  /**
+   * Per-user preferences behind `GET`/`PUT /api/settings`, and the source of the user-level
+   * default the recording endpoint resolves a meeting's transcription language against.
+   *
+   * Omitting it leaves the routes off the instance and leaves the recording endpoint with the
+   * per-meeting choice alone — which is the chain minus one link, not a broken one.
+   */
+  settings?: UserSettingsStore;
   auth?: { verifyAccessToken: TokenVerifier; verifyIdentity?: IdentityVerifier };
   /**
    * Gives a self-registered account its tenant on first use (see `auth/provisioning.ts`).
@@ -177,6 +188,12 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     });
   }
 
+  // Preferences belong to the signed-in user and to nobody else, so like every other scoped
+  // route these exist only where a token has been validated.
+  if (authenticated && options.settings) {
+    await app.register(userSettingsRoutes, { store: options.settings });
+  }
+
   const meetingStore = options.meetings;
   if (authenticated && meetingStore) {
     // Read API for the meeting list and meeting detail. Every handler resolves its tenant and
@@ -184,6 +201,18 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     // instance: without one there is no scope to query under, and an unscoped meeting query is
     // exactly what ADR-001 rules out.
     await app.register(meetingRoutes, { store: meetingStore, storage: options.storage });
+
+    // Running a failed transcription again. Same scoping rule, and the same reason for living on
+    // an authenticated instance only: the job it replays is found under the caller's tenant and
+    // user rather than named by the request.
+    await app.register(transcriptionRoutes, {
+      meetings: meetingStore,
+      queue: options.queue,
+      storage: options.storage,
+      // The retry reads the language chain the same way the recording endpoint does, so it is
+      // given the same second link.
+      ...(options.settings ? { preferences: options.settings } : {}),
+    });
 
     // Summary templates and the regenerate action share the same scoping rule and the same reason
     // for existing only on an authenticated instance: a template belongs to a user.
@@ -201,6 +230,7 @@ export async function buildServer(options: BuildServerOptions): Promise<FastifyI
     storage: options.storage,
     queue: options.queue,
     meetings: options.meetings,
+    settings: options.settings,
     contextProvider: options.contextProvider ?? new JwtRecordingContextProvider(),
     publicUpgrade: options.allowUnauthenticatedRecording === true,
     ...(options.limits ? { limits: options.limits } : {}),

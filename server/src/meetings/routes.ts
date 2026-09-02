@@ -2,7 +2,7 @@ import { Readable } from "node:stream";
 import type { FastifyPluginAsync } from "fastify";
 import fp from "fastify-plugin";
 import { z } from "zod";
-import type { MeetingDetail, MeetingList } from "@quorum/shared";
+import { RenameMeetingRequestSchema, type MeetingDetail, type MeetingList } from "@quorum/shared";
 import type { RecordingStorage } from "../recording/types.js";
 import { audioContentType, audioLayout, resolveRange, slicesForRange } from "./audio.js";
 import { DEFAULT_MEETING_LIMIT, MAX_MEETING_LIMIT, type MeetingStore } from "./repository.js";
@@ -75,6 +75,46 @@ const meetingRoutesImpl: FastifyPluginAsync<MeetingRoutesOptions> = async (app, 
       jobs: found.jobs,
     };
     return body;
+  });
+
+  /**
+   * Renaming a meeting, and clearing its name.
+   *
+   * This is the only writer of the title a person chooses, and it exists because the summary may
+   * name a recording nobody named (see the ADR on machine-filled fields): a suggestion its owner
+   * cannot correct would not be a suggestion. Clearing the field is allowed and returns the
+   * meeting to unnamed — the state in which the next summary may name it again, which is the
+   * same offer any unnamed recording gets.
+   *
+   * PATCH rather than PUT: the request carries the one field a user owns; everything else about
+   * a meeting is derived or written by the pipeline.
+   */
+  app.patch(`${prefix}/:meetingId`, async (request, reply) => {
+    const context = request.requireContext();
+    const params = MeetingParamsSchema.safeParse(request.params);
+    if (!params.success) return reply.code(404).send(notFound());
+
+    const body = RenameMeetingRequestSchema.safeParse(request.body);
+    if (!body.success) {
+      return reply.code(400).send({
+        error: "invalid_request",
+        message: "This title could not be read.",
+      });
+    }
+
+    const scope = { tenantId: context.tenantId, userId: context.userId };
+    const renamed = await options.store.renameMeeting(
+      scope,
+      params.data.meetingId,
+      body.data.title,
+    );
+    if (!renamed) return reply.code(404).send(notFound());
+
+    request.log.info(
+      { event: "meeting.renamed", meetingId: renamed.id, cleared: renamed.title === null },
+      renamed.title === null ? "cleared a meeting's name" : "renamed a meeting",
+    );
+    return renamed;
   });
 
   /**

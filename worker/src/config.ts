@@ -2,6 +2,15 @@ import { z } from "zod";
 import { DEFAULT_DURATION_TOLERANCE } from "@quorum/shared";
 
 /**
+ * The largest delay `setTimeout` can hold. Node keeps it in a signed 32-bit
+ * integer and silently truncates anything above, firing the timer after a
+ * millisecond — so a timeout set past this ceiling would not be patient, it
+ * would abort every request instantly. Better refused at startup than diagnosed
+ * later from a pipeline that fails for no visible reason.
+ */
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/**
  * Environment configuration — names match `docker-compose.yml` / `.env.example`.
  *
  * Everything the worker needs to talk to a transcription backend is a URL and a
@@ -9,7 +18,7 @@ import { DEFAULT_DURATION_TOLERANCE } from "@quorum/shared";
  * the compose stack, against a whisperX serving image later, or against
  * whisper.cpp running natively on a macOS host.
  */
-export const WorkerConfigSchema = z.object({
+const WorkerConfigFields = z.object({
   LOG_LEVEL: z.string().default("info"),
   DATABASE_URL: z.string().min(1),
 
@@ -34,6 +43,38 @@ export const WorkerConfigSchema = z.object({
   WHISPER_MODEL: z.string().min(1).default("Systran/faster-whisper-small"),
   /** Optional bearer token — self-hosted backends usually need none. */
   WHISPER_API_KEY: z.string().optional(),
+  /**
+   * Install `WHISPER_MODEL` on the transcription backend at startup when it is
+   * not on disk yet, and refuse to consume jobs until it is.
+   *
+   * On by default, because the alternative is a deployment that looks healthy
+   * and dead-letters the first recording anyone makes: downloading a model to
+   * disk is an explicit step in the backend's API, and only loading it into
+   * memory happens on demand. Turn it off for a backend that serves a baked-in
+   * model, or where an operator manages the model cache by hand.
+   */
+  WHISPER_MODEL_AUTO_INSTALL: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  /**
+   * Budget for the whole provisioning step — waiting for the backend to come up
+   * plus the download itself. Generous by default, because `large-v3` is several
+   * gigabytes over whatever line the deployment has; exceeding it is a loud
+   * startup failure rather than a silently degraded worker.
+   *
+   * Capped like the other timeouts, and for the same reason with a worse
+   * outcome here: this value becomes both an abort timer and the transport's
+   * header ceiling, so a number a timer cannot hold would abort the very first
+   * request after a millisecond and take the whole worker down with it. An
+   * operator reaching for a bigger number wants more patience, not none.
+   */
+  WHISPER_MODEL_INSTALL_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MAX_TIMEOUT_MS)
+    .default(45 * 60_000),
   /**
    * BCP-47 hint passed to the backend. Empty means "let the model detect the
    * language", which is what we want for mixed-language meetings.
@@ -72,11 +113,15 @@ export const WorkerConfigSchema = z.object({
     .min(0)
     .max(1)
     .default(DEFAULT_DURATION_TOLERANCE.relative),
-  /** Whole-request timeout for one transcription call. */
+  /**
+   * Whole-request timeout for one transcription call: it bounds the wait for
+   * response headers, the read of the body, and the abort signal alike.
+   */
   WHISPER_TIMEOUT_MS: z.coerce
     .number()
     .int()
     .positive()
+    .max(MAX_TIMEOUT_MS)
     .default(30 * 60_000),
 
   /**
@@ -103,6 +148,7 @@ export const WorkerConfigSchema = z.object({
     .number()
     .int()
     .positive()
+    .max(MAX_TIMEOUT_MS)
     .default(3 * 60_000),
   /**
    * Send `response_format: {"type":"json_object"}`. Off by default because
@@ -138,8 +184,45 @@ export const WorkerConfigSchema = z.object({
     .default(2 * 3600),
 });
 
+/**
+ * The fields plus the constraints that span two of them.
+ */
+export const WorkerConfigSchema = WorkerConfigFields.superRefine((config, ctx) => {
+  // Until now this invariant lived in a comment, which is to say it did not
+  // exist. pg-boss returns an attempt to the queue the moment it expires and
+  // another worker picks it up, so an expiry shorter than the transcription
+  // timeout re-runs a transcription that is still legitimately in flight: the
+  // backend computes the same audio twice at once, on a host that was already
+  // too slow, and the loser's result overwrites the winner's. A deployment that
+  // raises one of the two without the other should not start.
+  if (config.WORKER_JOB_EXPIRE_SECONDS * 1_000 <= config.WHISPER_TIMEOUT_MS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["WORKER_JOB_EXPIRE_SECONDS"],
+      message:
+        `WORKER_JOB_EXPIRE_SECONDS (${config.WORKER_JOB_EXPIRE_SECONDS} s) must be greater than ` +
+        `WHISPER_TIMEOUT_MS (${config.WHISPER_TIMEOUT_MS} ms): an attempt would be handed to a ` +
+        `second worker while the first is still waiting for its transcript, and the same audio ` +
+        `would be transcribed twice`,
+    });
+  }
+});
+
 export type WorkerConfig = z.infer<typeof WorkerConfigSchema>;
 
+/**
+ * Reads and validates the environment, or refuses to start.
+ *
+ * The issues are flattened into one sentence on purpose: a misconfigured
+ * container is read as a single line in `docker compose logs`, and a raw
+ * validation dump is where an operator stops reading.
+ */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
-  return WorkerConfigSchema.parse(env);
+  const result = WorkerConfigSchema.safeParse(env);
+  if (result.success) return result.data;
+
+  const detail = result.error.issues
+    .map((issue) => `${issue.path.join(".") || "configuration"}: ${issue.message}`)
+    .join("; ");
+  throw new Error(`invalid worker configuration — ${detail}`);
 }

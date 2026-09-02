@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { PgBoss } from "pg-boss";
+import postgres from "postgres";
+import type { Job } from "@quorum/shared";
 import { S3AudioSource } from "../src/storage/audio-source.js";
 import { PostgresRepository } from "../src/db/repository.js";
 import { OpenAiTranscriptionClient } from "../src/whisper/client.js";
@@ -115,7 +118,7 @@ describe.skipIf(!enabled)("worker against the compose stack", () => {
       repository,
       logger: silentLogger,
     };
-    const payload = { job: transcribeJob({ id: jobId, meetingId }), ...scope };
+    const payload = { job: transcribeJob({ id: jobId, meetingId }), ...scope, language: null };
 
     try {
       const first = await runTranscribeJob(payload, 0, deps);
@@ -131,6 +134,78 @@ describe.skipIf(!enabled)("worker against the compose stack", () => {
       await repository.close();
     }
   }, 600_000);
+
+  /**
+   * A finished job may not be un-finished by a straggler.
+   *
+   * Two attempts of one job id can be alive at once — pg-boss's `standard` policy deduplicates
+   * nothing, so an operator redrive next to a running attempt is enough — and the loser landing
+   * second used to turn a meeting that has its transcript into a meeting that reports a failure,
+   * with the transcript still sitting there. Only that one transition is refused, which is why
+   * the `running` write below still goes through.
+   */
+  it("never lets a late failure overwrite a succeeded job", async () => {
+    const repository = new PostgresRepository(databaseUrl);
+    const sql = postgres(databaseUrl, { max: 1 });
+    const meetingId = randomUUID();
+    const jobId = randomUUID();
+    const scope = { tenantId: `tenant-${jobId}`, userId: "user-1", sessionId: randomUUID() };
+    const job: Job = {
+      id: jobId,
+      meetingId,
+      type: "transcribe",
+      status: "succeeded",
+      progress: 1,
+      error: null,
+      resultId: randomUUID(),
+      createdAt: new Date().toISOString(),
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+    };
+    const status = async (): Promise<string | undefined> => {
+      const rows = await sql<{ status: string }[]>`SELECT status FROM jobs WHERE id = ${jobId}`;
+      return rows[0]?.status;
+    };
+
+    try {
+      await repository.migrate();
+      // The job row is only written for a meeting that exists — the deletion guard in the
+      // repository. `meetings` belongs to the API server and may not be here at all, in which
+      // case the guard fails open and the insert below is unnecessary.
+      await sql`
+        INSERT INTO meetings (id, tenant_id, user_id, session_id, title, audio_format, created_at)
+        VALUES (
+          ${meetingId}, ${scope.tenantId}, ${scope.userId}, ${scope.sessionId}, ${"Late failure"},
+          ${sql.json({ codec: "opus", container: "webm", sampleRate: 48000, channels: 1 })},
+          now()
+        )
+      `.catch(() => undefined);
+
+      await repository.saveJob(job, scope, 0);
+
+      await repository.saveJob(
+        { ...job, status: "failed", error: { code: "INTERNAL_ERROR", message: "too late" } },
+        scope,
+        1,
+      );
+      expect(await status()).toBe("succeeded");
+
+      // A re-run announces itself first, and from there the row moves normally again.
+      await repository.saveJob({ ...job, status: "running", finishedAt: null }, scope, 0);
+      expect(await status()).toBe("running");
+      await repository.saveJob(
+        { ...job, status: "failed", error: { code: "INTERNAL_ERROR", message: "a real one" } },
+        scope,
+        0,
+      );
+      expect(await status()).toBe("failed");
+    } finally {
+      await sql`DELETE FROM jobs WHERE id = ${jobId}`.catch(() => undefined);
+      await sql`DELETE FROM meetings WHERE id = ${meetingId}`.catch(() => undefined);
+      await sql.end({ timeout: 5 });
+      await repository.close();
+    }
+  }, 60_000);
 
   it("creates the transcribe queue and its dead-letter queue", async () => {
     const boss = new PgBoss({ connectionString: databaseUrl });
