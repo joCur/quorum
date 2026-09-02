@@ -108,6 +108,41 @@ describe("the transcribe job's duration reconciliation", () => {
     });
   });
 
+  it("warns when a client asserted a duration but the audio produced none to check it against", async () => {
+    // The quiet way past `duration.understated`: audio nothing measures, and a quota that then
+    // has only the client's word to fall back on.
+    const { logger, events } = capturingLogger();
+    await runTranscribeJob(transcribePayload(), 0, {
+      audio: new FakeAudioSource(manifest({ recordedSeconds: 30 })),
+      transcription: new FakeTranscriptionClient("small", { text: "", segments: [] }),
+      repository: new InMemoryRepository(),
+      logger,
+    });
+
+    expect(events.find((event) => event.event === "duration.unmeasured")).toMatchObject({
+      level: "warn",
+      outcome: "unknown",
+      assertedSeconds: 30,
+      trueSeconds: null,
+    });
+  });
+
+  it("stays quiet when neither side has a number to compare", async () => {
+    const { logger, events } = capturingLogger();
+    await runTranscribeJob(transcribePayload(), 0, {
+      audio: new FakeAudioSource(manifest({ recordedSeconds: null })),
+      transcription: new FakeTranscriptionClient("small", { text: "", segments: [] }),
+      repository: new InMemoryRepository(),
+      logger,
+    });
+
+    expect(events.some((event) => event.event === "duration.unmeasured")).toBe(false);
+    expect(events.find((event) => event.event === "duration.reconciled")).toMatchObject({
+      level: "info",
+      outcome: "unknown",
+    });
+  });
+
   it("does not fail the job when the backend reports no duration at all", async () => {
     const repository = new InMemoryRepository();
     const outcome = await runTranscribeJob(transcribePayload(), 0, {

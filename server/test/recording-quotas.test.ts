@@ -237,7 +237,8 @@ describe("monthly recording quota", () => {
       recordedSeconds: 60,
     });
     meetings.setPipeline("meeting-1", {
-      transcript: transcriptOf("meeting-1", TEST_LIMITS.maxMonthlyRecordedSeconds),
+      transcript: transcriptOf("meeting-1", 60),
+      transcriptDurationSeconds: TEST_LIMITS.maxMonthlyRecordedSeconds,
     });
     const fixture = createFixture({ meetings });
 
@@ -246,6 +247,49 @@ describe("monthly recording quota", () => {
       code: CLOSE_POLICY_VIOLATION,
       reason: "limit.monthly_hours_quota_exceeded",
     });
+  });
+
+  it("bills the measured duration, not the last segment's end", async () => {
+    // With the silence filter on, a recording that ends in quiet has a last segment well before
+    // the end of its audio. The store must bill what the backend measured, exactly as the SQL
+    // store bills its `duration_seconds` column.
+    const meetings = new InMemoryMeetingStore();
+    await seedMeeting(meetings, {
+      id: "meeting-1",
+      createdAt: "2026-08-02T09:00:00.000Z",
+      audioBytes: 10,
+      recordedSeconds: 60,
+    });
+    meetings.setPipeline("meeting-1", {
+      transcript: transcriptOf("meeting-1", 30),
+      transcriptDurationSeconds: TEST_LIMITS.maxMonthlyRecordedSeconds,
+    });
+
+    const fixture = createFixture({ meetings });
+    expect(await start(fixture)).toBeNull();
+    // And the list shows the number that was billed, not a shorter one.
+    const [listed] = await meetings.listMeetings(SCOPE);
+    expect(listed?.durationSeconds).toBe(TEST_LIMITS.maxMonthlyRecordedSeconds);
+  });
+
+  it("does not hand a measured duration back when a later transcript has none", async () => {
+    const meetings = new InMemoryMeetingStore();
+    await seedMeeting(meetings, {
+      id: "meeting-1",
+      createdAt: "2026-08-02T09:00:00.000Z",
+      audioBytes: 10,
+      recordedSeconds: 60,
+    });
+    meetings.setPipeline("meeting-1", {
+      transcript: transcriptOf("meeting-1", 30),
+      transcriptDurationSeconds: TEST_LIMITS.maxMonthlyRecordedSeconds,
+    });
+    // Reprocessed by a backend that reports no duration: the earlier measurement stands.
+    meetings.setPipeline("meeting-1", { transcript: transcriptOf("meeting-1", 30) });
+
+    const fixture = createFixture({ meetings });
+    expect(await start(fixture)).toBeNull();
+    expect(fixture.connection.closed?.reason).toBe("limit.monthly_hours_quota_exceeded");
   });
 
   it("still charges the assertion while a meeting waits for its transcript", async () => {

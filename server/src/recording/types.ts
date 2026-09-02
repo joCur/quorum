@@ -43,6 +43,16 @@ export interface SessionRecord {
   createdAt: string;
   /** Wall-clock marks for pause/resume (ADR-002/ADR-003 audio-time mapping). */
   marks: Array<{ type: "pause" | "resume"; at: string }>;
+  /**
+   * Seconds of audio the session has been told it holds, from the chunk offsets seen so far.
+   *
+   * Persisted rather than kept only in the connection, because a reconnect replaces the
+   * connection: a session rebuilt from storage would otherwise count from zero, and a recording
+   * finalized shortly after a reattach would assert a duration far below what it really holds.
+   * Written at the same cadence as the usage flush, so a crash costs at most that much of the
+   * assertion — and never the whole recording.
+   */
+  recordedSeconds: number;
 }
 
 /**

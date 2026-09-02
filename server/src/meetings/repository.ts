@@ -185,6 +185,11 @@ export class PostgresMeetingStore implements MeetingStore {
    * The join reads the worker's table, as the rest of this class already does, and falls back to
    * the assertion alone when that table or its column is not there yet — a server that started
    * before the worker ever migrated still enforces a quota.
+   *
+   * A MEASUREMENT IS NEVER GIVEN BACK. The lateral prefers the active transcript but accepts the
+   * newest measured row of the meeting, so re-transcribing with a backend that reports no
+   * duration cannot revert a meeting to the client's assertion. Once the audio has been measured,
+   * that measurement is what the meeting costs.
    */
   async readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage> {
     try {
@@ -203,7 +208,8 @@ export class PostgresMeetingStore implements MeetingStore {
                   FROM transcripts
                  WHERE meeting_id = m.id
                    AND tenant_id = m.tenant_id
-                   AND is_active
+                   AND duration_seconds > 0
+                 ORDER BY is_active DESC, created_at DESC
                  LIMIT 1
                ) t ON true
          WHERE m.tenant_id = ${scope.tenantId}
@@ -267,6 +273,52 @@ export class PostgresMeetingStore implements MeetingStore {
   }
 
   /**
+   * Language and duration of the active transcript of each meeting.
+   *
+   * THE DURATION SHOWN IS THE DURATION BILLED. `duration_seconds` is the length the transcription
+   * backend decoded, and it is the number the quota charges for, so it is also the number the
+   * meeting list reports. Deriving the displayed value from the segments instead would put a
+   * second, smaller answer on the screen for every recording that ends in silence — the segments
+   * stop at the last speech, the audio does not — and a meeting that reads "12 minutes" while it
+   * costs four hours of allowance is a support case, not a rounding difference.
+   *
+   * The segment maximum stays as the fallback for transcript rows written before the column
+   * existed, and the whole statement falls back to it when the column is not there at all.
+   */
+  private async loadTranscriptFacts(
+    scope: MeetingScope,
+    meetingIds: string[],
+  ): Promise<{ meeting_id: string; language: string; duration_seconds: string | null }[]> {
+    const sql = this.sql;
+    // Built per statement rather than shared: a query fragment belongs to the statement it is
+    // interpolated into, and the fallback is a second statement.
+    const segmentMaximum = (): postgres.PendingQuery<postgres.Row[]> =>
+      sql`(SELECT max((segment->>'end')::double precision)
+             FROM jsonb_array_elements(transcript->'segments') segment)`;
+    try {
+      return await sql<{ meeting_id: string; language: string; duration_seconds: string | null }[]>`
+        SELECT meeting_id,
+               language,
+               COALESCE(duration_seconds, ${segmentMaximum()}) AS duration_seconds
+          FROM transcripts
+         WHERE tenant_id = ${scope.tenantId}
+           AND is_active
+           AND meeting_id IN ${sql(meetingIds)}
+      `;
+    } catch (error) {
+      // Only the column can be missing here; a missing table is the outer catch's business.
+      if (isUndefinedTable(error) || !isMissingPipelineColumn(error)) throw error;
+      return await sql<{ meeting_id: string; language: string; duration_seconds: string | null }[]>`
+        SELECT meeting_id, language, ${segmentMaximum()} AS duration_seconds
+          FROM transcripts
+         WHERE tenant_id = ${scope.tenantId}
+           AND is_active
+           AND meeting_id IN ${sql(meetingIds)}
+      `;
+    }
+  }
+
+  /**
    * Reads the derived-state facts for a batch of meetings.
    *
    * Three narrow statements rather than one query with lateral joins: each hits an existing
@@ -286,18 +338,7 @@ export class PostgresMeetingStore implements MeetingStore {
 
     try {
       const sql = this.sql;
-      const transcriptRows = await sql<
-        { meeting_id: string; language: string; duration_seconds: string | null }[]
-      >`
-        SELECT meeting_id,
-               language,
-               (SELECT max((segment->>'end')::double precision)
-                  FROM jsonb_array_elements(transcript->'segments') segment) AS duration_seconds
-          FROM transcripts
-         WHERE tenant_id = ${scope.tenantId}
-           AND is_active
-           AND meeting_id IN ${sql(meetingIds)}
-      `;
+      const transcriptRows = await this.loadTranscriptFacts(scope, meetingIds);
       const summaryRows = await sql<{ meeting_id: string }[]>`
         SELECT DISTINCT meeting_id
           FROM summaries

@@ -349,13 +349,23 @@ async function resolveTemplateId(
  * Reports the duration reconciliation as structured data.
  *
  * This is the whole consequence of a discrepancy for now: the reconciled duration is what the
- * quota charges (the meeting index reads it from the transcript row), and an understatement is
- * flagged for operators rather than held against the user. `duration.understated` is the event to
- * alert on — it is emitted only when the shortfall exceeds what codec framing and reconnect gaps
- * can explain, so a single line means a client whose offsets do not describe its own audio.
+ * quota charges (the meeting index reads it from the transcript row), and a client whose numbers
+ * do not describe its own audio is flagged for operators rather than refused.
+ *
+ * TWO WARNINGS, NOT ONE, because there are two ways to get away with it:
+ *
+ * - `duration.understated` — both numbers exist and the assertion is well short of the audio.
+ * - `duration.unmeasured` — the client asserted a duration but nothing measured the audio, so
+ *   there is nothing to check the assertion against. Silent-by-construction audio that a backend
+ *   reports no duration for would otherwise be the quiet way past the first event, and a quota
+ *   that falls back to the assertion is precisely then taking the client's word for it.
+ *
+ * Everything else is `duration.reconciled` at info, including the case where neither side has a
+ * number — nothing was claimed, so nothing is unchecked.
  */
 function logReconciliation(log: WorkerLogger, reconciliation: DurationReconciliation): void {
   const fields = {
+    outcome: reconciliation.outcome,
     assertedSeconds: reconciliation.assertedSeconds,
     trueSeconds: reconciliation.trueSeconds,
     shortfallSeconds: reconciliation.shortfallSeconds,
@@ -369,8 +379,15 @@ function logReconciliation(log: WorkerLogger, reconciliation: DurationReconcilia
     );
     return;
   }
+  if (reconciliation.outcome === "unknown" && reconciliation.assertedSeconds !== null) {
+    log.warn(
+      { event: "duration.unmeasured", ...fields },
+      "the audio produced no duration to check the client's asserted recording time against",
+    );
+    return;
+  }
   log.info(
-    { event: "duration.reconciled", outcome: reconciliation.outcome, ...fields },
+    { event: "duration.reconciled", ...fields },
     "recorded duration reconciled against the transcribed audio",
   );
 }

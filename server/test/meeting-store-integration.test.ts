@@ -206,6 +206,40 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
 
       expect(usage).toEqual({ storageBytes: 0, monthRecordedSeconds: 0 });
     });
+
+    it("shows the duration it bills", async () => {
+      // The weekly sync's segments stop at 42 seconds while its audio was measured at an hour —
+      // the shape a silence-filtered recording has. The list must not report the shorter one.
+      const [, weekly] = await store.listMeetings(ACME);
+      expect(weekly?.id).toBe(WEEKLY);
+      expect(weekly?.durationSeconds).toBe(TRANSCRIBED_SECONDS);
+    });
+
+    it("does not give a measurement back when a newer transcript has none", async () => {
+      // Reprocessing: a second, active transcript whose backend reported no duration.
+      const reprocessed = uuid("6", 1);
+      const transcript = transcriptFor(WEEKLY, reprocessed);
+      await sql`UPDATE transcripts SET is_active = false WHERE meeting_id = ${WEEKLY}`;
+      await sql`
+        INSERT INTO transcripts (
+          id, job_id, meeting_id, tenant_id, user_id, session_id, schema_version, model,
+          model_version, language, is_active, recorded_at, created_at, duration_seconds, transcript
+        ) VALUES (
+          ${reprocessed}, ${uuid("6", 2)}, ${WEEKLY}, ${tenantId}, ${"user-1"}, ${WEEKLY},
+          ${TRANSCRIPT_SCHEMA_VERSION}, ${"whisper"}, ${"large-v3"}, ${"de"}, true,
+          ${transcript.recordedAt}, ${"2026-08-29T11:00:00Z"}, ${null},
+          ${sql.json(transcript as unknown as postgres.JSONValue)}
+        )
+      `;
+      try {
+        const usage = await store.readUsage(ACME, "2026-08-01T00:00:00Z");
+        // Still the measured hour, not the minute the client claimed.
+        expect(usage.monthRecordedSeconds).toBe(TRANSCRIBED_SECONDS + 900 + 120);
+      } finally {
+        await sql`DELETE FROM transcripts WHERE id = ${reprocessed}`;
+        await sql`UPDATE transcripts SET is_active = true WHERE meeting_id = ${WEEKLY}`;
+      }
+    });
   });
 
   it("lists only the caller's own meetings, newest first", async () => {
@@ -224,7 +258,9 @@ describe.skipIf(!enabled)("PostgresMeetingStore", () => {
       status: "summarizing",
       hasAudio: true,
       language: "de",
-      durationSeconds: 97.25,
+      // The measured length of the audio, which is also what the quota charges — not the 97.25
+      // seconds at which this transcript's last segment ends.
+      durationSeconds: TRANSCRIBED_SECONDS,
     });
     expect(byId.get(RETRO)).toMatchObject({
       status: "failed",

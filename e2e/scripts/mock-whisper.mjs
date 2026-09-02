@@ -66,7 +66,14 @@ function rejection() {
   };
 }
 
-/** Fixed response in the `verbose_json` shape, with the word timestamps ADR-003 requires. */
+/**
+ * Fixed response in the `verbose_json` shape, with the word timestamps ADR-003 requires.
+ *
+ * `duration` is a constant and has nothing to do with the audio the suite submitted: this mock
+ * never decodes anything. A spec may therefore assert that a duration reaches the database, but
+ * never that it equals what was recorded — and no quota assertion may be built on this number.
+ * Checking a measured duration against a real recording needs the `real` whisper mode.
+ */
 function transcription() {
   return {
     task: "transcribe",

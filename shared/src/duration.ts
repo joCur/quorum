@@ -91,11 +91,13 @@ export function reconcileRecordedDuration(input: {
   tolerance?: DurationTolerance;
 }): DurationReconciliation {
   const tolerance = input.tolerance ?? DEFAULT_DURATION_TOLERANCE;
-  const asserted = input.assertedSeconds === null ? null : sanitize(input.assertedSeconds);
-  const truth = input.trueSeconds === null ? null : sanitize(input.trueSeconds);
+  const asserted = measured(input.assertedSeconds);
+  const truth = measured(input.trueSeconds);
 
-  // Nothing to compare: a manifest that predates the assertion, or a backend that reported no
-  // duration. Neither is a discrepancy, and neither is a reason to flag anybody.
+  // Nothing to compare: a manifest that predates the assertion, a session whose assertion was
+  // lost, or a backend that reported no duration. Neither side is a discrepancy on its own, and
+  // neither is a reason to flag anybody — a zero assertion is a measurement that is missing, not
+  // a claim that nothing was recorded.
   if (truth === null || asserted === null) {
     return {
       outcome: "unknown",
@@ -131,15 +133,21 @@ export function reconcileRecordedDuration(input: {
  * reports no duration at all must not turn into a discount.
  */
 export function billableRecordedSeconds(input: {
-  assertedSeconds: number;
+  assertedSeconds: number | null;
   reconciledSeconds: number | null;
 }): number {
-  const asserted = sanitize(input.assertedSeconds);
-  const reconciled = input.reconciledSeconds === null ? null : sanitize(input.reconciledSeconds);
-  return reconciled !== null && reconciled > 0 ? reconciled : asserted;
+  return measured(input.reconciledSeconds) ?? measured(input.assertedSeconds) ?? 0;
 }
 
-/** Keeps a NaN, an infinity or a negative number out of an accounting decision. */
-function sanitize(value: number): number {
-  return Number.isFinite(value) && value > 0 ? value : 0;
+/**
+ * A duration that was actually measured, or `null`.
+ *
+ * Zero, a negative number, NaN and an infinity all mean the same thing here: nobody measured this.
+ * Treating them as `null` rather than as zero seconds is what keeps a missing measurement from
+ * reading as a recording of no length — which on the asserted side would flag every honest
+ * recording whose assertion was lost, and on the reconciled side would bill nothing at all.
+ */
+function measured(value: number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  return Number.isFinite(value) && value > 0 ? value : null;
 }

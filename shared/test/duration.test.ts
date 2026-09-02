@@ -103,11 +103,21 @@ describe("reconcileRecordedDuration", () => {
     expect(result.billableSeconds).toBe(1800);
   });
 
+  it("treats an assertion of zero as a missing measurement, not as a claim of silence", () => {
+    // A session whose assertion was lost — an old manifest, or a reconnect that could not read
+    // it back. Flagging it would report every honest recording behind it as an understatement.
+    const result = reconcileRecordedDuration({ assertedSeconds: 0, trueSeconds: 3600 });
+
+    expect(result.outcome).toBe("unknown");
+    expect(result.assertedSeconds).toBeNull();
+    expect(result.billableSeconds).toBe(3600);
+  });
+
   it("keeps a nonsensical number out of the accounting", () => {
     const result = reconcileRecordedDuration({ assertedSeconds: Number.NaN, trueSeconds: -5 });
 
+    expect(result.outcome).toBe("unknown");
     expect(result.billableSeconds).toBe(0);
-    expect(result.outcome).toBe("within_tolerance");
   });
 });
 
@@ -122,5 +132,10 @@ describe("billableRecordedSeconds", () => {
 
   it("does not turn a backend that reports zero into a free recording", () => {
     expect(billableRecordedSeconds({ assertedSeconds: 1800, reconciledSeconds: 0 })).toBe(1800);
+  });
+
+  it("charges nothing only when neither side was ever measured", () => {
+    expect(billableRecordedSeconds({ assertedSeconds: 0, reconciledSeconds: null })).toBe(0);
+    expect(billableRecordedSeconds({ assertedSeconds: null, reconciledSeconds: 1800 })).toBe(1800);
   });
 });
