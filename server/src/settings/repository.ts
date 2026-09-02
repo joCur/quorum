@@ -1,6 +1,6 @@
 import postgres from "postgres";
 import type { UserSettings, UserSettingsUpdate } from "@quorum/shared";
-import { UserSettingsSchema } from "@quorum/shared";
+import { UserSettingsSchema, capVocabulary, normalizeVocabulary } from "@quorum/shared";
 
 /**
  * Persistence for the preferences that belong to a user (ADR-001: read and written under the
@@ -13,10 +13,10 @@ import { UserSettingsSchema } from "@quorum/shared";
  * its own table.
  *
  * TWO WRITERS, ONE ROW: the template store owns `default_template_id`, this store owns the
- * transcription language. Both upsert on the (tenant, user) primary key and each names only its
- * own column, so a write from one never clears what the other stored. Splitting them by column
- * rather than merging them into one store keeps the summary feature's preference next to the
- * summary feature's code, which is where anyone changing it will look.
+ * transcription language and the custom vocabulary. Both upsert on the (tenant, user) primary key
+ * and each names only its own column, so a write from one never clears what the other stored.
+ * Splitting them by column rather than merging them into one store keeps the summary feature's
+ * preference next to the summary feature's code, which is where anyone changing it will look.
  */
 
 /**
@@ -25,10 +25,10 @@ import { UserSettingsSchema } from "@quorum/shared";
  *
  * `undefined_table` is a stack whose worker has never started. `undefined_column` is the more
  * common one and the reason it is handled at all: `user_settings` already exists in every
- * deployment that used the default summary template, and the transcription language is a column
- * added to it. Between the API rolling out and the worker restarting with the new migration list,
- * the table is there and the column is not — a window in which naming the column raises 42703 on
- * every read and every write.
+ * deployment that used the default summary template, and the transcription language and the
+ * vocabulary are columns added to it. Between the API rolling out and the worker restarting with
+ * the new migration list, the table is there and a column is not — a window in which naming it
+ * raises 42703 on every read and every write.
  */
 const UNDEFINED_TABLE = "42P01";
 const UNDEFINED_COLUMN = "42703";
@@ -40,7 +40,12 @@ export interface UserSettingsScope {
 }
 
 /** Everything a user has chosen, with the untouched defaults filled in. */
-export const EMPTY_USER_SETTINGS: UserSettings = { transcriptionLanguage: null };
+export const EMPTY_USER_SETTINGS: UserSettings = { transcriptionLanguage: null, vocabulary: [] };
+
+interface SettingsRow {
+  transcription_language: string | null;
+  vocabulary: string[] | null;
+}
 
 /**
  * Raised when the schema cannot hold the preference yet — no `user_settings` table, or one
@@ -91,38 +96,51 @@ export class PostgresUserSettingsStore implements UserSettingsStore {
    */
   async findSettings(scope: UserSettingsScope): Promise<UserSettings> {
     try {
-      const rows = await this.sql<{ transcription_language: string | null }[]>`
-        SELECT transcription_language
+      const rows = await this.sql<SettingsRow[]>`
+        SELECT transcription_language, vocabulary
           FROM user_settings
          WHERE tenant_id = ${scope.tenantId}
            AND user_id = ${scope.userId}
          LIMIT 1
       `;
-      return parseSettings(rows[0]?.transcription_language ?? null);
+      return parseSettings(rows[0]);
     } catch (error) {
-      if (isSchemaNotReady(error)) return { ...EMPTY_USER_SETTINGS };
+      if (isSchemaNotReady(error)) return emptySettings();
       throw error;
     }
   }
 
   /**
    * Unlike the read, this refuses rather than pretending: see `UserSettingsUnavailableError`.
+   *
+   * The `CASE` on each column is what makes it a partial update: a field the body left out keeps
+   * the row's value instead of the placeholder the insert had to supply. Done this way rather than
+   * by assembling a column list, so the parameters stay positional and the statement plans once.
    */
   async updateSettings(
     scope: UserSettingsScope,
     update: UserSettingsUpdate,
   ): Promise<UserSettings> {
-    if (!("transcriptionLanguage" in update)) return this.findSettings(scope);
+    const setsLanguage = "transcriptionLanguage" in update;
+    const setsVocabulary = "vocabulary" in update;
+    if (!setsLanguage && !setsVocabulary) return this.findSettings(scope);
     const language = update.transcriptionLanguage ?? null;
+    const vocabulary = update.vocabulary ?? [];
     try {
-      const rows = await this.sql<{ transcription_language: string | null }[]>`
-        INSERT INTO user_settings (tenant_id, user_id, transcription_language)
-        VALUES (${scope.tenantId}, ${scope.userId}, ${language})
+      const rows = await this.sql<SettingsRow[]>`
+        INSERT INTO user_settings (tenant_id, user_id, transcription_language, vocabulary)
+        VALUES (${scope.tenantId}, ${scope.userId}, ${language}, ${vocabulary})
         ON CONFLICT (tenant_id, user_id) DO UPDATE
-           SET transcription_language = EXCLUDED.transcription_language, updated_at = now()
-        RETURNING transcription_language
+           SET transcription_language = CASE WHEN ${setsLanguage}
+                 THEN EXCLUDED.transcription_language
+                 ELSE user_settings.transcription_language END,
+               vocabulary = CASE WHEN ${setsVocabulary}
+                 THEN EXCLUDED.vocabulary
+                 ELSE user_settings.vocabulary END,
+               updated_at = now()
+        RETURNING transcription_language, vocabulary
       `;
-      return parseSettings(rows[0]?.transcription_language ?? null);
+      return parseSettings(rows[0]);
     } catch (error) {
       if (isSchemaNotReady(error)) throw new UserSettingsUnavailableError();
       throw error;
@@ -135,7 +153,12 @@ export class InMemoryUserSettingsStore implements UserSettingsStore {
   private readonly rows = new Map<string, UserSettings>();
 
   async findSettings(scope: UserSettingsScope): Promise<UserSettings> {
-    return { ...EMPTY_USER_SETTINGS, ...this.rows.get(rowKey(scope)) };
+    const stored = this.rows.get(rowKey(scope));
+    return {
+      ...emptySettings(),
+      ...stored,
+      ...(stored ? { vocabulary: [...stored.vocabulary] } : {}),
+    };
   }
 
   async updateSettings(
@@ -147,10 +170,18 @@ export class InMemoryUserSettingsStore implements UserSettingsStore {
       ...("transcriptionLanguage" in update
         ? { transcriptionLanguage: update.transcriptionLanguage ?? null }
         : {}),
+      ...("vocabulary" in update
+        ? { vocabulary: normalizeVocabulary(update.vocabulary ?? []) }
+        : {}),
     };
     this.rows.set(rowKey(scope), next);
-    return next;
+    return this.findSettings(scope);
   }
+}
+
+/** A fresh copy: the vocabulary is an array, so the constant cannot be shared. */
+function emptySettings(): UserSettings {
+  return { ...EMPTY_USER_SETTINGS, vocabulary: [] };
 }
 
 /** The (tenant, user) primary key of `user_settings`, as one map key. */
@@ -162,10 +193,20 @@ function rowKey(scope: UserSettingsScope): string {
  * A stored language the current build no longer offers reads as no choice rather than being handed
  * on. The column is plain text and outlives any one version of the picker, and a tag the pipeline
  * would only get rejected for is worth less than falling through to the next link of the chain.
+ *
+ * Each column is parsed on its own so that one unreadable value costs only itself: a vocabulary
+ * stored when the caps were wider must not also throw away the language sitting next to it.
  */
-function parseSettings(transcriptionLanguage: string | null): UserSettings {
-  const parsed = UserSettingsSchema.safeParse({ transcriptionLanguage });
-  return parsed.success ? parsed.data : { ...EMPTY_USER_SETTINGS };
+function parseSettings(row: SettingsRow | undefined): UserSettings {
+  const language = UserSettingsSchema.shape.transcriptionLanguage.safeParse(
+    row?.transcription_language ?? null,
+  );
+  const vocabulary = UserSettingsSchema.shape.vocabulary.safeParse(row?.vocabulary ?? []);
+  return {
+    transcriptionLanguage: language.success ? language.data : null,
+    // Trimmed rather than dropped: the surviving terms still bias the transcription.
+    vocabulary: vocabulary.success ? vocabulary.data : capVocabulary(row?.vocabulary ?? []).kept,
+  };
 }
 
 /** The table has not been created yet, or it predates the column this store writes. */

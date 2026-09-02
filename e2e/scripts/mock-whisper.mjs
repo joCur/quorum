@@ -47,7 +47,7 @@ let lastTranscriptionFields = null;
 const STUB_SUMMARY_TITLE = "Stub meeting about the release";
 
 /** Field names worth recording — everything else in the body is the audio itself. */
-const OBSERVED_FIELDS = ["model", "response_format", "language", "vad_filter"];
+const OBSERVED_FIELDS = ["model", "response_format", "language", "vad_filter", "prompt"];
 
 /**
  * Pulls one simple form field out of a raw multipart body.

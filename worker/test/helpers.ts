@@ -64,7 +64,7 @@ export function transcribeJob(overrides: Partial<Job> = {}): Job {
 export function transcribePayload(
   overrides: Partial<TranscribeJobPayload> = {},
 ): TranscribeJobPayload {
-  return { job: transcribeJob(), ...SCOPE, language: null, ...overrides };
+  return { job: transcribeJob(), ...SCOPE, language: null, vocabulary: [], ...overrides };
 }
 
 export function manifest(overrides: Partial<RecordingManifest> = {}): RecordingManifest {

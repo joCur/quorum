@@ -1,7 +1,12 @@
 import * as React from "react";
-import { LogOut } from "lucide-react";
+import { ChevronRight, LogOut } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { TRANSCRIPTION_LANGUAGES, type TranscriptionLanguage } from "@quorum/shared";
+import { Link } from "react-router-dom";
+import {
+  MAX_VOCABULARY_TERMS as MAX_TERMS,
+  TRANSCRIPTION_LANGUAGES,
+  type TranscriptionLanguage,
+} from "@quorum/shared";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -26,7 +31,8 @@ const LANGUAGE_LABELS = {
 } as const satisfies Record<SupportedLanguage, string>;
 
 /**
- * Settings screen: appearance, language, transcription, the account, and what this build is.
+ * Settings screen: appearance, language, transcription, the vocabulary, the account, and what
+ * this build is.
  *
  * One panel of rows rather than a card each. These are short settings, not separate subjects — a
  * card apiece gave each the weight of a section and made the screen a stack of near-empty boxes.
@@ -104,6 +110,26 @@ export function SettingsRoute() {
             </Select>
             <p className="text-sm text-muted-foreground">{t("settings.transcription.help")}</p>
           </div>
+        </Row>
+
+        {/* A reference, not the list: inline, forty entries pushed the account row and its
+            sign-out button off the screen. */}
+        <Row label={t("settings.vocabulary.title")}>
+          <Link
+            to="/settings/vocabulary"
+            className="-mx-2 flex min-h-[44px] items-center justify-between gap-3 rounded-sm px-2 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="text-sm">{t("settings.vocabulary.manage")}</span>
+            <span className="flex items-center gap-1 text-sm text-muted-foreground">
+              <span className="tabular-figures">
+                {t("settings.vocabulary.count", {
+                  count: settings.settings.vocabulary.length,
+                  max: MAX_TERMS,
+                })}
+              </span>
+              <ChevronRight aria-hidden="true" className="size-4" />
+            </span>
+          </Link>
         </Row>
 
         <Row label={t("settings.about.title")}>

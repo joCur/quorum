@@ -2,6 +2,14 @@ import { z } from "zod";
 import { JobSchema } from "@quorum/shared";
 import { JobError } from "./errors.js";
 
+/**
+ * Sanity bounds, deliberately an order of magnitude above the product cap: repeating the real cap
+ * here would dead-letter a good recording whenever a newer API stores a wider list than this
+ * worker knows about. These only stop a malformed payload being unbounded work.
+ */
+const SANE_TERM_COUNT = 500;
+const SANE_TERM_LENGTH = 200;
+
 /** Queue name the recording endpoint enqueues on (ADR-006 §3). */
 export const TRANSCRIBE_QUEUE = "transcribe";
 
@@ -24,8 +32,19 @@ export const TranscribeJobPayloadSchema = z.object({
    * meeting's own choice, or the user's default when the meeting made none. `auto` asks for
    * detection; `null` — and an absent field, which is what a job enqueued before this existed
    * looks like — leaves the deployment default and then autodetect to this side.
+   *
+   * Unlike the vocabulary below, this is re-resolved from the session record even for a retry the
+   * user asks for: a language changed since the recording would decode it as the wrong thing.
    */
   language: z.string().nullable().default(null),
+  /**
+   * Absent — what a job enqueued before this existed looks like — is an empty list.
+   *
+   * Snapshotted rather than looked up at run time, so a redelivery of *this* job biases towards
+   * what was configured when the recording was made. A retry the user asks for is deliberately
+   * different: see the note in the API's transcription routes.
+   */
+  vocabulary: z.array(z.string().max(SANE_TERM_LENGTH)).max(SANE_TERM_COUNT).default([]),
 });
 
 export type TranscribeJobPayload = z.infer<typeof TranscribeJobPayloadSchema>;

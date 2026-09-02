@@ -140,6 +140,13 @@ export const MIGRATIONS: readonly string[] = [
   // reconcile columns.
   `ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS transcription_language text`,
 
+  // `text[]` rather than jsonb: a short list of scalars, not a versioned document.
+  //
+  // Uncapped on purpose — what fits in the prompt is a property of the model's context window,
+  // not the database, and a check constraint would turn a tightened cap into a migration that
+  // fails on rows an earlier version legitimately wrote.
+  `ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS vocabulary text[]`,
+
   `CREATE TABLE IF NOT EXISTS summaries (
      id               uuid PRIMARY KEY,
      job_id           uuid NOT NULL UNIQUE,

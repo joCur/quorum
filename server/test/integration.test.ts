@@ -137,6 +137,7 @@ describe.skipIf(!enabled)("pg-boss queue", () => {
       userId: "user-1",
       sessionId: crypto.randomUUID(),
       language: null,
+      vocabulary: [],
     });
 
     const [job] = (await boss.fetch(TRANSCRIBE_QUEUE)) ?? [];

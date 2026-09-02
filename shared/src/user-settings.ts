@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TranscriptionLanguageSchema } from "./transcription-language.js";
+import { VocabularySchema } from "./vocabulary.js";
 
 /**
  * Preferences that belong to a user rather than to a meeting or a template (ADR-001: stored under
@@ -14,11 +15,18 @@ import { TranscriptionLanguageSchema } from "./transcription-language.js";
  */
 export const UserSettingsSchema = z.object({
   transcriptionLanguage: TranscriptionLanguageSchema.nullable().default(null),
+  /** Empty rather than nullable: unlike the language, "not chosen" has no second meaning here. */
+  vocabulary: VocabularySchema.default([]),
 });
 
 /** The body of an update. Every field is optional; an absent field is left as it is. */
 export const UserSettingsUpdateSchema = z.object({
   transcriptionLanguage: TranscriptionLanguageSchema.nullable().optional(),
+  /**
+   * The whole list, not a delta — capped at forty entries, so sending it entire costs nothing and
+   * avoids a merge whose result depends on the order two tabs happened to save in.
+   */
+  vocabulary: VocabularySchema.optional(),
 });
 
 export type UserSettings = z.infer<typeof UserSettingsSchema>;

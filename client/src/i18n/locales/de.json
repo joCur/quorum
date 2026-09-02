@@ -340,6 +340,24 @@
       "help": "Vor dem Start lässt sich für jede Aufnahme eine andere Sprache wählen.",
       "saveFailed": "Die Einstellung konnte nicht gespeichert werden. Versuch es gleich noch einmal."
     },
+    "vocabulary": {
+      "back": "Einstellungen",
+      "title": "Fachbegriffe",
+      "manage": "Verwalten",
+      "label": "Begriff hinzufügen",
+      "placeholder": "Name, Produkt, Fachbegriff",
+      "add": "Hinzufügen",
+      "remove": "{{term}} entfernen",
+      "count": "{{count}} von {{max}} Begriffen",
+      "help": "Namen und Begriffe aus dieser Liste werden zuverlässiger erkannt. Das gilt nur für künftige Aufnahmen — bestehende Transkripte ändern sich nicht.",
+      "saveFailed": "Die Fachbegriffe konnten nicht gespeichert werden. Versuch es gleich noch einmal.",
+      "rejected": {
+        "duplicate": "Dieser Begriff steht schon auf der Liste.",
+        "too-long": "Dieser Begriff ist zu lang für die Liste.",
+        "list-full": "Die Liste ist mit {{max}} Begriffen voll. Entferne einen, um einen anderen aufzunehmen.",
+        "budget-exhausted": "Für einen weiteren Begriff ist kein Platz mehr. Entferne einen, um diesen aufzunehmen."
+      }
+    },
     "about": {
       "title": "Über",
       "version": "Version",

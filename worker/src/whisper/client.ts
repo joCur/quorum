@@ -11,6 +11,11 @@ export interface TranscriptionRequest {
   contentType: string;
   /** BCP-47 hint; omitted to let the backend detect the language. */
   language?: string | undefined;
+  /**
+   * The user's custom vocabulary, as assembled by `shared/src/vocabulary.ts`. Capped there, not
+   * here: the backend keeps only the tail of an over-long prompt and says nothing.
+   */
+  prompt?: string | undefined;
 }
 
 /** Port so the job handler can be exercised without an HTTP backend. */
@@ -53,6 +58,9 @@ export interface OpenAiTranscriptionClientOptions {
  * day-one requirement, and the backends that cannot produce them simply return
  * segments without words, which the mapping handles.
  *
+ * The `prompt` field is part of the OpenAI-compatible surface; a backend that ignores it simply
+ * transcribes without the bias.
+ *
  * The silence filter (`vad_filter`) is on unless configuration turns it off; see
  * `OpenAiTranscriptionClientOptions.vadFilter`. It changes only which audio the
  * model is shown — the timestamps that come back stay relative to the start of
@@ -91,6 +99,7 @@ export class OpenAiTranscriptionClient implements TranscriptionClient {
     form.append("timestamp_granularities[]", "segment");
     form.append("timestamp_granularities[]", "word");
     if (request.language) form.append("language", request.language);
+    if (request.prompt) form.append("prompt", request.prompt);
     // Omitted rather than sent as `false` when off, so a backend that does not
     // know the field never sees it at all.
     if (this.vadFilter) form.append("vad_filter", "true");

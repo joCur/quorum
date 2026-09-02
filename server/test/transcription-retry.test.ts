@@ -259,6 +259,7 @@ describe("retrying a failed transcription", () => {
         userId: ACME.userId,
         sessionId: RETRYABLE,
         language: null,
+        vocabulary: [],
       },
     ]);
   });

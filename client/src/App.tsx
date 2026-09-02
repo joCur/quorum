@@ -11,6 +11,7 @@ import { MeetingsRoute } from "@/routes/meetings";
 import { NotFoundRoute } from "@/routes/not-found";
 import { RecordRoute } from "@/routes/record";
 import { SettingsRoute } from "@/routes/settings";
+import { SettingsVocabularyRoute } from "@/routes/settings-vocabulary";
 import { TemplatesRoute } from "@/routes/templates";
 import { AUTH_CALLBACK_PATH } from "@/features/auth/user-manager";
 
@@ -61,6 +62,7 @@ export function App() {
           <Route path="/meetings/:meetingId" element={<MeetingDetailRoute />} />
           <Route path="/templates" element={<TemplatesRoute />} />
           <Route path="/settings" element={<SettingsRoute />} />
+          <Route path="/settings/vocabulary" element={<SettingsVocabularyRoute />} />
           <Route path="*" element={<NotFoundRoute />} />
         </Route>
       </Route>

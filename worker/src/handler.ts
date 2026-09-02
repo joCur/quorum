@@ -1,4 +1,5 @@
 import {
+  buildVocabularyPrompt,
   reconcileRecordedDuration,
   transcriptionLanguageRequest,
   type DurationReconciliation,
@@ -130,16 +131,28 @@ export async function runTranscribeJob(
     // deployment's default. `undefined` means the backend detects it (ADR-005 keeps the shape of
     // the request here, which is why the deployment default is applied here and not at enqueue).
     const language = transcriptionLanguageRequest(payload.language, deps.language);
+    // Capped again here, the last point before a backend that trims silently and from the front.
+    // Anything dropped is a defect upstream, so it is said out loud.
+    const { prompt, dropped } = buildVocabularyPrompt(payload.vocabulary);
+    if (dropped.length > 0) {
+      log.warn(
+        { event: "transcription.vocabulary_over_budget", dropped: dropped.length },
+        "the vocabulary in the job payload exceeded the prompt budget; the terms that did not fit were left out",
+      );
+    }
     const response = await deps.transcription.transcribe({
       audio,
       filename: descriptor.filename,
       contentType: descriptor.contentType,
       language,
+      prompt,
     });
     log.info(
       {
         event: "transcription.completed",
         requestedLanguage: language ?? null,
+        // The count, not the terms: a vocabulary is the user's own words.
+        vocabularyTerms: payload.vocabulary.length,
         language: response.language,
         durationSeconds: response.duration,
         segmentCount: response.segments?.length ?? 0,

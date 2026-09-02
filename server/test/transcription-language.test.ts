@@ -176,7 +176,10 @@ describe("the stored preference", () => {
   it("reads as unset for a user who has chosen nothing", async () => {
     const settings = new InMemoryUserSettingsStore();
 
-    expect(await settings.findSettings(SCOPE)).toEqual({ transcriptionLanguage: null });
+    expect(await settings.findSettings(SCOPE)).toEqual({
+      transcriptionLanguage: null,
+      vocabulary: [],
+    });
   });
 
   it("can be given up again", async () => {

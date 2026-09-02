@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   ClientMessageSchema,
   TranscriptionLanguageSchema,
+  normalizeVocabulary,
   resolveTranscriptionLanguage,
   type ClientMessage,
   type LimitErrorCode,
@@ -843,7 +844,7 @@ export class RecordingSessionHandler {
     }
     const newId = this.deps.newId ?? randomUUID;
     const jobId = newId();
-    const language = await this.transcriptionLanguage(session.record);
+    const { language, vocabulary } = await this.transcriptionPreferences(session.record);
     try {
       await this.deps.storage.putManifest(session.record, {
         sessionId: session.record.sessionId,
@@ -869,6 +870,7 @@ export class RecordingSessionHandler {
         userId: session.record.userId,
         sessionId: session.record.sessionId,
         language,
+        vocabulary,
       });
     } catch (error) {
       this.fail("failed to finalize session", error);
@@ -964,37 +966,40 @@ export class RecordingSessionHandler {
   }
 
   /**
-   * The language the transcription job is asked for: this meeting's own choice, and the user's
-   * default when the meeting made none.
+   * The language (this meeting's choice, then the user's default) and the vocabulary, resolved at
+   * hand-over so a *redelivery* of the enqueued job uses what was asked for at the time.
    *
-   * Resolved here, when the recording is handed over, rather than when the job runs — a retry an
-   * hour later must transcribe what was asked for at the time, not what the user has changed
-   * their default to since. The remaining links, the deployment default and autodetect, belong to
-   * the worker: `WHISPER_LANGUAGE` is its configuration, and ADR-005 keeps the shape of the
-   * transcription request on the side that makes it.
+   * THAT IS NOT A UNIVERSAL RULE, AND THE ASYMMETRY IS DELIBERATE. A retry the user asks for goes
+   * through the API's transcription routes, which re-read the vocabulary but *not* the language.
+   * Do not "fix" one of these into the other — see the matching note there.
    *
-   * A preference that cannot be read is no reason to lose a recording. The audio is already
-   * safe at this point, and a meeting transcribed with one link of the chain missing is worth
-   * incomparably more than a finalize that fails over a lookup.
+   * The rest of the language chain is the worker's: `WHISPER_LANGUAGE` is its configuration, and
+   * ADR-005 keeps the shape of the transcription request on the side that makes it.
+   *
+   * A preference that cannot be read is no reason to lose a recording — the audio is already safe.
    */
-  private async transcriptionLanguage(record: SessionRecord): Promise<string | null> {
+  private async transcriptionPreferences(
+    record: SessionRecord,
+  ): Promise<{ language: string | null; vocabulary: string[] }> {
     let userDefault: string | null = null;
+    let vocabulary: string[] = [];
     try {
       const settings = await this.deps.preferences?.findSettings({
         tenantId: record.tenantId,
         userId: record.userId,
       });
       userDefault = settings?.transcriptionLanguage ?? null;
+      vocabulary = normalizeVocabulary(settings?.vocabulary ?? []);
     } catch (error) {
       this.log?.warn(
-        { event: "transcription.language_default_unreadable", err: error },
-        "could not read the user's default transcription language; leaving it to the pipeline",
+        { event: "transcription.preferences_unreadable", err: error },
+        "could not read the user's transcription preferences; leaving them to the pipeline",
       );
     }
     // Both links go through the chain function rather than through a truthiness check, so a value
     // that only looks like a statement — a blank string — falls through to the next link here
     // instead of short-circuiting the chain and then evaporating at the worker.
-    return resolveTranscriptionLanguage(record.language, userDefault);
+    return { language: resolveTranscriptionLanguage(record.language, userDefault), vocabulary };
   }
 
   /**

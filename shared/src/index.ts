@@ -12,4 +12,5 @@ export * from "./meeting-title.js";
 export * from "./limits.js";
 export * from "./duration.js";
 export * from "./transcription-language.js";
+export * from "./vocabulary.js";
 export * from "./user-settings.js";

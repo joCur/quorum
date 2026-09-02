@@ -118,7 +118,12 @@ describe.skipIf(!enabled)("worker against the compose stack", () => {
       repository,
       logger: silentLogger,
     };
-    const payload = { job: transcribeJob({ id: jobId, meetingId }), ...scope, language: null };
+    const payload = {
+      job: transcribeJob({ id: jobId, meetingId }),
+      ...scope,
+      language: null,
+      vocabulary: [],
+    };
 
     try {
       const first = await runTranscribeJob(payload, 0, deps);

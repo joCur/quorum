@@ -78,6 +78,12 @@ export interface JobPayloadScope {
  */
 export interface TranscribeJobPayload extends JobPayloadScope {
   language: string | null;
+  /**
+   * The user's custom vocabulary at recording time. Like `language` it is snapshotted so a
+   * redelivery is reproducible — but unlike `language` it is re-read for a user-requested retry;
+   * the transcription routes explain why.
+   */
+  vocabulary: string[];
 }
 
 /**
@@ -161,6 +167,7 @@ export class PgBossJobQueue implements JobQueue {
     userId: string;
     sessionId: string;
     language: string | null;
+    vocabulary: string[];
   }): Promise<void> {
     const job = JobSchema.parse({
       id: input.jobId,
@@ -180,6 +187,7 @@ export class PgBossJobQueue implements JobQueue {
       userId: input.userId,
       sessionId: input.sessionId,
       language: input.language,
+      vocabulary: input.vocabulary,
     };
     const priority = await this.priorityFor(TRANSCRIBE_QUEUE, {
       tenantId: input.tenantId,

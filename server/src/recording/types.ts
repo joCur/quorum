@@ -200,7 +200,7 @@ export interface UserPreferences {
   findSettings(scope: {
     tenantId: string;
     userId: string;
-  }): Promise<{ transcriptionLanguage: string | null }>;
+  }): Promise<{ transcriptionLanguage: string | null; vocabulary: string[] }>;
 }
 
 /** What one recording session has consumed. */
@@ -238,6 +238,12 @@ export interface JobQueue {
      * since changed their default to.
      */
     language: string | null;
+    /**
+     * Snapshotted, so a redelivery of this job biases towards what was configured at recording
+     * time. A retry the *user* asks for deliberately re-reads it, and the language is the other
+     * way round; both asymmetries are explained in the transcription routes.
+     */
+    vocabulary: string[];
   }): Promise<void>;
   /**
    * Asks for a summary of an existing transcript — the "Regenerate" action.

@@ -20,6 +20,7 @@ import {
   watchDisplayCapture,
   watchRecordingProtocol,
 } from "../fixtures.js";
+import type { Page } from "@playwright/test";
 import { devUsers, stackEnv } from "../support/env.js";
 import { fetchToken } from "../support/keycloak.js";
 import {
@@ -48,6 +49,10 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
   const protocol = watchRecordingProtocol(page);
 
   await signIn(devUsers.alice);
+
+  // Terms Whisper has no reason to know, added the way a user adds them.
+  await addVocabulary(page, ["MinIO", "Keycloak"]);
+
   await page.goto("/record");
 
   // This meeting is held in German, said on the stage before capture starts. Detection reads the
@@ -133,6 +138,10 @@ test("records, persists every chunk and produces a transcript", async ({ page, s
     // far end: a select on the recording screen, through the session record and the job payload,
     // into the request the worker makes.
     expect(fields.language).toBe("de");
+    // And it carried the user's vocabulary as the prompt, sorted and joined the one way both sides
+    // agree on. The backend silently drops the front of an over-long prompt, so this is the only
+    // place the terms can be seen actually arriving rather than merely being stored.
+    expect(fields.prompt).toBe("Keycloak, MinIO.");
     // What the meeting says it is in is what the transcription was made in, not a global default.
     expect(transcript.language).toBe("de");
   }
@@ -311,6 +320,25 @@ test("says a recording could not be transcribed, and transcribes it on a retry",
 
   await expect(page.getByText("This is a mock transcription")).toBeVisible({ timeout: 60_000 });
 });
+
+/**
+ * Adds terms through the screens rather than the API, so the settings-to-subpage route is covered
+ * too. Each term is confirmed before the next is typed, so a failed save surfaces here instead of
+ * further down the test.
+ */
+async function addVocabulary(page: Page, terms: string[]): Promise<void> {
+  await page.goto("/settings");
+  await page.getByRole("link", { name: /Manage/ }).click();
+  await expect(page).toHaveURL(/\/settings\/vocabulary$/);
+
+  for (const term of terms) {
+    await page.getByLabel("Add a term").fill(term);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.getByRole("button", { name: `Remove ${term}` })).toBeVisible();
+  }
+
+  await expect(page.getByText(`${terms.length} of 40 terms`)).toBeVisible();
+}
 
 /**
  * The form fields of the last transcription request the stub backend received.
