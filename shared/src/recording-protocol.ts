@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizeUserTitle } from "./meeting-title.js";
 
 /**
  * The chunk streaming protocol, client ↔ server (ADR-002)
@@ -27,7 +28,17 @@ export const AudioFormatSchema = z.object({
  */
 export const SessionStartSchema = z.object({
   type: z.literal("session.start"),
-  meetingTitle: z.string().nullable().default(null),
+  /**
+   * The name the user typed, normalized here rather than trusted: our own client trims the
+   * field, but the protocol is the boundary, and a title of spaces has to reach the meeting row
+   * as "unnamed" — otherwise it is a name to the database, an empty line to the reader, and a
+   * reason to refuse the title the summary would have suggested.
+   */
+  meetingTitle: z
+    .string()
+    .nullable()
+    .default(null)
+    .transform((title) => normalizeUserTitle(title)),
   audioFormat: AudioFormatSchema,
   /**
    * Template this meeting's first summary is made with. `null` — and an absent

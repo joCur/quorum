@@ -218,6 +218,7 @@ describe("summary export", () => {
       },
       model: "gpt-oss",
       promptVersion: "1",
+      generatedTitle: null,
       createdAt: "2026-08-29T10:08:00.000Z",
       sections: [
         {

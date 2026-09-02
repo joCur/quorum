@@ -6,4 +6,5 @@ export * from "./summary-template.js";
 export * from "./summary-api.js";
 export * from "./job.js";
 export * from "./meeting.js";
+export * from "./meeting-title.js";
 export * from "./limits.js";

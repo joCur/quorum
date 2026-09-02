@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import {
+  isUnnamedMeeting,
+  MAX_MEETING_TITLE_LENGTH,
   SUMMARY_SCHEMA_VERSION,
   TRANSCRIPT_SCHEMA_VERSION,
   type AudioFormat,
@@ -100,6 +102,7 @@ function summaryFor(meetingId: string, transcriptId: string): Summary {
     },
     model: "gpt-oss",
     promptVersion: "1",
+    generatedTitle: null,
     createdAt: "2026-08-29T10:08:00.000Z",
     sections: [
       {
@@ -349,6 +352,110 @@ describe("meeting detail", () => {
 
   it("requires an access token", async () => {
     const response = await app.inject({ method: "GET", url: `/api/meetings/${ACME_WEEKLY}` });
+    expect(response.statusCode).toBe(401);
+  });
+});
+
+/**
+ * Renaming exists because the summary may name a meeting nobody named: a suggestion its owner
+ * cannot correct would not be a suggestion. What the endpoint has to get right is the scoping,
+ * the trimming, and that clearing a name really returns the meeting to unnamed — the state the
+ * next summary is allowed to fill.
+ */
+describe("renaming a meeting", () => {
+  const RENAMEABLE = uuid("a", 5);
+
+  async function rename(
+    meetingId: string,
+    body: unknown,
+    scope = ACME,
+  ): Promise<{ statusCode: number; json: () => unknown }> {
+    return app.inject({
+      method: "PATCH",
+      url: `/api/meetings/${meetingId}`,
+      headers: { authorization: `Bearer ${await token(scope)}` },
+      payload: body as Record<string, unknown>,
+    });
+  }
+
+  beforeAll(async () => {
+    await store.recordSession({
+      meetingId: RENAMEABLE,
+      sessionId: RENAMEABLE,
+      tenantId: ACME.tenantId,
+      userId: ACME.userId,
+      title: "Named by the summary",
+      audioFormat: WEBM_OPUS,
+      createdAt: "2026-08-25T10:00:00.000Z",
+    });
+  });
+
+  it("stores the new name and answers with the meeting", async () => {
+    const response = await rename(RENAMEABLE, { title: "Quarterly planning" });
+    expect(response.statusCode).toBe(200);
+    expect((response.json() as { title: string }).title).toBe("Quarterly planning");
+
+    const reread = await app.inject({
+      method: "GET",
+      url: `/api/meetings/${RENAMEABLE}`,
+      headers: { authorization: `Bearer ${await token(ACME)}` },
+    });
+    expect((reread.json() as { meeting: { title: string } }).meeting.title).toBe(
+      "Quarterly planning",
+    );
+  });
+
+  it("trims what it stores", async () => {
+    const response = await rename(RENAMEABLE, { title: "   Quarterly planning   " });
+    expect((response.json() as { title: string }).title).toBe("Quarterly planning");
+  });
+
+  it("clears the name on an empty title, which leaves the meeting unnamed again", async () => {
+    const response = await rename(RENAMEABLE, { title: "" });
+    expect(response.statusCode).toBe(200);
+    const meeting = response.json() as { title: string | null };
+    expect(meeting.title).toBeNull();
+    // The same rule the summary worker consults before it offers a name: a cleared meeting is
+    // eligible again, exactly like one that was never named.
+    expect(isUnnamedMeeting(meeting.title)).toBe(true);
+  });
+
+  it("treats a title of spaces as clearing it, not as a name made of spaces", async () => {
+    await rename(RENAMEABLE, { title: "Something" });
+    const response = await rename(RENAMEABLE, { title: "    " });
+    expect((response.json() as { title: string | null }).title).toBeNull();
+  });
+
+  it("refuses a request without a title rather than reading it as a clear", async () => {
+    expect((await rename(RENAMEABLE, {})).statusCode).toBe(400);
+  });
+
+  it("refuses a title longer than the column is meant to hold", async () => {
+    const response = await rename(RENAMEABLE, { title: "x".repeat(MAX_MEETING_TITLE_LENGTH + 1) });
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("answers 404 for a meeting of another tenant, without renaming it", async () => {
+    expect((await rename(GLOBEX_BOARD, { title: "Taken over" })).statusCode).toBe(404);
+
+    const reread = await app.inject({
+      method: "GET",
+      url: `/api/meetings/${GLOBEX_BOARD}`,
+      headers: { authorization: `Bearer ${await token(GLOBEX)}` },
+    });
+    expect((reread.json() as { meeting: { title: string } }).meeting.title).toBe("Board meeting");
+  });
+
+  it("answers 404 for a meeting of another user in the same tenant", async () => {
+    expect((await rename(ACME_OTHER_USER, { title: "Not mine" })).statusCode).toBe(404);
+  });
+
+  it("requires an access token", async () => {
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/meetings/${RENAMEABLE}`,
+      payload: { title: "Anonymous rename" },
+    });
     expect(response.statusCode).toBe(401);
   });
 });

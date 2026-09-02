@@ -17,7 +17,7 @@ export { SYSTEM_TEMPLATE_ID };
  * no template text does. Stored per summary next to the model name so a change
  * in output quality can be attributed (ADR-005 §3).
  */
-export const PROMPT_VERSION = "summary-prompt-1";
+export const PROMPT_VERSION = "summary-prompt-2";
 
 const SYSTEM_TEMPLATE_SECTIONS: readonly TemplateSection[] = [
   {

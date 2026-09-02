@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AudioPlayer, type PlayerHandle } from "@/components/meetings/audio-player";
 import { DeleteMeetingDialog } from "@/components/meetings/delete-meeting-dialog";
+import { MeetingTitleField } from "@/components/meetings/meeting-title-field";
 import { PipelineStepper } from "@/components/meetings/pipeline-stepper";
 import { RegenerateSummary } from "@/components/meetings/regenerate-summary";
 import { SummaryAttribution, SummaryView } from "@/components/meetings/summary-view";
@@ -47,6 +48,7 @@ export function MeetingDetailRoute() {
       deleting={meeting.deleting}
       onDelete={meeting.remove}
       onReload={meeting.reload}
+      onRename={meeting.rename}
     />
   );
 }
@@ -56,11 +58,13 @@ function MeetingDetailScreen({
   deleting,
   onDelete,
   onReload,
+  onRename,
 }: {
   detail: MeetingDetail;
   deleting: boolean;
   onDelete: () => Promise<void>;
   onReload: () => void;
+  onRename: (title: string) => Promise<void>;
 }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -99,7 +103,11 @@ function MeetingDetailScreen({
 
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="truncate text-display-sm">{title}</h1>
+            <MeetingTitleField
+              title={meeting.title?.trim() || null}
+              placeholder={t("meetings.untitled")}
+              onRename={onRename}
+            />
             <p className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>{formatMeetingDate(meeting.createdAt, i18n.language)}</span>
               {duration ? (

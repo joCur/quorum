@@ -1,4 +1,5 @@
 import {
+  generatedTitleUpdate,
   TRANSCRIPT_SCHEMA_VERSION,
   type Job,
   type Summary,
@@ -84,8 +85,12 @@ export function transcriptFixture(overrides: Partial<Transcript> = {}): Transcri
   };
 }
 
+/** The title the well-formed fixture answer suggests for the meeting. */
+export const SUGGESTED_TITLE = "Release date and follow-up work";
+
 /** A well-formed model answer for the system template. */
 export const WELL_FORMED_ANSWER = JSON.stringify({
+  title: SUGGESTED_TITLE,
   sections: [
     {
       sectionId: "overview",
@@ -136,6 +141,8 @@ export class InMemorySummaryRepository implements SummaryRepository {
   readonly jobStates: Job[] = [];
   readonly templates = new Map<string, SummaryTemplate>();
   readonly meetings = new Set<string>([MEETING_ID]);
+  /** The title column of the meeting rows the server owns; absent means the row has none. */
+  readonly meetingTitles = new Map<string, string | null>();
   transcripts = new Map<string, Transcript>();
   /**
    * Runs at the top of `saveSummary`, standing in for a delete that commits in
@@ -173,7 +180,7 @@ export class InMemorySummaryRepository implements SummaryRepository {
     // single-threaded fake gives the same guarantee for free.
     if (!this.meetings.has(summary.meetingId)) throw new MeetingGoneError(summary.meetingId);
     const existing = this.byJob.get(jobId);
-    if (existing) return { summaryId: existing, created: false };
+    if (existing) return { summaryId: existing, created: false, appliedTitle: null };
     for (const entry of this.summaries.values()) {
       if (
         entry.summary.meetingId === summary.meetingId &&
@@ -184,7 +191,14 @@ export class InMemorySummaryRepository implements SummaryRepository {
     }
     this.summaries.set(summary.id, { summary, scope });
     this.byJob.set(jobId, summary.id);
-    return { summaryId: summary.id, created: true };
+    // The name the summary suggests is decided and stored with it, in the same step the real
+    // repository does it in one transaction.
+    const title = generatedTitleUpdate(
+      this.meetingTitles.get(summary.meetingId) ?? null,
+      summary.generatedTitle,
+    );
+    if (title !== null) this.meetingTitles.set(summary.meetingId, title);
+    return { summaryId: summary.id, created: true, appliedTitle: title };
   }
 
   async saveJob(job: Job): Promise<void> {
