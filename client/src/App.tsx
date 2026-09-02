@@ -16,8 +16,8 @@ import { TemplatesRoute } from "@/routes/templates";
 import { AUTH_CALLBACK_PATH } from "@/features/auth/user-manager";
 
 /**
- * Route table (UI structure §5). Everything except the landing page and the sign-in flow sits
- * behind the auth gate; the template editor arrives with its own ticket.
+ * Route table (UI structure §5). Everything except the landing page, the sign-in flow and the
+ * legal pages sits behind the auth gate.
  */
 export function App() {
   return (

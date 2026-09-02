@@ -33,7 +33,6 @@ function BrandMark() {
   );
 }
 
-/** The one action on the page. Pill-shaped, in the action color, in two sizes. */
 function SignInButton({
   onSignIn,
   disabled,

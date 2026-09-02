@@ -250,7 +250,6 @@ function TemplatePreview({
   );
 }
 
-/** One section: position, heading and format on one row, what belongs in it below. */
 function SectionCard({
   section,
   index,
@@ -332,7 +331,6 @@ function SectionCard({
   );
 }
 
-/** One of the three controls that reorder or drop a section. */
 function SectionAction({
   icon: Icon,
   label,

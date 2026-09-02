@@ -15,7 +15,6 @@ type Listener = () => void;
 
 const listeners = new Set<Listener>();
 
-/** Subscribes to unauthorized responses. Returns the unsubscribe function. */
 export function onUnauthorized(listener: Listener): () => void {
   listeners.add(listener);
   return () => {
