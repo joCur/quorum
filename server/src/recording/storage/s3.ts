@@ -132,6 +132,19 @@ export class S3RecordingStorage implements RecordingStorage {
     await this.put(manifestKey(record), encodeJson(manifest), "application/json");
   }
 
+  async getManifest(scope: KeyScope): Promise<RecordingManifest | null> {
+    try {
+      const result = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: manifestKey(scope) }),
+      );
+      const body = await result.Body?.transformToString();
+      return body ? (JSON.parse(body) as RecordingManifest) : null;
+    } catch (error) {
+      if (isNotFound(error)) return null;
+      throw error;
+    }
+  }
+
   async listSessionObjects(scope: KeyScope): Promise<StoredObject[]> {
     // The trailing slash matters: without it the prefix of session "abc" would also match
     // session "abcdef", and a deletion would reach into a recording it was never asked about.

@@ -95,3 +95,40 @@ export function parseSummarizeJobPayload(data: unknown): SummarizeJobPayload {
   }
   return parsed.data;
 }
+
+/** Filled when a transcription succeeds, not when the recording is finalized (ADR-010). */
+export const REMUX_QUEUE = "remux";
+
+export const REMUX_DEAD_LETTER_QUEUE = "remux-dead-letter";
+
+export const RemuxJobPayloadSchema = z.object({
+  job: JobSchema,
+  tenantId: z.string().min(1),
+  userId: z.string().min(1),
+  sessionId: z.string().min(1),
+  /**
+   * What the backend decoded, carried for the log line that compares it against the container's
+   * own length. Advisory only — the silence filter makes the two legitimately differ, so nothing
+   * is refused over it (`remux/handler.ts`).
+   */
+  expectedDurationSeconds: z.number().nonnegative().nullable().default(null),
+});
+
+export type RemuxJobPayload = z.infer<typeof RemuxJobPayloadSchema>;
+
+export function parseRemuxJobPayload(data: unknown): RemuxJobPayload {
+  const parsed = RemuxJobPayloadSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new JobError("JOB_PAYLOAD_INVALID", `unusable remux payload: ${parsed.error.message}`, {
+      retryable: false,
+    });
+  }
+  if (parsed.data.job.type !== "remux") {
+    throw new JobError(
+      "JOB_PAYLOAD_INVALID",
+      `job type "${parsed.data.job.type}" does not belong on the remux queue`,
+      { retryable: false },
+    );
+  }
+  return parsed.data;
+}

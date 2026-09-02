@@ -494,6 +494,35 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
     }
   }
 
+  /**
+   * Whether the queue still holds an unfinished entry for this job.
+   *
+   * Reaching into pg-boss's own table, which is the same narrow exception the API side already
+   * makes for the retry endpoint: there is no API for the question and the payload shape is
+   * ours. `state < 'completed'` is `created`, `retry` and `active` — pg-boss's enum is ordered
+   * so that reads as "not settled yet".
+   *
+   * Deliberately advisory. It thins out duplicates rather than preventing them: two callers can
+   * both see nothing and both send. What makes a repackaging happen once is the handler.
+   */
+  async hasLiveQueueEntry(queue: string, jobId: string): Promise<boolean> {
+    try {
+      const rows = await this.sql<{ one: number }[]>`
+        SELECT 1 AS one
+          FROM pgboss.job
+         WHERE name = ${queue}
+           AND data->'job'->>'id' = ${jobId}
+           AND state < 'completed'
+         LIMIT 1
+      `;
+      return rows.length > 0;
+    } catch {
+      // Not knowing is not a reason to skip the send: a duplicate is a cheap no-op, a missing
+      // repackaging is a recording that never becomes seekable.
+      return false;
+    }
+  }
+
   async meetingExists(meetingId: string, tenantId: string): Promise<boolean> {
     try {
       return await this.sql.begin(async (sql) => {

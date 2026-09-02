@@ -1,4 +1,12 @@
-import { GetObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
+import {
+  CopyObjectCommand,
+  DeleteObjectsCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+  type S3ClientConfig,
+} from "@aws-sdk/client-s3";
 import { JobError } from "../errors.js";
 import { manifestKey, sessionKey, type KeyScope } from "./keys.js";
 import {
@@ -18,8 +26,26 @@ export interface AudioSource {
   loadManifest(scope: KeyScope): Promise<RecordingManifest>;
   /** `null` when the session object is gone — the manifest is still enough to work. */
   loadSession(scope: KeyScope): Promise<SessionRecord | null>;
-  /** Chunks in manifest order, concatenated into the original container stream. */
+  /**
+   * The manifest decides which shape to read, not a listing (ADR-010). That is what lets a
+   * transcription run again long after the chunks it originally read were replaced.
+   */
   loadAudio(manifest: RecordingManifest, scope: KeyScope): Promise<Uint8Array>;
+}
+
+/**
+ * Separate from `AudioSource` because the asymmetry is the point: everything else in this worker
+ * only ever reads the recording. One job may replace it, and it is worth seeing at a glance
+ * which one (ADR-010).
+ */
+export interface RemuxStorage {
+  readObject(key: string): Promise<Uint8Array | null>;
+  listKeys(prefix: string): Promise<string[]>;
+  writeObject(key: string, body: Uint8Array, contentType: string): Promise<void>;
+  /** Server-side copy, so the bytes that were verified are the bytes that get the final name. */
+  copyObject(fromKey: string, toKey: string): Promise<void>;
+  deleteObjects(keys: readonly string[]): Promise<void>;
+  writeManifest(scope: KeyScope, manifest: RecordingManifest): Promise<void>;
 }
 
 export interface S3AudioSourceOptions {
@@ -31,15 +57,25 @@ export interface S3AudioSourceOptions {
   forcePathStyle?: boolean;
   /** Chunk objects fetched in parallel; keeps long recordings from crawling. */
   concurrency?: number;
+  /**
+   * Server-side encryption algorithm sent with every write (ADR-001), matching what the
+   * recording endpoint sends. The bucket carries default encryption as well, so an object
+   * cannot be stored unencrypted even when this is omitted.
+   */
+  serverSideEncryption?: string;
 }
 
 const DEFAULT_CONCURRENCY = 8;
 
+/** S3 `DeleteObjects` accepts at most 1000 keys per request. */
+const DELETE_BATCH_SIZE = 1000;
+
 /** S3-compatible reader (MinIO in the compose stack, ADR-006 §5). */
-export class S3AudioSource implements AudioSource {
+export class S3AudioSource implements AudioSource, RemuxStorage {
   private readonly client: S3Client;
   private readonly bucket: string;
   private readonly concurrency: number;
+  private readonly sse: string | undefined;
 
   constructor(options: S3AudioSourceOptions, client?: S3Client) {
     const config: S3ClientConfig = {
@@ -51,6 +87,7 @@ export class S3AudioSource implements AudioSource {
     this.client = client ?? new S3Client(config);
     this.bucket = options.bucket;
     this.concurrency = options.concurrency ?? DEFAULT_CONCURRENCY;
+    this.sse = options.serverSideEncryption;
   }
 
   private async getBytes(key: string): Promise<Uint8Array | null> {
@@ -95,6 +132,21 @@ export class S3AudioSource implements AudioSource {
   }
 
   async loadAudio(manifest: RecordingManifest, scope: KeyScope): Promise<Uint8Array> {
+    // The repackaged file, when the manifest names one. Nothing falls back to the chunks from
+    // here: the manifest only names the artifact after it has been verified, and the chunks are
+    // deleted immediately afterwards, so a miss here is a real fault and not a shape to guess at.
+    if (manifest.audioKey !== null) {
+      const bytes = await this.getBytes(manifest.audioKey);
+      if (!bytes) {
+        throw new JobError(
+          "AUDIO_FETCH_FAILED",
+          `the manifest names "${manifest.audioKey}" but object storage does not have it`,
+          { retryable: true },
+        );
+      }
+      return bytes;
+    }
+
     const keys = resolveChunkKeys(manifest, scope);
     const parts = new Array<Uint8Array>(keys.length);
 
@@ -116,6 +168,83 @@ export class S3AudioSource implements AudioSource {
     await Promise.all(workers);
 
     return concatenateChunks(parts);
+  }
+
+  async readObject(key: string): Promise<Uint8Array | null> {
+    return this.getBytes(key);
+  }
+
+  async listKeys(prefix: string): Promise<string[]> {
+    const keys: string[] = [];
+    let continuationToken: string | undefined;
+    do {
+      const page = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+        }),
+      );
+      for (const object of page.Contents ?? []) {
+        if (object.Key !== undefined) keys.push(object.Key);
+      }
+      continuationToken = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (continuationToken);
+    return keys;
+  }
+
+  async writeObject(key: string, body: Uint8Array, contentType: string): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+        ...(this.sse ? { ServerSideEncryption: this.sse as "AES256" } : {}),
+      }),
+    );
+  }
+
+  async copyObject(fromKey: string, toKey: string): Promise<void> {
+    await this.client.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        // The source is bucket-qualified and URI-encoded, which is what the S3 API asks for and
+        // what a key holding a character like `+` would otherwise get wrong.
+        CopySource: `${this.bucket}/${fromKey}`.split("/").map(encodeURIComponent).join("/"),
+        Key: toKey,
+        ...(this.sse ? { ServerSideEncryption: this.sse as "AES256" } : {}),
+      }),
+    );
+  }
+
+  async deleteObjects(keys: readonly string[]): Promise<void> {
+    for (let index = 0; index < keys.length; index += DELETE_BATCH_SIZE) {
+      const batch = keys.slice(index, index + DELETE_BATCH_SIZE);
+      const result = await this.client.send(
+        new DeleteObjectsCommand({
+          Bucket: this.bucket,
+          Delete: { Objects: batch.map((key) => ({ Key: key })), Quiet: true },
+        }),
+      );
+      const errors = result.Errors ?? [];
+      if (errors.length > 0) {
+        const first = errors[0];
+        throw new JobError(
+          "AUDIO_FETCH_FAILED",
+          `failed to delete ${errors.length} object(s), first: ${first?.Key ?? "?"} (${first?.Code ?? "unknown"})`,
+          { retryable: true },
+        );
+      }
+    }
+  }
+
+  async writeManifest(scope: KeyScope, manifest: RecordingManifest): Promise<void> {
+    await this.writeObject(
+      manifestKey(scope),
+      new TextEncoder().encode(JSON.stringify(manifest)),
+      "application/json",
+    );
   }
 }
 

@@ -4,6 +4,7 @@
  *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/session.json
  *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/chunks/<seq:010d>.bin
  *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/manifest.json
+ *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/audio.webm
  *
  * A zero-padded sequence number keeps lexicographic listing order identical to
  * numeric order, which is what makes recovery after a server crash cheap: list
@@ -36,6 +37,18 @@ export function chunkKey(scope: KeyScope, seq: number): string {
 
 export function manifestKey(scope: KeyScope): string {
   return `${sessionPrefix(scope)}/manifest.json`;
+}
+
+/**
+ * INVARIANT: once this key exists the recording is one object and the chunk prefix is empty
+ * (ADR-010).
+ *
+ * The pipeline stages the file under a longer name and copies it to this one only after reading
+ * it back, so an object carrying exactly this key has already been checked. That is what lets
+ * playback decide from a listing alone — and why it must match the key exactly, not by prefix.
+ */
+export function audioKey(scope: KeyScope): string {
+  return `${sessionPrefix(scope)}/audio.webm`;
 }
 
 export function seqFromChunkKey(key: string): number | null {

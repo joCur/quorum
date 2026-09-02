@@ -63,6 +63,12 @@ export class InMemoryRecordingStorage implements RecordingStorage {
     this.write(manifestKey(record), new TextEncoder().encode(JSON.stringify(manifest)));
   }
 
+  async getManifest(scope: KeyScope): Promise<RecordingManifest | null> {
+    const body = this.objects.get(manifestKey(scope));
+    if (!body) return null;
+    return JSON.parse(new TextDecoder().decode(body)) as RecordingManifest;
+  }
+
   async listSessionObjects(scope: KeyScope): Promise<StoredObject[]> {
     const prefix = `${sessionPrefix(scope)}/`;
     return [...this.objects.entries()]

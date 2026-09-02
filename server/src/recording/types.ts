@@ -76,6 +76,15 @@ export interface RecordingStorage {
   /** Writes the finalization manifest that the transcription worker consumes. */
   putManifest(record: SessionRecord, manifest: RecordingManifest): Promise<void>;
   /**
+   * The finalization manifest of a session, or `null` while it has none.
+   *
+   * Its presence is what tells a reconnect that the recording is closed. Nothing else says so:
+   * the session object outlives the recording, and the chunk objects do not outlive the
+   * repackaging (ADR-010), so a listing cannot distinguish "finished" from "never stored
+   * anything".
+   */
+  getManifest(scope: KeyScope): Promise<RecordingManifest | null>;
+  /**
    * Every object stored under one session prefix — chunks, `session.json`, `manifest.json`.
    *
    * Playback and the deletion cascade both work from this listing rather than from the manifest:
@@ -111,6 +120,19 @@ export interface RecordingManifest {
   chunkCount: number;
   persistedSeq: number;
   chunkKeys: string[];
+  /**
+   * The recording endpoint always writes `null` here: at finalize there is nothing but chunks.
+   * The pipeline fills it in after it has produced the artifact and read it back (ADR-010).
+   */
+  audioKey: string | null;
+  /**
+   * Playing time the repackaged file declares, in seconds; `null` until it has been produced.
+   *
+   * A different fact from `recordedSeconds` below — that is the client's assertion, measured
+   * before anything decoded anything — and from the transcript's duration, which is what the
+   * backend measured. This one describes the container, and nothing bills against it.
+   */
+  artifactDurationSeconds: number | null;
   marks: SessionRecord["marks"];
   /**
    * Seconds of audio the client asserted it recorded, taken from the chunk offsets.

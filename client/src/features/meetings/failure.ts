@@ -40,6 +40,14 @@ const MESSAGE_KEYS = {
   SUMMARY_INVALID: "meeting.failure.summaryFailed",
   SUMMARY_PERSIST_FAILED: "meeting.failure.summaryNotSaved",
 
+  // Repackaging a recording for seekable playback (ADR-010) is housekeeping that writes no job
+  // row, so neither of these can reach a meeting. They are mapped because the table is
+  // exhaustive over the pipeline's codes by design — that is what makes a code invented on the
+  // far side impossible to forget here — and the generic sentence is the honest copy for a
+  // failure the reader is not affected by.
+  REMUX_FAILED: "meeting.failure.generic",
+  REMUX_VERIFICATION_FAILED: "meeting.failure.generic",
+
   INTERNAL_ERROR: "meeting.failure.generic",
 } as const satisfies Record<JobErrorCode, string>;
 

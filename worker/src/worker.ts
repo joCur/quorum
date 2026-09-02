@@ -1,19 +1,23 @@
 import type { JobResult, JobWithMetadata, PgBoss } from "pg-boss";
 import { runTranscribeJob, type TranscribeHandlerDependencies } from "./handler.js";
 import {
+  parseRemuxJobPayload,
   parseSummarizeJobPayload,
   parseTranscribeJobPayload,
+  REMUX_DEAD_LETTER_QUEUE,
+  REMUX_QUEUE,
   SUMMARIZE_DEAD_LETTER_QUEUE,
   SUMMARIZE_QUEUE,
   TRANSCRIBE_DEAD_LETTER_QUEUE,
   TRANSCRIBE_QUEUE,
 } from "./payload.js";
+import { runRemuxJob, type RemuxHandlerDependencies } from "./remux/handler.js";
 import { runSummarizeJob, type SummarizeHandlerDependencies } from "./summary/handler.js";
 import { toJobError } from "./errors.js";
 import type { WorkerLogger } from "./logger.js";
 import type { JobOutcome, WorkerMetrics } from "./observability/metrics.js";
 
-/** Queue policy shared by both job types; the numbers come from the config. */
+/** Queue policy shared by every job type; the numbers come from the config. */
 export interface QueuePolicy {
   concurrency: number;
   retryLimit: number;
@@ -86,6 +90,30 @@ export async function startSummarizeWorker(options: SummarizeWorkerOptions): Pro
   );
 }
 
+export interface RemuxWorkerOptions extends RemuxHandlerDependencies, QueuePolicy {
+  boss: PgBoss;
+}
+
+/**
+ * The retry budget here is for object storage alone — a hiccup between writing the artifact and
+ * reading it back — because the other way this job fails is a container the remuxer cannot read,
+ * which will read no better on the fourth attempt. A dead letter costs nobody a recording: the
+ * chunks go only after the artifact is verified, so a failed job leaves a meeting that plays
+ * exactly as it did before (ADR-010).
+ */
+export async function startRemuxWorker(options: RemuxWorkerOptions): Promise<string> {
+  await createQueues(options.boss, REMUX_QUEUE, REMUX_DEAD_LETTER_QUEUE, options);
+
+  return options.boss.work(
+    REMUX_QUEUE,
+    workOptions(options),
+    async (jobs: JobWithMetadata<unknown>[]) =>
+      settleAll(jobs, options, (job) =>
+        runRemuxJob(parseRemuxJobPayload(job.data), job.retryCount, options),
+      ),
+  );
+}
+
 async function createQueues(
   boss: PgBoss,
   queue: string,
@@ -133,7 +161,7 @@ async function settleAll(
  * Runs one attempt and turns its outcome into a pg-boss result, a log line and a
  * metric sample.
  *
- * This is the only place that sees every attempt of both queues, which is why
+ * This is the only place that sees every attempt of every queue, which is why
  * the instrumentation sits here rather than in the two handlers: one funnel
  * means the two job types cannot drift into reporting different things, and a
  * third queue is instrumented by construction.

@@ -61,7 +61,10 @@ export function logQueueError(log: WorkerLogger, error: unknown): void {
  * carries the correlated job, meeting, session, tenant and user ids from the
  * handler's child logger.
  */
-export function logMeetingGone(log: WorkerLogger, artifact: "transcript" | "summary"): void {
+export function logMeetingGone(
+  log: WorkerLogger,
+  artifact: "transcript" | "summary" | "remux",
+): void {
   log.info(
     { event: "job.abandoned", reason: "meeting-deleted", artifact },
     `meeting was deleted while the job was running; the ${artifact} was discarded`,

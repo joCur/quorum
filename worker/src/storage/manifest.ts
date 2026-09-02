@@ -18,6 +18,23 @@ export const RecordingManifestSchema = z.object({
   chunkCount: z.number().int().nonnegative(),
   persistedSeq: z.number().int(),
   chunkKeys: z.array(z.string()),
+  /**
+   * The seekable file the chunks were repackaged into, once that has happened (ADR-010).
+   *
+   * `null` — and an absent field, which is what every manifest written before this existed
+   * looks like — means the recording is still its chunk objects. Defaulted rather than
+   * required for exactly that reason: an older recording is not a malformed one.
+   */
+  audioKey: z.string().nullable().default(null),
+  /**
+   * Playing time the repackaged file declares, in seconds; `null` until it has been produced.
+   *
+   * Not to be confused with `recordedSeconds` below, which is what the *client* asserted before
+   * anything decoded the audio, nor with the transcript's duration, which is what the backend
+   * measured. This one is a property of the container: it is what a player draws a scrub bar
+   * from, and it is the only one of the three that nothing bills against.
+   */
+  artifactDurationSeconds: z.number().nonnegative().nullable().default(null),
   marks: z.array(z.object({ type: z.enum(["pause", "resume"]), at: z.string() })).default([]),
   /**
    * Seconds of audio the client asserted, from the chunk offsets the recording endpoint saw.

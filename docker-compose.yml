@@ -177,6 +177,9 @@ services:
       S3_BUCKET: ${S3_BUCKET}
       S3_ACCESS_KEY: ${MINIO_ROOT_USER}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      # Same encryption the API sends. The worker writes one object per recording — the seekable
+      # file it repackages the chunks into — and it has to land encrypted like everything else.
+      S3_SSE: ${S3_SSE:-AES256}
       # Whisper: the internal OpenAI-compatible endpoint (speaches).
       WHISPER_BASE_URL: ${WHISPER_BASE_URL:-http://whisper:8000/v1}
       WHISPER_MODEL: ${WHISPER_MODEL}

@@ -1,4 +1,10 @@
-import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { expect } from "@playwright/test";
 import { stackEnv } from "./env.js";
 
 /**
@@ -9,6 +15,11 @@ import { stackEnv } from "./env.js";
  * one the recording endpoint and the worker both implement:
  *
  *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/chunks/<seq:010d>.bin
+ *
+ * A recording lives in that shape until the pipeline repackages it into one seekable file
+ * (ADR-010), after which the chunk prefix is empty and the audio is a single object:
+ *
+ *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/audio.webm
  */
 
 export interface SessionScope {
@@ -50,6 +61,10 @@ export async function listKeys(prefix: string): Promise<string[]> {
   return keys.sort();
 }
 
+export function audioKey(scope: SessionScope): string {
+  return `${sessionPrefix(scope)}/audio.webm`;
+}
+
 /** Sequence numbers of the chunk objects stored for a session, in ascending order. */
 export async function chunkSeqs(scope: SessionScope): Promise<number[]> {
   const keys = await listKeys(`${sessionPrefix(scope)}/chunks/`);
@@ -80,6 +95,9 @@ export interface RecordingManifest {
   chunkCount: number;
   persistedSeq: number;
   chunkKeys: string[];
+  /** The repackaged file, once one exists; `null` while the recording is still its chunks. */
+  audioKey: string | null;
+  artifactDurationSeconds: number | null;
   /** Wall-clock pause and resume marks — where the audio-time gaps in the recording are. */
   marks: Array<{ type: "pause" | "resume"; at: string }>;
   /** Seconds of audio the client asserted, which the pipeline reconciles against the real audio. */
@@ -89,4 +107,98 @@ export interface RecordingManifest {
 
 export function readManifest(scope: SessionScope): Promise<RecordingManifest | null> {
   return readJson<RecordingManifest>(`${sessionPrefix(scope)}/manifest.json`);
+}
+
+/**
+ * A finalized recording is its chunk objects until the pipeline repackages it into one seekable
+ * file (ADR-010), and there is no telling from outside which side of that a given assertion lands
+ * on: on a fast machine the transcription and the repackaging both finish between the
+ * `session.finalized` frame and the next line of a test. Counting chunk objects is therefore not
+ * a stable question, and a test that asked it would fail for a reason unrelated to what it tests.
+ *
+ * WHAT IT DELIBERATELY DOES NOT DO is compare the manifest to itself. `chunkCount` and
+ * `persistedSeq` are written from one another by the server, so holding one against the other
+ * proves nothing; and in the repackaged shape the manifest is the very thing a bad remux would
+ * have rewritten. So the count is taken from the manifest and then checked against something the
+ * manifest had no part in producing: the chunk objects themselves while they are there, and
+ * afterwards the artifact's own clusters, counted out of the bytes in the bucket.
+ */
+export async function expectRecordingIntact(
+  scope: SessionScope,
+  options: { atLeast?: number } = {},
+): Promise<number> {
+  const manifest = await readManifest(scope);
+  expect(manifest, "the finalization manifest").not.toBeNull();
+  const chunkCount = manifest?.chunkCount ?? 0;
+  if (options.atLeast !== undefined) expect(chunkCount).toBeGreaterThanOrEqual(options.atLeast);
+
+  const seqs = await chunkSeqs(scope);
+  const expected = Array.from({ length: chunkCount }, (_value, index) => index);
+  if (seqs.length === chunkCount && seqs.length > 0) {
+    expect(seqs).toEqual(expected);
+    return chunkCount;
+  }
+
+  // Either repackaged, or caught mid-sweep with some chunks already gone. Both are answered the
+  // same way and by the artifact, not by counting what is left: a partial listing is a moment in
+  // a deletion, not a missing recording.
+  const artifact = await readObject(audioKey(scope));
+  expect(artifact, `the repackaged audio object for session ${scope.sessionId}`).not.toBeNull();
+  const bytes = artifact as Uint8Array;
+  expect(bytes.byteLength).toBeGreaterThan(0);
+
+  // The independent half. A remux that dropped half the recording would still produce a valid
+  // file of plausible size, and the manifest it wrote would agree with it — so the artifact is
+  // held to the one number neither it nor the manifest could fake: `MediaRecorder` opens a
+  // cluster per delivered blob, so the clusters in the file track the chunks that were sent.
+  // Counted with a byte scan here rather than with the worker's parser, on purpose.
+  const clusters = countClusters(bytes);
+  expect(clusters, "clusters in the repackaged file").toBeGreaterThanOrEqual(chunkCount - 2);
+  expect(hasCueIndex(bytes), "a cue index in the repackaged file").toBe(true);
+  return chunkCount;
+}
+
+export async function readObject(key: string): Promise<Uint8Array | null> {
+  try {
+    const response = await client.send(
+      new GetObjectCommand({ Bucket: stackEnv.s3.bucket, Key: key }),
+    );
+    const body = await response.Body?.transformToByteArray();
+    return body === undefined ? null : new Uint8Array(body);
+  } catch {
+    return null;
+  }
+}
+
+export async function objectSize(key: string): Promise<number | null> {
+  try {
+    const response = await client.send(
+      new HeadObjectCommand({ Bucket: stackEnv.s3.bucket, Key: key }),
+    );
+    return response.ContentLength ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** By scanning rather than parsing — see the note in `expectRecordingIntact`. */
+function countClusters(bytes: Uint8Array): number {
+  return occurrences(bytes, [0x1f, 0x43, 0xb6, 0x75]);
+}
+
+function hasCueIndex(bytes: Uint8Array): boolean {
+  return occurrences(bytes, [0x1c, 0x53, 0xbb, 0x6b]) > 0;
+}
+
+function occurrences(haystack: Uint8Array, needle: readonly number[]): number {
+  let found = 0;
+  let at = 0;
+  const buffer = Buffer.from(haystack);
+  const pattern = Buffer.from(needle);
+  for (;;) {
+    const next = buffer.indexOf(pattern, at);
+    if (next === -1) return found;
+    found += 1;
+    at = next + pattern.byteLength;
+  }
 }

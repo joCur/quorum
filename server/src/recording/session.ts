@@ -27,6 +27,7 @@ import type {
   JobQueue,
   MeetingRegistry,
   RecordingContext,
+  RecordingManifest,
   RecordingStorage,
   SessionRecord,
   UserPreferences,
@@ -526,6 +527,33 @@ export class RecordingSessionHandler {
       this.connection.close(CLOSE_POLICY_VIOLATION, `rejected audio format: ${check.reason}`);
       return false;
     }
+    // Asked before the chunk listing below, because the listing cannot answer it: once the
+    // pipeline has repackaged the chunks into a single seekable file (ADR-010) the chunk prefix
+    // is empty, and an empty prefix rebuilds `persistedSeq` as -1 — a finished recording looking
+    // exactly like one that stored nothing, and a client invited to send it all again over the
+    // top of the finished artifact.
+    let finalizedManifest: RecordingManifest | null;
+    try {
+      finalizedManifest = await this.readManifestForAttach(record);
+    } catch (error) {
+      // Fail closed, and transiently. Closed, because the question this read answers is whether
+      // resuming would write over a finished recording, and an unanswered question is not a yes.
+      // Transiently, because `fail` closes the socket in the way the client retries with backoff
+      // — the same answer the chunk listing below has always given for the same outage, so a
+      // storage blip costs a reconnect and nothing more.
+      this.fail("failed to read the finalization manifest", error);
+      return false;
+    }
+    if (finalizedManifest) {
+      this.bindSessionLog(record);
+      this.log?.info(
+        { event: "session.attach_refused", reason: "already-finalized" },
+        "refused a reconnect to a recording that is already finalized",
+      );
+      this.connection.close(CLOSE_POLICY_VIOLATION, "session is already finalized");
+      return false;
+    }
+
     let seqs: number[];
     try {
       seqs = await this.deps.storage.listChunkSeqs(record);
@@ -826,6 +854,10 @@ export class RecordingSessionHandler {
         chunkCount: session.persistedSeq + 1,
         persistedSeq: session.persistedSeq,
         chunkKeys,
+        // At finalize the recording is its chunk objects and nothing else. The pipeline fills
+        // both of these in once it has repackaged them into a seekable file (ADR-010).
+        audioKey: null,
+        artifactDurationSeconds: null,
         marks: session.record.marks,
         recordedSeconds: session.recordedSeconds,
         finalizedAt: this.timestamp(),
@@ -998,6 +1030,24 @@ export class RecordingSessionHandler {
       sessionId: session.record.sessionId,
       persistedSeq: session.persistedSeq,
     });
+  }
+
+  /**
+   * This read is new on a path that already touches object storage twice; a blip that would once
+   * have gone unnoticed should not now cost a client its reconnect mid-recovery. Two quick
+   * retries is the whole of it — a backend that is genuinely down is the reconnect's problem.
+   */
+  private async readManifestForAttach(record: SessionRecord): Promise<RecordingManifest | null> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.deps.storage.getManifest(record);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+      }
+    }
+    throw lastError;
   }
 
   private fail(message: string, error: unknown): void {

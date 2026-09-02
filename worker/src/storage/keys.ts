@@ -5,6 +5,7 @@
  *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/session.json
  *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/chunks/<seq:010d>.bin
  *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/manifest.json
+ *   tenants/<tenantId>/users/<userId>/sessions/<sessionId>/audio.webm
  *
  * NOTE ON DUPLICATION: the API server carries an identical copy of these
  * helpers. They are duplicated on purpose for now — extracting them would mean
@@ -39,4 +40,25 @@ export function chunkKey(scope: KeyScope, seq: number): string {
 
 export function manifestKey(scope: KeyScope): string {
   return `${sessionPrefix(scope)}/manifest.json`;
+}
+
+/**
+ * INVARIANT: once this key exists the recording is one object and the chunk prefix is empty. It
+ * replaces the chunk objects rather than joining them (ADR-010).
+ */
+export function audioKey(scope: KeyScope): string {
+  return `${sessionPrefix(scope)}/audio.webm`;
+}
+
+/**
+ * The staging suffix is what makes "verify, then delete" observable from outside: playback and
+ * the worker key off `audioKey` alone, so a half-written artifact can never be served — it does
+ * not carry that name until it has passed.
+ *
+ * The run id keeps two jobs out of each other's way. The queue can hand out the same repackaging
+ * twice (see the note in the remux enqueuer), and a shared staging name would let one run delete
+ * the object the other is about to read back.
+ */
+export function stagingAudioKey(scope: KeyScope, runId: string): string {
+  return `${sessionPrefix(scope)}/audio.webm.staging.${runId}`;
 }

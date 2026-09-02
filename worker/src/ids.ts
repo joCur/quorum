@@ -71,3 +71,16 @@ export function summaryIdForJob(jobId: string): string {
 export function summarizeJobIdFor(transcriptId: string, templateId: string): string {
   return uuidV5(`job:summarize:${transcriptId}:${templateId}`);
 }
+
+/**
+ * The id of the remux job a finished transcription hands on (ADR-010).
+ *
+ * Derived from the session, because a session has exactly one recording and that recording is
+ * repackaged exactly once. Every transcription of it — the first, a retry a user asked for, an
+ * operator's redrive — computes the same id, which makes a duplicate recognisable in the queue
+ * and keeps a redrive pointed at the same job. It does not make the queue refuse the duplicate:
+ * see the note in the remux enqueuer for why that is the handler's job and not this id's.
+ */
+export function remuxJobIdFor(sessionId: string): string {
+  return uuidV5(`job:remux:${sessionId}`);
+}

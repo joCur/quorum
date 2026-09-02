@@ -78,6 +78,7 @@ Server (`quorum-server`):
 | `session.started`                | info  | A recording session was created and indexed                      |
 | `session.reattached`             | info  | A client reconnected and rebuilt its state from object storage    |
 | `session.finalized`              | info  | Audio is complete; the transcription job is on the queue          |
+| `session.attach_refused`         | info  | A reconnect arrived for a recording that is already finished       |
 | `session.failed`                 | warn  | The connection was closed by a server-side failure                |
 | `meeting.index_failed`           | warn  | The meeting row could not be written; recording continued         |
 | `meeting.finalize_index_failed`  | warn  | The meeting could not be marked finalized; audio and job are safe |
@@ -104,7 +105,7 @@ Worker (`quorum-worker`):
 
 | `event`                     | Level | Meaning                                                         |
 | --------------------------- | ----- | --------------------------------------------------------------- |
-| `worker.started`            | info  | Process is consuming both queues                                 |
+| `worker.started`            | info  | Process is consuming every queue                                 |
 | `job.started`               | info  | An attempt began                                                 |
 | `audio.assembled`           | info  | Chunks were fetched and joined                                   |
 | `transcription.completed`   | info  | The Whisper backend answered                                     |
@@ -114,6 +115,10 @@ Worker (`quorum-worker`):
 | `summary.enqueued`          | info  | The follow-up summary job was placed on the queue                 |
 | `summary.enqueue_failed`    | error | Transcript is persisted but the summary job could not be queued   |
 | `summary.title.applied`     | info  | Whether the meeting took the name the summary suggested for it    |
+| `remux.completed`           | info  | A recording became one seekable file; the chunk objects are gone  |
+| `remux.skipped`             | info  | Nothing to repackage; `reason` says which case                    |
+| `remux.failed`              | error | The recording could not be repackaged; it still plays from chunks |
+| `remux.enqueue_failed`      | error | Transcript is persisted but the repackaging could not be queued   |
 | `job.succeeded`             | info  | The artifact is persisted                                        |
 | `job.failed`                | error | The attempt failed; see `code` and `retryable`                    |
 | `job.settled`               | error | The queue outcome: retried, or moved to the dead-letter queue      |

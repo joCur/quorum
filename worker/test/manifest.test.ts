@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { JobError } from "../src/errors.js";
-import { chunkKey, manifestKey, sessionKey } from "../src/storage/keys.js";
+import { audioKey, chunkKey, manifestKey, sessionKey } from "../src/storage/keys.js";
 import {
   audioFileDescriptor,
   concatenateChunks,
@@ -123,6 +123,37 @@ describe("S3AudioSource", () => {
     await expect(source(new Map()).loadManifest(SCOPE)).rejects.toMatchObject({
       code: "MANIFEST_NOT_FOUND",
       retryable: false,
+    });
+  });
+
+  it("reads the repackaged artifact once the manifest names one", async () => {
+    // The path a re-run transcription takes after the recording has been repackaged (ADR-010):
+    // the chunks it originally read are gone, and the manifest is what says where the audio
+    // went. Reading the listing instead would make a retry fail on a perfectly good recording.
+    const value = manifest({ audioKey: audioKey(SCOPE) });
+    const objects = new Map<string, Uint8Array>([
+      [manifestKey(SCOPE), encodeJson(value)],
+      [audioKey(SCOPE), new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 0x07])],
+    ]);
+
+    expect([...(await source(objects).loadAudio(value, SCOPE))]).toEqual([
+      0x1a, 0x45, 0xdf, 0xa3, 0x07,
+    ]);
+  });
+
+  it("retries rather than falling back when the artifact the manifest names is missing", async () => {
+    // Not a shape to guess at: the manifest names the artifact only after it was verified, so a
+    // miss here is a fault in storage, and quietly reassembling chunks that were deleted on
+    // purpose would hide it.
+    const value = manifest({ audioKey: audioKey(SCOPE) });
+    const objects = new Map<string, Uint8Array>([
+      [manifestKey(SCOPE), encodeJson(value)],
+      [chunkKey(SCOPE, 0), new Uint8Array([1])],
+    ]);
+
+    await expect(source(objects).loadAudio(value, SCOPE)).rejects.toMatchObject({
+      code: "AUDIO_FETCH_FAILED",
+      retryable: true,
     });
   });
 
