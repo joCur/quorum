@@ -934,29 +934,17 @@ export class RecordingSessionHandler {
   }
 
   /**
-   * What the transcription job is asked for, from this meeting and from the user's stored
-   * preferences: the language, and the custom vocabulary to bias recognition towards.
-   *
-   * The language is this meeting's own choice, and the user's default when the meeting made none.
-   * The vocabulary has no per-meeting counterpart — it is the user's list as it stands right now.
-   *
-   * Both are resolved here, when the recording is handed over, rather than when the job runs, so
-   * that a *redelivery* of the enqueued job — a worker crash, a queue retry — transcribes what was
-   * asked for at the time rather than what the user has changed since.
+   * The language (this meeting's choice, then the user's default) and the vocabulary, resolved at
+   * hand-over so a *redelivery* of the enqueued job uses what was asked for at the time.
    *
    * THAT IS NOT A UNIVERSAL RULE, AND THE ASYMMETRY IS DELIBERATE. A retry the user asks for goes
-   * through the API's transcription routes, which re-reads the vocabulary but *not* the language.
-   * A changed language would decode the whole recording as the wrong thing; a changed vocabulary
-   * only biases, and editing the list is precisely how a user fixes a term the failed attempt got
-   * wrong. Do not "fix" one of these into the other — see the matching note there.
+   * through the API's transcription routes, which re-read the vocabulary but *not* the language.
+   * Do not "fix" one of these into the other — see the matching note there.
    *
-   * The remaining links of the language chain, the deployment default and autodetect, belong to
-   * the worker: `WHISPER_LANGUAGE` is its configuration, and ADR-005 keeps the shape of the
-   * transcription request on the side that makes it.
+   * The rest of the language chain is the worker's: `WHISPER_LANGUAGE` is its configuration, and
+   * ADR-005 keeps the shape of the transcription request on the side that makes it.
    *
-   * A preference that cannot be read is no reason to lose a recording. The audio is already
-   * safe at this point, and a meeting transcribed with a link of the chain missing, or with no
-   * vocabulary bias, is worth incomparably more than a finalize that fails over a lookup.
+   * A preference that cannot be read is no reason to lose a recording — the audio is already safe.
    */
   private async transcriptionPreferences(
     record: SessionRecord,

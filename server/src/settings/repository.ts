@@ -42,7 +42,6 @@ export interface UserSettingsScope {
 /** Everything a user has chosen, with the untouched defaults filled in. */
 export const EMPTY_USER_SETTINGS: UserSettings = { transcriptionLanguage: null, vocabulary: [] };
 
-/** One row of `user_settings`, as far as this store is concerned. */
 interface SettingsRow {
   transcription_language: string | null;
   vocabulary: string[] | null;
@@ -114,11 +113,9 @@ export class PostgresUserSettingsStore implements UserSettingsStore {
   /**
    * Unlike the read, this refuses rather than pretending: see `UserSettingsUnavailableError`.
    *
-   * One statement for however many preferences the body named. The `CASE` on each column is what
-   * makes it a partial update: a field the body left out keeps the value already in the row rather
-   * than being overwritten with the placeholder the insert had to supply for it. Doing it this way
-   * rather than assembling a column list keeps the parameters positional and the statement one the
-   * database can plan once.
+   * The `CASE` on each column is what makes it a partial update: a field the body left out keeps
+   * the row's value instead of the placeholder the insert had to supply. Done this way rather than
+   * by assembling a column list, so the parameters stay positional and the statement plans once.
    */
   async updateSettings(
     scope: UserSettingsScope,
@@ -182,7 +179,7 @@ export class InMemoryUserSettingsStore implements UserSettingsStore {
   }
 }
 
-/** A fresh copy of the defaults — the vocabulary is an array, so the constant cannot be shared. */
+/** A fresh copy: the vocabulary is an array, so the constant cannot be shared. */
 function emptySettings(): UserSettings {
   return { ...EMPTY_USER_SETTINGS, vocabulary: [] };
 }
@@ -207,8 +204,7 @@ function parseSettings(row: SettingsRow | undefined): UserSettings {
   const vocabulary = UserSettingsSchema.shape.vocabulary.safeParse(row?.vocabulary ?? []);
   return {
     transcriptionLanguage: language.success ? language.data : null,
-    // A list that no longer fits the caps is trimmed to what does rather than dropped: the terms
-    // that survive still bias the transcription, and the screen shows exactly what will be sent.
+    // Trimmed rather than dropped: the surviving terms still bias the transcription.
     vocabulary: vocabulary.success ? vocabulary.data : capVocabulary(row?.vocabulary ?? []).kept,
   };
 }

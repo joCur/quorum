@@ -122,10 +122,8 @@ export async function runTranscribeJob(
     // deployment's default. `undefined` means the backend detects it (ADR-005 keeps the shape of
     // the request here, which is why the deployment default is applied here and not at enqueue).
     const language = transcriptionLanguageRequest(payload.language, deps.language);
-    // The vocabulary should already be within the caps — the settings screen and the API both
-    // enforce them. Assembling it here caps it once more because this is the last point before a
-    // backend that would trim an over-long prompt silently, and from the front. Anything dropped
-    // is a defect upstream rather than a user's doing, so it is said out loud.
+    // Capped again here, the last point before a backend that trims silently and from the front.
+    // Anything dropped is a defect upstream, so it is said out loud.
     const { prompt, dropped } = buildVocabularyPrompt(payload.vocabulary);
     if (dropped.length > 0) {
       log.warn(
@@ -144,8 +142,7 @@ export async function runTranscribeJob(
       {
         event: "transcription.completed",
         requestedLanguage: language ?? null,
-        // The count and not the terms: a vocabulary is the user's own words, and the operator
-        // reading this log needs to know whether biasing was in play, not what it said.
+        // The count, not the terms: a vocabulary is the user's own words.
         vocabularyTerms: payload.vocabulary.length,
         language: response.language,
         durationSeconds: response.duration,

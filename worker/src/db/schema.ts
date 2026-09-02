@@ -140,16 +140,11 @@ export const MIGRATIONS: readonly string[] = [
   // reconcile columns.
   `ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS transcription_language text`,
 
-  // Terms the user wants the transcription biased towards, alphabetically
-  // sorted as they are stored. `text[]` rather than jsonb: this is a short list
-  // of scalars with no shape of its own, not a versioned document, and it is
-  // read whole by the settings API and by nothing else.
+  // `text[]` rather than jsonb: a short list of scalars, not a versioned document.
   //
-  // Uncapped in the schema on purpose. What fits in the transcription prompt is
-  // a property of the model's context window, not of the database, and the caps
-  // that enforce it live in `shared/src/vocabulary.ts` where both the screen and
-  // the API read them. A check constraint here would only turn a tightened cap
-  // into a migration that fails on rows a previous version legitimately wrote.
+  // Uncapped on purpose — what fits in the prompt is a property of the model's context window,
+  // not the database, and a check constraint would turn a tightened cap into a migration that
+  // fails on rows an earlier version legitimately wrote.
   `ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS vocabulary text[]`,
 
   `CREATE TABLE IF NOT EXISTS summaries (

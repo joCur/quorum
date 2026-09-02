@@ -15,11 +15,7 @@ import { VocabularySchema } from "./vocabulary.js";
  */
 export const UserSettingsSchema = z.object({
   transcriptionLanguage: TranscriptionLanguageSchema.nullable().default(null),
-  /**
-   * Terms the transcription is biased towards. Empty rather than nullable: a user who has added
-   * nothing has an empty vocabulary, and there is no second meaning for "not chosen" here the way
-   * there is for the language.
-   */
+  /** Empty rather than nullable: unlike the language, "not chosen" has no second meaning here. */
   vocabulary: VocabularySchema.default([]),
 });
 
@@ -27,9 +23,8 @@ export const UserSettingsSchema = z.object({
 export const UserSettingsUpdateSchema = z.object({
   transcriptionLanguage: TranscriptionLanguageSchema.nullable().optional(),
   /**
-   * The whole list, not a term to add or remove. It is capped at forty entries, so sending it
-   * entire costs nothing and spares both sides a merge whose outcome depends on the order two
-   * tabs happened to save in.
+   * The whole list, not a delta — capped at forty entries, so sending it entire costs nothing and
+   * avoids a merge whose result depends on the order two tabs happened to save in.
    */
   vocabulary: VocabularySchema.optional(),
 });

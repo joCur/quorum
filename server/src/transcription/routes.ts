@@ -107,8 +107,7 @@ const transcriptionRoutesImpl: FastifyPluginAsync<TranscriptionRoutesOptions> = 
         });
       }
 
-      // What this recording was made with. Resolved before the row is touched, so its two
-      // lookups happen outside the lock the requeue holds rather than inside it.
+      // Resolved before the row is touched, so its lookups stay outside the requeue's lock.
       const { language, vocabulary } = await transcriptionPreferences(
         scope,
         found.meeting.sessionId,
@@ -194,34 +193,19 @@ const transcriptionRoutesImpl: FastifyPluginAsync<TranscriptionRoutesOptions> = 
 };
 
 /**
- * What a retried transcription is asked for: the language, and the custom vocabulary to bias
- * recognition towards.
- *
- * The language runs the same chain the recording endpoint runs when it hands a finished recording
- * over — the meeting's own choice, then the user's default — and deliberately in the same *order
- * of reading*: the meeting's choice comes from the session record written at `session.start`,
- * which is the only place that still knows what was asked for when the recording was made.
- * Re-deriving it from the user's current default alone would silently retranscribe a German
- * meeting in whatever the user has since switched to, which is exactly the drift the language
- * travels in the payload to avoid.
- *
- * The vocabulary has no such record and is deliberately read as it stands now. Unlike the
- * language, a changed vocabulary cannot decode the recording as the wrong thing — it only biases,
- * and the reason a user edits the list after a failed transcription is usually that they want the
- * next attempt to know a term the last one got wrong. Retrying with the current list is what
- * makes that work.
- *
  * THE ASYMMETRY IS THE POINT, AND IT IS EASY TO MISREAD. Both values are snapshotted into the job
- * payload when a recording is handed over, so that a *redelivery* of that job — a crash, a queue
- * retry — reproduces what was asked for then. That is a different question from what a *user*
- * asking to retry should get, and only here are the two allowed to diverge: the language is
- * re-derived from the session record, the vocabulary from the user's settings. The snapshot sites
- * (`recording/session.ts`, `recording/types.ts`, the worker's `payload.ts`) carry a note pointing
- * here; do not reconcile one side into the other without changing all four.
+ * payload at hand-over, so a *redelivery* of that job reproduces what was asked for then. What a
+ * *user* asking to retry should get is a different question, and only here may the two diverge.
  *
- * A lookup that fails costs the preference, not the retry. The remaining links of the language
- * chain — the deployment default, then autodetect — are the worker's (ADR-005), so a retry with
- * one link missing still produces a transcript.
+ * The language is re-derived from the session record, because deriving it from the user's current
+ * default would silently retranscribe a German meeting in whatever they have since switched to.
+ * The vocabulary is re-read from settings, because it only biases and editing it is precisely how
+ * a user fixes a term the failed attempt got wrong.
+ *
+ * The snapshot sites (`recording/session.ts`, `recording/types.ts`, the worker's `payload.ts`)
+ * point here; do not reconcile one side into the other without changing all four.
+ *
+ * A lookup that fails costs the preference, not the retry.
  */
 async function transcriptionPreferences(
   scope: { tenantId: string; userId: string },

@@ -283,8 +283,8 @@ describe("the vocabulary in the transcribe payload", () => {
   });
 
   it("is captured at hand-over, so a later edit does not reach the job already queued", async () => {
-    // The same reasoning as the language: what was configured when the recording was made is what
-    // the job — including a retry of it — is run with.
+    // The same reasoning as the language: a redelivery of this job uses what was configured when
+    // the recording was made. A user-requested retry deliberately re-reads; see the routes.
     const store = new InMemoryUserSettingsStore();
     await store.updateSettings(SCOPE, { vocabulary: ["Ansible"] });
     const harness = harnessWith(store);

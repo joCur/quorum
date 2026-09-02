@@ -3,9 +3,9 @@ import { JobSchema } from "@quorum/shared";
 import { JobError } from "./errors.js";
 
 /**
- * Absolute bounds on the vocabulary a payload may carry — an order of magnitude above the product
- * cap, so a version skew between the API and this worker degrades through the prompt builder
- * rather than dead-lettering the job. See the field's own comment.
+ * Sanity bounds, deliberately an order of magnitude above the product cap: repeating the real cap
+ * here would dead-letter a good recording whenever a newer API stores a wider list than this
+ * worker knows about. These only stop a malformed payload being unbounded work.
  */
 const SANE_TERM_COUNT = 500;
 const SANE_TERM_LENGTH = 200;
@@ -38,21 +38,11 @@ export const TranscribeJobPayloadSchema = z.object({
    */
   language: z.string().nullable().default(null),
   /**
-   * The user's custom vocabulary as it stood when the recording was handed over, already
-   * normalized and capped by the API side. Absent — which is what a job enqueued before this
-   * existed looks like — is the same as an empty list.
+   * Absent — what a job enqueued before this existed looks like — is an empty list.
    *
-   * It travels in the payload rather than being looked up when the job runs, so that a redelivery
-   * of *this* job — a crash, a queue retry — biases towards what was configured when the recording
-   * was made. A retry the user asks for is deliberately different: see the note in the API's
-   * transcription routes.
-   *
-   * THE BOUNDS HERE ARE SANITY, NOT THE PRODUCT CAP. They are far above
-   * `MAX_VOCABULARY_TERMS` on purpose. The real caps live in `shared/src/vocabulary.ts` and are
-   * enforced where terms are entered; repeating them here would dead-letter a perfectly good
-   * recording whenever a newer API stores a wider list than this worker knows about, which is a
-   * worse outcome than sending a few terms too many. What these bounds do is keep a malformed or
-   * hostile payload from being unbounded work, and `buildVocabularyPrompt` trims the rest loudly.
+   * Snapshotted rather than looked up at run time, so a redelivery of *this* job biases towards
+   * what was configured when the recording was made. A retry the user asks for is deliberately
+   * different: see the note in the API's transcription routes.
    */
   vocabulary: z.array(z.string().max(SANE_TERM_LENGTH)).max(SANE_TERM_COUNT).default([]),
 });

@@ -12,10 +12,7 @@ export interface UserSettingsState {
   saving: boolean;
   /** Stores the language new recordings start out in; `null` gives the choice up. */
   chooseTranscriptionLanguage: (language: TranscriptionLanguage | null) => Promise<void>;
-  /**
-   * Stores the vocabulary as a whole. The screen adds and removes terms locally and hands the
-   * resulting list over, so the server never has to reconcile two half-updates.
-   */
+  /** The whole list, so the server never has to reconcile two half-updates. */
   saveVocabulary: (terms: readonly string[]) => Promise<void>;
 }
 

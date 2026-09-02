@@ -115,41 +115,28 @@ const ALPHABETIC_CODE_POINT_COST = 2;
 const IDEOGRAPHIC_CODE_POINT_COST = 5;
 
 function codePointWeight(codePoint: number): number {
-  // ASCII through Latin Extended-B, plus the combining diacritics decomposed Latin text carries.
-  if (codePoint <= 0x024f) return LATIN_CODE_POINT_COST;
-  if (codePoint >= 0x0300 && codePoint <= 0x036f) return LATIN_CODE_POINT_COST;
-  // Greek, Cyrillic, Armenian, Hebrew, Arabic — alphabetic, and about as cheap as Latin.
-  if (codePoint >= 0x0370 && codePoint <= 0x06ff) return ALPHABETIC_CODE_POINT_COST;
-  // Georgian, likewise alphabetic.
-  if (codePoint >= 0x10a0 && codePoint <= 0x10ff) return ALPHABETIC_CODE_POINT_COST;
-  // Everything else: CJK, Hangul, Kana, the scripts nobody has measured, and every astral
-  // character including emoji.
+  if (codePoint <= 0x024f) return LATIN_CODE_POINT_COST; // ASCII through Latin Extended-B
+  if (codePoint >= 0x0300 && codePoint <= 0x036f) return LATIN_CODE_POINT_COST; // diacritics
+  if (codePoint >= 0x0370 && codePoint <= 0x06ff) return ALPHABETIC_CODE_POINT_COST; // Greek–Arabic
+  if (codePoint >= 0x10a0 && codePoint <= 0x10ff) return ALPHABETIC_CODE_POINT_COST; // Georgian
   return IDEOGRAPHIC_CODE_POINT_COST;
 }
 
-/** What one string costs against the budget. */
 export function codePointCost(text: string): number {
   let cost = 0;
-  // Iterating the string yields whole code points, so an astral character counts once — and at
-  // its real weight — rather than as two cheap UTF-16 units.
+  // Iterating yields whole code points, so an astral character counts once at its real weight
+  // rather than as two cheap UTF-16 units.
   for (const character of text) {
     cost += codePointWeight(character.codePointAt(0) ?? 0);
   }
   return cost;
 }
 
-/** What separates two terms in the prompt, and what the budget charges for one. */
 const TERM_SEPARATOR = ", ";
 
 /**
- * One stored term.
- *
- * Trimmed and collapsed rather than rejected for stray whitespace: a term is usually pasted, and
- * refusing "  Keycloak " teaches nothing. Line breaks collapse to a space for the same reason —
- * and because a newline in the prompt would be read as a sentence boundary.
- *
- * The length limit is in weighted code points rather than in `String.length`, for the reasons the
- * file comment gives.
+ * Whitespace is collapsed rather than rejected: terms are usually pasted, and a newline in the
+ * prompt would read as a sentence boundary.
  */
 export const VocabularyTermSchema = z
   .string()
@@ -162,12 +149,8 @@ export const VocabularyTermSchema = z
   );
 
 /**
- * The stored list.
- *
- * Sorted and deduplicated on the way in rather than on the way out, so what the settings screen
- * shows, what the store holds and what the prompt says are one and the same order. Both are done
- * case-insensitively: "Keycloak" and "keycloak" are the same term to a user, and keeping both would
- * spend two of forty slots on one word.
+ * Sorted and deduplicated on the way in, so the screen, the stored row and the prompt are the same
+ * list in the same order.
  */
 export const VocabularySchema = z
   .array(VocabularyTermSchema)
@@ -177,7 +160,6 @@ export const VocabularySchema = z
 export type VocabularyTerm = z.infer<typeof VocabularyTermSchema>;
 export type Vocabulary = z.infer<typeof VocabularySchema>;
 
-/** Why a term could not be added, in the terms the settings screen explains it in. */
 export type VocabularyRejection =
   "empty" | "duplicate" | "too-long" | "list-full" | "budget-exhausted";
 
@@ -195,22 +177,14 @@ const VOCABULARY_LOCALE = "en";
 
 const collator = new Intl.Collator(VOCABULARY_LOCALE, { sensitivity: "variant" });
 
-/**
- * The key two spellings of one term share. `toLowerCase()` rather than `toLocaleLowerCase()`: the
- * locale-sensitive one is exactly the Turkish-i hazard described above.
- */
+/** `toLowerCase()`, not `toLocaleLowerCase()`: the latter is the Turkish-i hazard described above. */
 function foldCase(term: string): string {
   return term.toLowerCase();
 }
 
 /**
- * Deduplicated case-insensitively and sorted alphabetically, which is the order everything
- * downstream relies on.
- *
  * A collator rather than a code-point sort, so "Ärger" lands next to "Arbeit" instead of after
- * "Zoom" — pinned to one locale so client and server agree. The first spelling of a duplicate
- * wins: it is the one the user typed first, and a later one differing only in case is not new
- * information.
+ * "Zoom" — pinned to one locale so client and server agree.
  */
 export function normalizeVocabulary(terms: readonly string[]): string[] {
   const seen = new Map<string, string>();
@@ -223,7 +197,6 @@ export function normalizeVocabulary(terms: readonly string[]): string[] {
   return [...seen.values()].sort((a, b) => collator.compare(a, b));
 }
 
-/** What the assembled list would cost — the quantity `VOCABULARY_PROMPT_BUDGET` caps. */
 export function vocabularyPromptCost(terms: readonly string[]): number {
   if (terms.length === 0) return 0;
   return terms.reduce(
@@ -262,17 +235,12 @@ export function canAddVocabularyTerm(
 }
 
 /**
- * The longest prefix of a list that the caps allow, and the terms that did not fit.
+ * Repairs a list the caps no longer allow — a row stored when they were wider, or a payload that
+ * should never have got this far. The surviving terms still bias the transcription, so keeping
+ * them beats dropping the lot.
  *
- * Used in two places with two different meanings. Reading a stored row, it repairs a list written
- * when the caps were wider — the terms that survive still bias the transcription, which is worth
- * more than dropping the lot. Building a request, it is a last line of defense: everything
- * upstream is supposed to have capped the list already, so anything dropped here is a defect, and
- * the caller logs it.
- *
- * A term is skipped for being individually too long and the scan carries on; the budget likewise
- * skips rather than stops, because a shorter term further down the list can still fit. Only the
- * term count ends the scan, since nothing after it could be admitted either.
+ * Length and budget failures skip and carry on, because a shorter term further down can still fit;
+ * only the count ends the scan.
  */
 export function capVocabulary(terms: readonly string[]): { kept: string[]; dropped: string[] } {
   const kept: string[] = [];
@@ -295,32 +263,23 @@ export function capVocabulary(terms: readonly string[]): { kept: string[]; dropp
   return { kept, dropped };
 }
 
-/** An assembled prompt, and whatever the caps refused to let into it. */
 export interface VocabularyPromptResult {
-  /** The `prompt` field to send, or `undefined` when there is nothing to say. */
   prompt: string | undefined;
-  /** Terms left out. Empty whenever the caps upstream did their job — a warning sign if not. */
+  /** Empty whenever the caps upstream did their job — a defect signal if not. */
   dropped: string[];
 }
 
 /**
- * Assembles the `prompt` field of the transcription request.
+ * A bare comma-separated list: no carrier sentence, which would spend tokens biasing nothing, and
+ * which is what the budget above was measured against.
  *
- * A bare comma-separated list, which is what the API's own guidance recommends for exactly this
- * purpose and what the budget above was measured against. No carrier sentence: it would spend
- * tokens on words that bias nothing, and Whisper is being shown a sample of the vocabulary it is
- * about to hear, not being given an instruction.
+ * `undefined` rather than an empty string, so a user with no vocabulary produces exactly the
+ * request the backend saw before this feature existed.
  *
- * `undefined` and not an empty string, so a request for a user with no vocabulary carries no
- * `prompt` field at all rather than an empty one — a backend that treats the two differently then
- * sees the same request it saw before this feature existed.
- *
- * WHY IT CAPS AGAIN HERE. The list should already be within the caps — the screen and the API both
- * enforce them. But this is the last point before the text reaches a backend that would trim it
- * silently and from the *front*, so a list that got past the caps anyway (a schema regression, a
- * newer API storing wider lists than an older worker knows about, a hand-enqueued job) must not
- * take the whole vocabulary's head off. Capping here keeps the front, drops the tail, and reports
- * what went — a loud, ordered degradation instead of a silent, arbitrary one.
+ * WHY IT CAPS AGAIN HERE. This is the last point before a backend that trims silently and from the
+ * *front*, so a list that got past the caps anyway — a schema regression, a newer API against an
+ * older worker, a hand-enqueued job — must not lose its head. Keeping the front and reporting the
+ * tail is a loud, ordered degradation instead of a silent, arbitrary one.
  */
 export function buildVocabularyPrompt(
   terms: readonly string[] | null | undefined,
@@ -330,7 +289,6 @@ export function buildVocabularyPrompt(
   return { prompt: `${kept.join(TERM_SEPARATOR)}.`, dropped };
 }
 
-/** The prompt alone, for callers with nothing useful to do about a term that did not fit. */
 export function vocabularyPrompt(terms: readonly string[] | null | undefined): string | undefined {
   return buildVocabularyPrompt(terms).prompt;
 }

@@ -12,13 +12,8 @@ export interface TranscriptionRequest {
   /** BCP-47 hint; omitted to let the backend detect the language. */
   language?: string | undefined;
   /**
-   * Text the model is shown as if it preceded the recording — the user's custom vocabulary, as
-   * assembled by `vocabularyPrompt` in `shared/src/vocabulary.ts`. Omitted when there is nothing
-   * to bias towards.
-   *
-   * Capped at the point of entry, not here: the backend silently keeps only the tail of an
-   * over-long prompt, so trimming at this end would drop terms with nobody the wiser. See the
-   * budget derivation in that file.
+   * The user's custom vocabulary, as assembled by `shared/src/vocabulary.ts`. Capped there, not
+   * here: the backend keeps only the tail of an over-long prompt and says nothing.
    */
   prompt?: string | undefined;
 }
@@ -63,9 +58,8 @@ export interface OpenAiTranscriptionClientOptions {
  * day-one requirement, and the backends that cannot produce them simply return
  * segments without words, which the mapping handles.
  *
- * The `prompt` field carries the user's custom vocabulary. It is part of the OpenAI-compatible
- * surface, and a backend that ignores it simply transcribes without the bias — which is the same
- * outcome as a user who has added no terms.
+ * The `prompt` field is part of the OpenAI-compatible surface; a backend that ignores it simply
+ * transcribes without the bias.
  *
  * The silence filter (`vad_filter`) is on unless configuration turns it off; see
  * `OpenAiTranscriptionClientOptions.vadFilter`. It changes only which audio the
