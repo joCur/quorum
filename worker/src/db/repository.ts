@@ -42,6 +42,11 @@ export interface TranscriptRepository {
     transcript: Transcript,
     scope: JobScope,
     jobId: string,
+    /**
+     * Decoded length of the audio in seconds, or `null` when the backend reported none. Stored
+     * next to the document because the quota reads it per meeting — see `db/schema.ts`.
+     */
+    durationSeconds: number | null,
   ): Promise<SaveTranscriptResult>;
   saveJob(job: Job, scope: JobScope, attempt: number): Promise<void>;
   /**
@@ -121,6 +126,7 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
     transcript: Transcript,
     scope: JobScope,
     jobId: string,
+    durationSeconds: number | null = null,
   ): Promise<SaveTranscriptResult> {
     try {
       return await this.sql.begin(async (sql) => {
@@ -139,13 +145,14 @@ export class PostgresRepository implements TranscriptRepository, SummaryReposito
         const inserted = await sql<{ id: string }[]>`
           INSERT INTO transcripts (
             id, job_id, meeting_id, tenant_id, user_id, session_id, schema_version,
-            model, model_version, language, is_active, recorded_at, created_at, transcript
+            model, model_version, language, is_active, recorded_at, created_at,
+            duration_seconds, transcript
           ) VALUES (
             ${transcript.id}, ${jobId}, ${transcript.meetingId}, ${scope.tenantId},
             ${scope.userId}, ${scope.sessionId}, ${transcript.schemaVersion},
             ${transcript.model}, ${transcript.modelVersion}, ${transcript.language},
             ${transcript.isActive}, ${transcript.recordedAt}, ${transcript.createdAt},
-            ${sql.json(transcript as unknown as postgres.JSONValue)}
+            ${durationSeconds}, ${sql.json(transcript as unknown as postgres.JSONValue)}
           )
           ON CONFLICT (job_id) DO NOTHING
           RETURNING id

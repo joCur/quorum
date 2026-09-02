@@ -7,3 +7,4 @@ export * from "./summary-api.js";
 export * from "./job.js";
 export * from "./meeting.js";
 export * from "./limits.js";
+export * from "./duration.js";

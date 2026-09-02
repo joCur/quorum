@@ -775,6 +775,7 @@ export class RecordingSessionHandler {
         persistedSeq: session.persistedSeq,
         chunkKeys,
         marks: session.record.marks,
+        recordedSeconds: session.recordedSeconds,
         finalizedAt: this.timestamp(),
       });
       await this.deps.queue.enqueueTranscribe({

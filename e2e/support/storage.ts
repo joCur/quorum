@@ -82,6 +82,8 @@ export interface RecordingManifest {
   chunkKeys: string[];
   /** Wall-clock pause and resume marks — where the audio-time gaps in the recording are. */
   marks: Array<{ type: "pause" | "resume"; at: string }>;
+  /** Seconds of audio the client asserted, which the pipeline reconciles against the real audio. */
+  recordedSeconds: number | null;
   finalizedAt: string;
 }
 

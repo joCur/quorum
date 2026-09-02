@@ -106,6 +106,8 @@ Worker (`quorum-worker`):
 | `job.started`               | info  | An attempt began                                                 |
 | `audio.assembled`           | info  | Chunks were fetched and joined                                   |
 | `transcription.completed`   | info  | The Whisper backend answered                                     |
+| `duration.reconciled`       | info  | The asserted recording duration matches the audio that was decoded |
+| `duration.understated`      | warn  | The asserted duration is well short of the audio; the true one is billed |
 | `summary.enqueued`          | info  | The follow-up summary job was placed on the queue                 |
 | `summary.enqueue_failed`    | error | Transcript is persisted but the summary job could not be queued   |
 | `job.succeeded`             | info  | The artifact is persisted                                        |

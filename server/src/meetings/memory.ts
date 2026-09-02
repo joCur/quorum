@@ -1,4 +1,10 @@
-import type { Job, Meeting, Summary, Transcript } from "@quorum/shared";
+import {
+  billableRecordedSeconds,
+  type Job,
+  type Meeting,
+  type Summary,
+  type Transcript,
+} from "@quorum/shared";
 import type { AccountUsage, RecordingUsage } from "../recording/types.js";
 import { deriveMeetingState, type StageState } from "./status.js";
 import {
@@ -62,13 +68,22 @@ export class InMemoryMeetingStore implements MeetingStore {
     }
   }
 
+  /**
+   * Mirrors the SQL implementation, reconciliation included: a meeting that has been transcribed
+   * is charged for the duration of its audio, one that has not for what the client asserted.
+   */
   async readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage> {
     let storageBytes = 0;
     let monthRecordedSeconds = 0;
     for (const meeting of this.meetings.values()) {
       if (meeting.tenantId !== scope.tenantId || meeting.userId !== scope.userId) continue;
       storageBytes += meeting.audioBytes;
-      if (meeting.createdAt >= monthStart) monthRecordedSeconds += meeting.recordedSeconds;
+      if (meeting.createdAt < monthStart) continue;
+      const transcript = this.pipelines.get(meeting.meetingId)?.transcript ?? null;
+      monthRecordedSeconds += billableRecordedSeconds({
+        assertedSeconds: meeting.recordedSeconds,
+        reconciledSeconds: transcript ? transcriptDuration(transcript) : null,
+      });
     }
     return { storageBytes, monthRecordedSeconds };
   }

@@ -96,6 +96,14 @@ export interface RecordingManifest {
   persistedSeq: number;
   chunkKeys: string[];
   marks: SessionRecord["marks"];
+  /**
+   * Seconds of audio the client asserted it recorded, taken from the chunk offsets.
+   *
+   * Carried into the pipeline so the transcription result can be reconciled against it: the
+   * backend decodes the audio anyway and reports its real length, which is the only duration
+   * nobody has to take a client's word for (`shared/src/duration.ts`).
+   */
+  recordedSeconds: number;
   finalizedAt: string;
 }
 

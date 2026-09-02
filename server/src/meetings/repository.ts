@@ -19,6 +19,9 @@ const MIGRATION_LOCK_KEY = 6_120_931_043;
 /** PostgreSQL `undefined_table` — the worker has not applied its schema yet. */
 const UNDEFINED_TABLE = "42P01";
 
+/** PostgreSQL `undefined_column` — the worker's schema predates a column read here. */
+const UNDEFINED_COLUMN = "42703";
+
 /** Tenant and user a request runs under (ADR-001). Never read from the request body. */
 export interface MeetingScope {
   readonly tenantId: string;
@@ -171,21 +174,54 @@ export class PostgresMeetingStore implements MeetingStore {
    * Usage is summed from the meetings themselves, so it is exactly as durable as the meetings
    * are: nothing to reconcile after a restart, and a deleted meeting stops counting the moment
    * the ADR-001 cascade removes its row.
+   *
+   * RECORDED TIME IS BILLED FROM THE AUDIO, NOT FROM THE CLAIM. `recorded_seconds` is the client's
+   * assertion, taken from the chunk offsets it sent, and a client is free to understate it. Once
+   * the transcription of a meeting has run, its `duration_seconds` is the decoded length of the
+   * audio, and that is the number this sum charges for — the same rule
+   * `billableRecordedSeconds` states for the in-memory store. Until then the assertion still
+   * counts: a quota that waited for the pipeline would be bypassed by never letting it finish.
+   *
+   * The join reads the worker's table, as the rest of this class already does, and falls back to
+   * the assertion alone when that table or its column is not there yet — a server that started
+   * before the worker ever migrated still enforces a quota.
    */
   async readUsage(scope: MeetingScope, monthStart: string): Promise<AccountUsage> {
-    const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
-      SELECT COALESCE(SUM(audio_bytes), 0)::text AS storage_bytes,
-             COALESCE(SUM(recorded_seconds) FILTER (WHERE created_at >= ${monthStart}), 0)::text
-               AS month_seconds
-        FROM meetings
-       WHERE tenant_id = ${scope.tenantId}
-         AND user_id = ${scope.userId}
-    `;
-    const row = rows[0];
-    return {
-      storageBytes: Number(row?.storage_bytes ?? 0),
-      monthRecordedSeconds: Number(row?.month_seconds ?? 0),
-    };
+    try {
+      const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
+        SELECT COALESCE(SUM(m.audio_bytes), 0)::text AS storage_bytes,
+               COALESCE(
+                 SUM(
+                   CASE WHEN t.duration_seconds > 0 THEN t.duration_seconds
+                        ELSE m.recorded_seconds END
+                 ) FILTER (WHERE m.created_at >= ${monthStart}),
+                 0
+               )::text AS month_seconds
+          FROM meetings m
+          LEFT JOIN LATERAL (
+                SELECT duration_seconds
+                  FROM transcripts
+                 WHERE meeting_id = m.id
+                   AND tenant_id = m.tenant_id
+                   AND is_active
+                 LIMIT 1
+               ) t ON true
+         WHERE m.tenant_id = ${scope.tenantId}
+           AND m.user_id = ${scope.userId}
+      `;
+      return toAccountUsage(rows[0]);
+    } catch (error) {
+      if (!isMissingPipelineColumn(error)) throw error;
+      const rows = await this.sql<{ storage_bytes: string; month_seconds: string }[]>`
+        SELECT COALESCE(SUM(audio_bytes), 0)::text AS storage_bytes,
+               COALESCE(SUM(recorded_seconds) FILTER (WHERE created_at >= ${monthStart}), 0)::text
+                 AS month_seconds
+          FROM meetings
+         WHERE tenant_id = ${scope.tenantId}
+           AND user_id = ${scope.userId}
+      `;
+      return toAccountUsage(rows[0]);
+    }
   }
 
   async listMeetings(scope: MeetingScope, options: ListMeetingsOptions = {}): Promise<Meeting[]> {
@@ -502,4 +538,19 @@ export function escapeLike(value: string): string {
 
 function isUndefinedTable(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === UNDEFINED_TABLE;
+}
+
+/** The worker's transcripts table, or the duration column on it, is not there yet. */
+function isMissingPipelineColumn(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === UNDEFINED_TABLE || code === UNDEFINED_COLUMN;
+}
+
+function toAccountUsage(
+  row: { storage_bytes: string; month_seconds: string } | undefined,
+): AccountUsage {
+  return {
+    storageBytes: Number(row?.storage_bytes ?? 0),
+    monthRecordedSeconds: Number(row?.month_seconds ?? 0),
+  };
 }
