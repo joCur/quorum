@@ -1,7 +1,7 @@
 import * as React from "react";
 import { APP_VERSION } from "@/env";
 import { isReloadUnsafe, subscribeReloadSafety } from "@/features/pwa/reload-guard";
-import { readDeployedVersion, startUpdateWatch } from "@/features/pwa/update-watch";
+import { applyUpdate, readDeployedVersion, startUpdateWatch } from "@/features/pwa/update-watch";
 
 /**
  * How long a pending update waits for an answer before it stops waiting for one.
@@ -90,7 +90,10 @@ export function useAppUpdate(options: AppUpdateOptions = {}): AppUpdate {
   }, [available, deadlineMs]);
 
   const apply = React.useCallback(() => {
-    (deps.current.reload ?? (() => window.location.reload()))();
+    void applyUpdate(
+      deps.current.container,
+      deps.current.reload ?? (() => window.location.reload()),
+    );
   }, []);
 
   // The unattended path: an expired prompt applies itself, but only while the tab is hidden and

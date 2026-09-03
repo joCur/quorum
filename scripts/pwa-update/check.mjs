@@ -167,6 +167,25 @@ try {
 
   page.on("pageerror", (error) => console.log("     [page error]", error.message));
 
+  /**
+   * The service worker's lifecycle, printed as it happens.
+   *
+   * Without it the interesting failure — a new worker that installs and then parks in `waiting`
+   * instead of taking over — is invisible, and everything downstream of it has to be inferred
+   * from a reload that never arrived.
+   */
+  const workers = await context.newCDPSession(page);
+  await workers.send("ServiceWorker.enable");
+  let lastReported = "";
+  workers.on("ServiceWorker.workerVersionUpdated", ({ versions }) => {
+    for (const version of versions) {
+      const line = `worker #${version.versionId} ${version.runningStatus}/${version.status}`;
+      if (line === lastReported) continue;
+      lastReported = line;
+      console.log(`     [sw] ${line}`);
+    }
+  });
+
   console.log("\n4/7  loading N and waiting for the service worker to take control");
   await page.goto("/");
   await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller), null, {

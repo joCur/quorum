@@ -3,7 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { blockReload, isReloadUnsafe, resetReloadGuard } from "@/features/pwa/reload-guard";
-import { startUpdateWatch } from "@/features/pwa/update-watch";
+import {
+  ACTIVATION_GRACE_MS,
+  RELOAD_RETRY_MS,
+  applyUpdate,
+  startUpdateWatch,
+} from "@/features/pwa/update-watch";
 import { useAppUpdate, type AppUpdateOptions } from "@/features/pwa/use-app-update";
 import { AppUpdateBanner } from "@/components/app-update-banner";
 import i18n from "@/i18n";
@@ -21,6 +26,24 @@ function stubRegistration(options: { waiting?: boolean; onUpdate?: () => void } 
     }),
   };
   return registration;
+}
+
+/** A worker whose state the test drives, firing `statechange` the way the browser does. */
+function stubWorker(state: ServiceWorkerState) {
+  const listeners = new Set<EventListener>();
+  return {
+    state,
+    addEventListener(_type: string, listener: EventListener) {
+      listeners.add(listener);
+    },
+    removeEventListener(_type: string, listener: EventListener) {
+      listeners.delete(listener);
+    },
+    moveTo(next: ServiceWorkerState) {
+      this.state = next;
+      for (const listener of [...listeners]) listener(new Event("statechange"));
+    },
+  };
 }
 
 function stubContainer(registration: unknown | null, options: { controlled?: boolean } = {}) {
@@ -75,6 +98,38 @@ describe("reload guard", () => {
   });
 });
 
+describe("applyUpdate", () => {
+  it("reloads once when no worker is parked", async () => {
+    vi.useFakeTimers();
+    const reload = vi.fn();
+    await applyUpdate(stubContainer(stubRegistration()), reload);
+    await vi.advanceTimersByTimeAsync(RELOAD_RETRY_MS * 2);
+    expect(reload).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  /**
+   * The reload is what releases a parked worker, so it happens while the outgoing worker is being
+   * discarded and the navigation it was handed is never answered. The document outlives that dead
+   * navigation, which is the only reason it can still ask for another one.
+   */
+  it("reloads a second time when the reload releases a parked worker", async () => {
+    vi.useFakeTimers();
+    const reload = vi.fn();
+    await applyUpdate(stubContainer(stubRegistration({ waiting: true })), reload);
+    expect(reload).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(RELOAD_RETRY_MS + 1);
+    expect(reload).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it("still reloads where the browser has no service worker", async () => {
+    const reload = vi.fn();
+    await applyUpdate(null, reload);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("startUpdateWatch", () => {
   const version = "1.2.3";
 
@@ -94,8 +149,9 @@ describe("startUpdateWatch", () => {
   it("reports a worker that only appears once update() has run", async () => {
     const onUpdateReady = vi.fn();
     const registration = stubRegistration();
+    const worker = stubWorker("installed");
     registration.update = vi.fn(async () => {
-      registration.waiting = {} as ServiceWorker;
+      registration.waiting = worker as unknown as ServiceWorker;
     });
     const watch = startUpdateWatch({
       container: stubContainer(registration),
@@ -103,7 +159,9 @@ describe("startUpdateWatch", () => {
       readDeployedVersion: async () => version,
       onUpdateReady,
     });
-    await watch.check();
+    const settled = watch.check();
+    worker.moveTo("activated");
+    await settled;
     expect(registration.update).toHaveBeenCalled();
     expect(onUpdateReady).toHaveBeenCalledTimes(1);
     watch.stop();
@@ -210,6 +268,69 @@ describe("startUpdateWatch", () => {
     expect(order).toContain("version");
     expect(order.indexOf("announce")).toBeGreaterThan(order.indexOf("version"));
     watch.stop();
+  });
+
+  /**
+   * A worker that has finished installing is a fraction of a second away from taking over, and a
+   * request sent from this page in that window is dispatched to the worker on its way out. That
+   * restarts it, the browser abandons the handover, and the new worker is left in `waiting` where
+   * only closing every tab releases it — after which the next reload wedges the tab outright.
+   */
+  it("does not read the version marker while the new worker is taking over", async () => {
+    const order: string[] = [];
+    const worker = stubWorker("installing");
+    const registration = {
+      waiting: null as ServiceWorker | null,
+      installing: worker as unknown as ServiceWorker,
+      update: vi.fn(async () => undefined),
+    };
+    const watch = startUpdateWatch({
+      container: stubContainer(registration),
+      runningVersion: version,
+      readDeployedVersion: async () => {
+        order.push("version");
+        return version;
+      },
+      onUpdateReady: () => order.push("announce"),
+    });
+
+    const settled = watch.check();
+    worker.moveTo("installed");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(order).not.toContain("version");
+
+    worker.moveTo("activated");
+    await settled;
+    expect(order).toContain("version");
+    watch.stop();
+  });
+
+  it("gives up on a worker that parks in waiting instead of hanging the check", async () => {
+    vi.useFakeTimers();
+    const worker = stubWorker("installing");
+    const registration = {
+      waiting: null as ServiceWorker | null,
+      installing: worker as unknown as ServiceWorker,
+      update: vi.fn(async () => undefined),
+    };
+    const onUpdateReady = vi.fn();
+    const watch = startUpdateWatch({
+      container: stubContainer(registration),
+      runningVersion: version,
+      readDeployedVersion: async () => version,
+      onUpdateReady,
+    });
+
+    const settled = watch.check();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.moveTo("installed");
+    registration.waiting = worker as unknown as ServiceWorker;
+    await vi.advanceTimersByTimeAsync(ACTIVATION_GRACE_MS + 1);
+    await settled;
+    expect(onUpdateReady).toHaveBeenCalledTimes(1);
+    watch.stop();
+    vi.useRealTimers();
   });
 
   it("announces when the new worker takes control", async () => {
@@ -356,6 +477,9 @@ describe("useAppUpdate", () => {
     await renderExpired(reload);
     expect(reload).not.toHaveBeenCalled();
     setVisibility("hidden");
+    // Applying now asks the browser whether a worker is parked before it navigates, so the reload
+    // lands a microtask later than the event that asked for it.
+    await vi.advanceTimersByTimeAsync(0);
     expect(reload).toHaveBeenCalled();
   });
 
