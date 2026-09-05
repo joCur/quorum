@@ -468,5 +468,10 @@
       "alreadyRunning": "A summary of this meeting is already being written.",
       "fromOriginalWording": "This summary is based on the original wording, before your corrections."
     }
+  },
+  "update": {
+    "available": "A new version of Quorum is available.",
+    "blocked": "A new version is available. It will be applied once the recording is finished.",
+    "action": "Reload now"
   }
 }

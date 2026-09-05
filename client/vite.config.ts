@@ -1,6 +1,6 @@
 import { fileURLToPath, URL } from "node:url";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 /**
@@ -26,15 +26,52 @@ const apiTarget = process.env["QUORUM_PREVIEW_API_TARGET"];
  */
 const devApiTarget = process.env["QUORUM_DEV_API_TARGET"] ?? "http://localhost:8080";
 
+/**
+ * Publishes the built version as a tiny static resource the running app can poll.
+ *
+ * A shell cannot tell from the inside that the deployment has moved past it. Comparing the
+ * version compiled into the bundle against this file gives that answer in one request, and it is
+ * the only signal that survives a browser with no service worker at all. Deliberately `.json`,
+ * which is outside the precache glob — a precached version marker would report the version of the
+ * shell asking the question.
+ */
+function versionManifest(): Plugin {
+  return {
+    name: "quorum:version-manifest",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "version.json",
+        source: `${JSON.stringify({ version: pkg.version })}\n`,
+      });
+    },
+  };
+}
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
   plugins: [
     react(),
+    versionManifest(),
     VitePWA({
-      registerType: "prompt",
-      injectRegister: "auto",
+      // `autoUpdate`, not `prompt`. Under `prompt` the OLD shell is the only thing that can ever
+      // release a newly installed worker from `waiting` — so a shell with no prompt code, or one
+      // whose prompt the user never answers, pins the browser to its version indefinitely. An
+      // installed PWA makes that permanent, because the escape hatch of closing every window
+      // never happens. `autoUpdate` inverts the dependency: the new worker activates by itself,
+      // and the next navigation is answered with the current shell whatever the old one does.
+      //
+      // The cost is a worker swapped underneath a running page. This app builds as a single
+      // bundle with no dynamic imports, so a running page holds all of its code in memory and has
+      // nothing left to fetch from a precache that has moved on. What remains — that the running
+      // page is still the old version until it reloads — is what the in-app banner says out loud.
+      registerType: "autoUpdate",
+      // Registration is the app's own (`src/features/pwa`), because applying an update has to
+      // defer to a running recording — a decision the plugin's injected script cannot make.
+      injectRegister: false,
       includeAssets: ["favicon.svg"],
       manifest: {
         name: "Quorum",
@@ -62,6 +99,23 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        // A worker that takes over immediately must also clear what the version before it left
+        // behind, or every release adds another full copy of the app to the origin's quota.
+        cleanupOutdatedCaches: true,
+        // The load-bearing line of this whole mechanism, and it has to be set here explicitly:
+        // `registerType: "autoUpdate"` does NOT make the worker self-activate. It only makes the
+        // plugin's injected script post a `SKIP_WAITING` message — from the OLD page, which is
+        // the dependency this app is trying to get rid of, and which is switched off here anyway.
+        // Without this, a new worker installs and parks in `waiting` exactly as it did in the
+        // incident. With it, activation needs nothing from the page that is being replaced, so
+        // even a shell built before any of this code existed gets the new version on its next
+        // launch.
+        skipWaiting: true,
+        // `skipWaiting` activates the new worker but leaves already-open pages under the old one
+        // until they next navigate — which is precisely the long-lived tab this ticket is about.
+        // Claiming them makes the swap immediate, and hands the app a `controllerchange` to react
+        // to rather than a wait for the next version poll.
+        clientsClaim: true,
         // Paths the navigation fallback must never answer with the app shell.
         //
         // A deployment puts the app, the API and the identity provider behind one edge on a

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { RecordingSessionProvider } from "@/features/recording/recording-context";
 import { useRecording } from "@/features/recording/use-recording";
+import { useBlockReloadWhile } from "@/features/pwa/reload-guard";
 
 /**
  * App-level ownership of the one recording a signed-in user can have running.
@@ -36,6 +37,16 @@ export function RecordingProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [live]);
+
+  /**
+   * The same session, seen by the update flow: a pending app update must not reload the page out
+   * from under a recording. Wider than `live` on purpose — `finalizing` is the phase that flushes
+   * the last chunks to the server, so it is the worst possible moment to disappear, and
+   * `requesting` holds a microphone permission dialog the reload would cancel.
+   */
+  const inFlight =
+    phase === "requesting" || phase === "recording" || phase === "paused" || phase === "finalizing";
+  useBlockReloadWhile(inFlight, "recording");
 
   return <RecordingSessionProvider value={session}>{children}</RecordingSessionProvider>;
 }
