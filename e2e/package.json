@@ -1,6 +1,6 @@
 {
   "name": "@quorum/e2e",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "description": "Quorum end-to-end suite — Playwright against the real compose stack.",

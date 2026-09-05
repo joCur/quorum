@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/joCur/quorum/compare/v1.1.0...v1.1.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **client:** make PWA updates reach a running shell ([#214](https://github.com/joCur/quorum/issues/214)) ([8106fad](https://github.com/joCur/quorum/commit/8106fada9c156e1b9970606968e023903d0aa928))
+
 ## [1.1.0](https://github.com/joCur/quorum/compare/v1.0.3...v1.1.0) (2026-09-02)
 
 
